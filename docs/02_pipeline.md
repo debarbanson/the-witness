@@ -68,6 +68,24 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 - The same pass applies the content rules from [03_accuracy.md](03_accuracy.md): war, political events and living private persons are filtered out.
 - Model: `muse-spark-1.3`; **TEST** whether `muse-wonder-1.0` (agentic, text out) gives better judgements for the extra cost.
 
+## Step 3b: Enough for a film?
+
+Never fill a gap by inventing. After verification, count what is left and choose the outcome:
+
+| Outcome | Needs | What the user gets |
+|---|---|---|
+| **Full film**, 40 to 60 s | Object confirmed; build year or first mention sourced; at least 5 verified claims across at least 4 eras; at least 2 distinct good sources | The film as designed |
+| **Short film**, 20 to 30 s | At least 3 verified claims across 2 or 3 eras | A shorter film that says so: "Little is written about me, but this is certain." |
+| **Too little for a film** | Fewer than 3 verified claims | No film. One card with the verified facts and their sources, and two ways forward (below) |
+| **Not identified** | Step 0 found no match and the user's name for it finds nothing | An honest message; never a film about the wider area presented as the object |
+
+Ways forward when there is too little:
+
+- **Add a source.** The user pastes a link (a local history society, a municipal page). It goes through steps 2 and 3 like any other source, and the outcome is recounted.
+- **Tell what you know.** The user records or types what they know. A recording is transcribed with `muse-voice-transcribe-1.0` (`POST /v1/asr/transcribe`). It is shown labelled "told by <name>", never as a verified fact, and never counted towards the thresholds above.
+
+The thresholds are first guesses; tune them on the demo subjects.
+
 ## Step 4: Paint the eras (Muse Image, anchored)
 
 Pattern from Meta's cookbook [Keep an image series consistent](https://dev.meta.ai/docs/cookbook/anchored-image-series.md):

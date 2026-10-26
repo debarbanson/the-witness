@@ -8,6 +8,7 @@
 4. Dates are only as precise as the source. "Around 1850" stays "around 1850".
 5. The source of each caption is shown on screen while it plays (site name) and in full on the end card.
 6. `research.json` keeps every claim, its sources and its verdict, so a film can be checked afterwards.
+7. **Too little is an answer, not a gap to fill.** Below the thresholds in step 3b of the pipeline, the user gets a shorter film or no film, never invented filler. What a user tells us themselves is shown as "told by <name>" and never counted as verified.
 
 ## What the paintings may show
 

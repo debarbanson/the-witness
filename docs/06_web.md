@@ -10,6 +10,7 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 4. **Confirm the object.** Step 0 shows its best match: "Is this De Adriaan, Haarlem?" with the OpenStreetMap name and distance. Yes, or "something else" with a text field.
 5. **Watch it being made.** A progress view that shows the real steps as they happen: sources found, claims verified or dropped, eras painted, a painting checked and redone. This is part of the show, not a spinner.
 6. **The film.** Plays inline, vertical, with a download button and the source list below it.
+7. **When there is too little** (pipeline step 3b): a short film, or a single card with the verified facts and two buttons, "Add a source" (paste a link) and "Tell what you know" (record or type; shown as "told by", never as fact).
 
 ## How it is built
 

@@ -44,10 +44,12 @@ SCHEMA = {
 # Order matters: more specific words first ("rebuilt" contains "built").
 STATE_AFTER = [
     (("burnt", "burned", "fire", "destroyed", "demolished"), "burnt, only the base left"),
-    (("rebuilt", "restored", "reopened", "reconstructed"), "rebuilt"),
+    (("rebuilt", "reopened", "reconstructed"), "rebuilt"),
+    (("restored", "renovated", "redecorated"), "restored"),
     (("built", "opened", "completed"), "standing"),
     (("extended", "extension", "steam"), "standing, extended"),
     (("damaged", "storm"), "standing, damaged"),
+    (("repurposed", "converted", "conversion"), "repurposed"),
 ]
 
 

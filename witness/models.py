@@ -21,13 +21,30 @@ class ModelSpec:
     base_url: str
     model: str
     key_name: str
+    effort: str | None = None  # reasoning effort; None keeps the default
 
+
+RESEARCH = ModelSpec(
+    provider="meta",
+    base_url="https://api.meta.ai/v1",
+    model="muse-spark-1.3",
+    key_name="MODEL_API_KEY",
+)
+
+VISION = ModelSpec(
+    provider="meta",
+    base_url="https://api.meta.ai/v1",
+    model="muse-spark-1.3",
+    key_name="MODEL_API_KEY",
+    effort="low",
+)
 
 VERIFY = ModelSpec(
     provider="meta",
     base_url="https://api.meta.ai/v1",
     model="muse-spark-1.3",
     key_name="MODEL_API_KEY",
+    effort="low",
 )
 
 # Step 5 shares the verify setting until it needs its own.
@@ -43,3 +60,10 @@ def client_for(spec, environ=None):
     if not key:
         raise ModelError(f"{spec.key_name} is not set (needed for {spec.provider}/{spec.model})")
     return OpenAI(base_url=spec.base_url, api_key=key)
+
+
+def respond(client, spec, **kwargs):
+    """One Responses call on a spec: model id and reasoning effort injected."""
+    if spec.effort is not None:
+        kwargs["reasoning"] = {"effort": spec.effort}
+    return client.responses.create(model=spec.model, **kwargs)

@@ -10,8 +10,9 @@ The submission needs a 3-minute video showing only what was built during the hac
 | 0:10 to 0:55 | The finished film plays, full screen, vertical | The wow first (Demo 25%) |
 | 0:55 to 1:25 | The pipeline, step by step on screen: SAM cut-out, research with live citations, verification dropping a claim | Use of Meta tooling (25%), technical depth (20%) |
 | 1:25 to 1:50 | The object's own life, side by side: De Adriaan built 1779, burnt 1932, gone for seventy years, rebuilt 2002, each with its source, and one painting rejected by the check and repainted | It tells the object's true story, and checks what it shows |
-| 1:50 to 2:20 | Two more films, short cuts: an old tree, a lighthouse | It generalises |
-| 2:20 to 2:45 | Who it is for: a heritage plaque with a QR code, a visitor watching | Impact (30%) |
+| 1:50 to 2:10 | For children: the same object, adult and children's version side by side, then a child's hand playing spot the difference on a phone | One truth, two audiences; families and schools (Impact 30%, Creative Build) |
+| 2:10 to 2:30 | Short cuts from other countries and languages (a lighthouse, a bridge in Japan, a tree) | It works anywhere |
+| 2:30 to 2:45 | Who it is for, and what's next: a heritage plaque with a QR code; the witness hunt, a family walk collecting the films of nearby objects | Impact (30%) |
 | 2:45 to 3:00 | End card: sources, AI label, repo link | Honesty, and what was built |
 
 ## Rules the video must follow

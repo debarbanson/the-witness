@@ -8,9 +8,9 @@ Everything in this repository was built during the hackathon, from the kickoff o
 |---|---|
 | Mon 26 Oct, evening | Probes: object state research, a burnt-era painting, the vision check, the SAM base, EXIF GPS and the Overpass lookup on a real phone photo |
 | Tue 27 Oct | Steps 0 to 3 as tested modules: identify, cut out, research, verify; CLI runs them on one photo |
-| Wed 28 Oct | Steps 4 to 6: paint, check, layers |
-| Thu 29 Oct | Step 7: the renderer; first complete film from the CLI |
-| Fri 30 Oct | The web page, locally; hosting chosen and tested |
+| Wed 28 Oct | Steps 4 to 6: paint, check, layers; children's captions (re-verified) and picture-book style (docs/08_children.md) |
+| Thu 29 Oct | Step 7: the renderer with the audience setting; spot the difference (step 5b); first complete film, adult and children's, from the CLI |
+| Fri 30 Oct | The web page, locally, with the adults/children switch and the spot-the-difference game; hosting chosen and tested |
 | Sat 31 Oct to Sun 1 Nov | Three demo films (windmill, tree, lighthouse); deploy the page |
 | Mon 2 Nov | Hardening: limits, errors, the phone end to end, README |
 | Tue 3 Nov | Freeze; record and edit the 3-minute video |
@@ -90,3 +90,20 @@ What failed or needs correcting in `docs/02_pipeline.md`:
 - Language: Wikidata labels in the user's language (`--lang`, default English) with English fallback; research reads the user's-language article first.
 - Source quality: place and booking aggregators (AroundUs, GetYourGuide, Viator and others) count as weak like review sites, in code and in `docs/03_accuracy.md`.
 - Re-ran both: tower `full_film` (5 verified, 5 eras), De Adriaan `full_film` (14 verified, 12 eras). 80 tests pass.
+
+### Second review, test set and re-run (26 October, night)
+
+Accuracy (all test first, 110 tests pass):
+- A1 quality from the supporting source: `verify_claim` records per-source support with quotes, judges quality on supporting sources only, prefers a good-source quote, drops weak-only claims with `weak sources only`. Tower 1990 storm now unsupported as designed.
+- A2 plans are not events: the verifier marks `completed:false` for planned, promised or attempted changes and `build_timeline` skips them. Eiffel 1967 move proposal is caption-only, never a state. But De Adriaan 1963 ("promise fell into oblivion") still came back completed:true, so the mill wrongly shows restored 1963-1999 (P3 in docs/07_test_set.md).
+- A3 step 3a: `scenes.choose_scenes` keeps at most 7 scenes (state changes first, today last), dropped periods become caption lines on neighbours, reasons stored in `research.json`. Holds on all 12 objects.
+
+Speed: choose-before-check (candidate scenes plus 4 spares verified, not every claim), `verify_all` in parallel over 6 workers, `reasoning.effort=low` for verify and vision calls via `models.respond`, Wikidata and source-text cache in `out/cache/`, per-step timings in every run. Brooklyn research fell from ~10 min to 115 s.
+
+Bugs: Nominatim retries with backoff, 20 s per try, clear failure message (christ-redeemer identifies cleanly); qid slugs for every script (`q1196460-kintai-bridge`, no more `film`); `--lang` decides the user language for labels, though nl articles are still fetched everywhere (P8).
+
+Test set: 10 Commons photos (CC0, PD or CC BY, file pages and licences in docs/07_test_set.md) plus De Adriaan and the tower, all 12 re-ran clean: 10 full films, Brooklyn short (its 1883 built claim was never checked, P7), tower too_little (1 verified; it flaps between runs, P1, and 1986 tulips was a verifier false negative, P2).
+
+Time budget: identify misses 15 s everywhere (31-98 s); the 60 s story holds for eiffel and the tower only, with source fetching (90 s timeout, P12) the budget killer; 7 of 12 met 2-3 min research. Full timings and 15 open problems in docs/07_test_set.md.
+
+Children's fit (no build): `research.json` scenes plus caption lines, quotes and verdicts already carry what child captions need; the audience setting will run research, captions, paint, check and renderer per docs/08_children.md.

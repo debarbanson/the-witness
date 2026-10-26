@@ -23,6 +23,10 @@ Built for the Meta Global AI Developer Hackathon (27 October to 4 November 2026)
 
 Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/03_accuracy.md](docs/03_accuracy.md).
 
+## For adults and for children
+
+Every film has a children's version (8+): the same verified facts in simpler words, picture-book paintings, and a "spot the difference" game between a painted era and your photo of today. See [docs/08_children.md](docs/08_children.md).
+
 ## Principles
 
 - **No source, no claim.** A caption without a verified source is not shown.

@@ -29,6 +29,31 @@ def test_missing_key_names_the_variable_not_a_value():
     assert "k-123" not in str(exc_info.value)
 
 
+def test_verify_and_vision_run_low_effort_research_default():
+    assert models.VERIFY.effort == "low"
+    assert models.VISION.effort == "low"
+    assert models.RESEARCH.effort is None
+
+
+def test_respond_injects_model_and_effort():
+    calls = []
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return "ok"
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    assert models.respond(FakeClient(), models.VERIFY, input="hi") == "ok"
+    assert calls[0]["model"] == "muse-spark-1.3"
+    assert calls[0]["reasoning"] == {"effort": "low"}
+    calls.clear()
+    models.respond(FakeClient(), models.RESEARCH, input="hi")
+    assert "reasoning" not in calls[0]
+
+
 def test_switching_to_baseten_is_configuration():
     baseten = models.ModelSpec(
         provider="baseten",

@@ -24,6 +24,10 @@ OVERPASS_INSTANCES = [
     "https://overpass.kumi.systems/api/interpreter",
 ]
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+NOMINATIM_TRIES = 3
+NOMINATIM_TIMEOUT = 20
+NOMINATIM_BACKOFF = (2, 4)
 
 QUERY = """[out:json][timeout:25];
 nwr(around:{radius},{lat},{lon})[name][~"^(wikidata|wikipedia|heritage|historic|tourism|man_made)$"~"."];
@@ -76,13 +80,14 @@ class Identification:
     distance_m: int
     confidence: str
     candidates: tuple
+    country_code: str | None = None
 
 
 def clear_cache() -> None:
     _cache.clear()
 
 
-def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep):
+def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep, cache=None, lang="en"):
     """Run step 0. Transports and the vision call are injectable for tests."""
     post = post or _post
     get = get or _get
@@ -97,17 +102,21 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
         location = PhotoLocation(lat=lat, lon=lon, direction=None, precision="typed place")
     lat, lon = location.lat, location.lon
     try:
+        country_code = reverse(lat, lon, get=get, sleep=sleep)
+    except SourceError:
+        country_code = None
+    try:
         osm = fetch_overpass(lat, lon, post=post, sleep=sleep)
     except SourceError:
         osm = []
     try:
-        wiki = fetch_wikidata_nearby(lat, lon, get=get, sleep=sleep)
+        wiki = fetch_wikidata_nearby(lat, lon, get=get, sleep=sleep, cache=cache, lang=lang)
     except SourceError:
         wiki = []
     qids = [i["qid"] for i in wiki]
     qids += [t.get("wikidata") for el in osm for t in [el.get("tags", {})] if t.get("wikidata")]
     try:
-        articles = fetch_sitelinks(sorted(set(qids)), get=get, sleep=sleep) if qids else {}
+        articles = fetch_sitelinks(sorted(set(qids)), get=get, sleep=sleep, cache=cache) if qids else {}
     except SourceError:
         articles = {}
     ranked = merge_and_rank(osm, wiki, lat, lon, location.direction)[:TOP_N]
@@ -139,6 +148,7 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
         distance_m=chosen.distance_m,
         confidence=pick.get("confidence", ""),
         candidates=tuple(ranked),
+        country_code=country_code,
     )
 
 
@@ -213,7 +223,7 @@ def fetch_overpass(lat, lon, post=None, sleep=time.sleep) -> list:
     raise SourceError(f"Overpass failed on all instances ({last_error})")
 
 
-def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep) -> list:
+def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None, lang="en") -> list:
     """Nearby items via geosearch on wikidata.org (WDQS avoided per pipeline)."""
     key = ("wd_nearby", round(lat, 5), round(lon, 5))
     if key in _cache:
@@ -233,8 +243,9 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep) -> list:
                 "format": "json",
             },
             sleep=sleep,
+            cache=cache,
         )
-        labels = _wb_labels([r["title"] for r in data["query"]["geosearch"]], get, sleep)
+        labels = _wb_labels([r["title"] for r in data["query"]["geosearch"]], get, sleep, cache, lang)
     except WebError as exc:
         raise SourceError(str(exc))
     raw = data["query"]["geosearch"]
@@ -247,7 +258,7 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep) -> list:
     return items
 
 
-def _wb_labels(qids, get, sleep=time.sleep) -> dict:
+def _wb_labels(qids, get, sleep=time.sleep, cache=None, lang="en") -> dict:
     if not qids:
         return {}
     data = mediawiki_get(
@@ -257,20 +268,25 @@ def _wb_labels(qids, get, sleep=time.sleep) -> dict:
             "action": "wbgetentities",
             "ids": "|".join(qids[:50]),
             "props": "labels",
-            "languages": "nl|en",
+            "languages": "|".join(dict.fromkeys([lang, "en", "nl"])),
             "format": "json",
         },
         sleep=sleep,
+        cache=cache,
     )
     out = {}
     for qid, entity in data.get("entities", {}).items():
         lang_labels = entity.get("labels", {})
-        best = lang_labels.get("nl") or lang_labels.get("en")
+        best = None
+        for code in dict.fromkeys([lang, "en", "nl", *lang_labels]):
+            if lang_labels.get(code):
+                best = lang_labels[code]
+                break
         out[qid] = best["value"] if best else qid
     return out
 
 
-def fetch_sitelinks(qids, get=None, languages=("nl", "en"), sleep=time.sleep) -> dict:
+def fetch_sitelinks(qids, get=None, languages=("nl", "en"), sleep=time.sleep, cache=None) -> dict:
     if not qids:
         return {}
     get = get or _get
@@ -286,6 +302,7 @@ def fetch_sitelinks(qids, get=None, languages=("nl", "en"), sleep=time.sleep) ->
                 "format": "json",
             },
             sleep=sleep,
+            cache=cache,
         )
     except WebError as exc:
         raise SourceError(str(exc))
@@ -381,21 +398,48 @@ def geocode(place, get=None, sleep=time.sleep) -> tuple:
     key = ("nominatim", place.strip().lower())
     if key in _cache:
         return _cache[key]
-    get = get or _get
-    sleep(1.1)
-    resp = get(
-        NOMINATIM_URL,
-        params={"q": place, "format": "json", "limit": 1},
-        headers={"User-Agent": USER_AGENT},
-        timeout=60,
+    results = _nominatim(
+        NOMINATIM_URL, {"q": place, "format": "json", "limit": 1}, get, sleep
     )
-    resp.raise_for_status()
-    results = resp.json()
     if not results:
         raise NotIdentifiedError(f"place not found: {place}")
     coords = (float(results[0]["lat"]), float(results[0]["lon"]))
     _cache[key] = coords
     return coords
+
+
+def reverse(lat, lon, get=None, sleep=time.sleep) -> str | None:
+    """Country code of coordinates, for the research reading order."""
+    key = ("reverse", round(lat, 3), round(lon, 3))
+    if key in _cache:
+        return _cache[key]
+    result = _nominatim(
+        NOMINATIM_REVERSE_URL,
+        {"lat": f"{lat:.6f}", "lon": f"{lon:.6f}", "format": "json"},
+        get,
+        sleep,
+    )
+    code = (result.get("address", {}) or {}).get("country_code")
+    _cache[key] = code
+    return code
+
+
+def _nominatim(url, params, get, sleep):
+    get = get or _get
+    for attempt in range(NOMINATIM_TRIES):
+        sleep(1.1)
+        try:
+            resp = get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=NOMINATIM_TIMEOUT)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:  # noqa: BLE001 - retried with backoff below
+            if attempt < NOMINATIM_TRIES - 1:
+                sleep(NOMINATIM_BACKOFF[attempt])
+            else:
+                raise SourceError(
+                    "place lookup failed after 3 tries (network or proxy); "
+                    "simplify --place or check the connection"
+                ) from exc
 
 
 def haversine(lat1, lon1, lat2, lon2) -> float:

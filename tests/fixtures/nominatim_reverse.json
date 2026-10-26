@@ -1,0 +1,1 @@
+{"_fixture_note": "Shape-faithful synthetic Nominatim reverse response.", "address": {"city": "Test Town", "country": "Netherlands", "country_code": "nl"}, "display_name": "Test Town, Netherlands", "lat": "52.0", "lon": "4.0", "place_id": 2}

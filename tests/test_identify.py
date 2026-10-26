@@ -46,7 +46,10 @@ class FakeTransport:
 
     def __call__(self, url, **kwargs):
         self.calls.append({"url": url, **kwargs})
-        status, payload = self.script.pop(0)
+        entry = self.script.pop(0)
+        if isinstance(entry, Exception):
+            raise entry
+        status, payload = entry
         return FakeResponse(status, payload)
 
 
@@ -129,13 +132,27 @@ def test_wikidata_nearby_merges_geosearch_and_labels():
             (200, fixture("wb_labels.json")),
         ]
     )
-    items = identify.fetch_wikidata_nearby(52.0, 4.0, get=get)
+    items = identify.fetch_wikidata_nearby(52.0, 4.0, get=get, lang="nl")
     assert [(i["qid"], i["label"]) for i in items] == [
         ("Q999", "Testtoren"),
         ("Q1000", "Teststraat"),
     ]
     assert get.calls[0]["params"]["list"] == "geosearch"
     assert get.calls[0]["headers"]["User-Agent"] == identify.USER_AGENT
+
+
+def test_wikidata_nearby_labels_follow_user_language():
+    get = FakeTransport(
+        [
+            (200, fixture("wikidata_geosearch.json")),
+            (200, fixture("wb_labels.json")),
+        ]
+    )
+    items = identify.fetch_wikidata_nearby(52.0, 4.0, get=get, lang="en")
+    assert [(i["qid"], i["label"]) for i in items] == [
+        ("Q999", "Test Tower"),
+        ("Q1000", "Test Street"),
+    ]
 
 
 def test_merge_drops_beyond_radius_and_ranks_by_distance():
@@ -178,6 +195,7 @@ def test_identify_end_to_end_with_fakes(tmp_path):
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
     get = FakeTransport(
         [
+            (200, fixture("nominatim_reverse.json")),
             (200, fixture("wikidata_geosearch.json")),
             (200, fixture("wb_labels.json")),
             (200, fixture("wb_sitelinks.json")),
@@ -205,6 +223,7 @@ def test_identify_end_to_end_with_fakes(tmp_path):
     assert found.name == "Test Tower"
     assert found.qid == "Q999"
     assert found.articles == {"nl": "Testtoren", "en": "Test Tower"}
+    assert found.country_code == "nl"
     assert len(found.candidates) == 4
 
 
@@ -214,6 +233,7 @@ def test_identify_none_raises_not_identified(tmp_path):
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
     get = FakeTransport(
         [
+            (200, fixture("nominatim_reverse.json")),
             (200, fixture("wikidata_geosearch.json")),
             (200, fixture("wb_labels.json")),
             (200, fixture("wb_sitelinks.json")),
@@ -231,4 +251,30 @@ def test_geocode_uses_nominatim_politely():
     lat, lon = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
     assert (lat, lon) == (52.0002, 4.0001)
     assert get.calls[0]["headers"]["User-Agent"] == identify.USER_AGENT
+    assert get.calls[0]["timeout"] == 20
     assert sleeps == [1.1]
+
+
+def test_geocode_retries_with_backoff_then_succeeds():
+    get = FakeTransport(
+        [TimeoutError("t1"), TimeoutError("t2"), (200, fixture("nominatim.json"))]
+    )
+    sleeps = []
+    lat, lon = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
+    assert (lat, lon) == (52.0002, 4.0001)
+    assert len(get.calls) == 3
+    assert sleeps == [1.1, 2, 1.1, 4, 1.1]
+
+
+def test_geocode_failing_gives_clear_message():
+    get = FakeTransport([TimeoutError("t1"), TimeoutError("t2"), TimeoutError("t3")])
+    with pytest.raises(identify.SourceError) as exc_info:
+        identify.geocode("Test Tower", get=get, sleep=lambda s: None)
+    assert "3 tries" in str(exc_info.value)
+    assert len(get.calls) == 3
+
+
+def test_reverse_geocode_returns_country_code():
+    get = FakeTransport([(200, fixture("nominatim_reverse.json"))])
+    assert identify.reverse(52.0, 4.0, get=get, sleep=lambda s: None) == "nl"
+    assert get.calls[0]["timeout"] == 20

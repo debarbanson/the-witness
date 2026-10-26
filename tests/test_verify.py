@@ -101,6 +101,18 @@ def test_fetch_source_text_cached():
     assert len(get.calls) == 1
 
 
+def test_fetch_source_text_uses_disk_cache(tmp_path):
+    from witness.cache import Cache
+
+    get = FakeGet([(200, fixture("wiki_extract_full.json"))])
+    url = "https://nl.wikipedia.org/wiki/Testtoren"
+    verify.fetch_source_text(url, get=get, cache=Cache(tmp_path))
+    verify.clear_cache()
+    text = verify.fetch_source_text(url, get=get, cache=Cache(tmp_path))
+    assert len(get.calls) == 1
+    assert "Tweede alinea" in text
+
+
 def test_select_paragraphs_prefers_year_then_keywords():
     text = (
         "An unrelated opening line with enough words to count.\n\n"
@@ -178,6 +190,146 @@ def test_verify_prompt_invites_search_when_evidence_is_short():
 
     verify.verify_claim(respond, "claim", ["snippet"])
     assert "search" in seen["prompt"].lower()
+
+
+def answered_with(obj):
+    import json as _json
+
+    return {
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": _json.dumps(obj), "annotations": []}],
+            }
+        ]
+    }
+
+
+def test_support_recorded_per_source_with_quotes():
+    result = verify.verify_claim(
+        lambda prompt: answered_with(
+            {
+                "verdict": "supported",
+                "quote": "Built in 1932.",
+                "url": "https://nl.wikipedia.org/wiki/X",
+                "support": [
+                    {"url": "https://nl.wikipedia.org/wiki/X", "supports": True, "quote": "Built in 1932."},
+                    {"url": "https://example.com/y", "supports": False, "quote": ""},
+                ],
+            }
+        ),
+        "claim",
+        ["snippet"],
+    )
+    assert result["verdict"] == "supported"
+    assert result["support"][0] == {
+        "url": "https://nl.wikipedia.org/wiki/X",
+        "supports": True,
+        "quote": "Built in 1932.",
+    }
+
+
+def test_weak_only_support_drops_the_claim():
+    result = verify.verify_claim(
+        lambda prompt: answered_with(
+            {
+                "verdict": "supported",
+                "quote": "Storm in 1990.",
+                "url": "https://www.tripadvisor.co.nz/abc",
+                "support": [
+                    {"url": "https://www.tripadvisor.co.nz/abc", "supports": True, "quote": "Storm in 1990."},
+                    {"url": "https://nl.wikipedia.org/wiki/X", "supports": False, "quote": ""},
+                ],
+            }
+        ),
+        "claim",
+        ["snippet"],
+    )
+    assert result["verdict"] == "unsupported"
+    assert result["note"] == "weak sources only"
+
+
+def test_good_source_quote_preferred():
+    result = verify.verify_claim(
+        lambda prompt: answered_with(
+            {
+                "verdict": "supported",
+                "quote": "weak words",
+                "url": "https://www.tripadvisor.co.nz/abc",
+                "support": [
+                    {"url": "https://www.tripadvisor.co.nz/abc", "supports": True, "quote": "weak words"},
+                    {"url": "https://nl.wikipedia.org/wiki/X", "supports": True, "quote": "good words"},
+                ],
+            }
+        ),
+        "claim",
+        ["snippet"],
+    )
+    assert result["verdict"] == "supported"
+    assert result["quote"] == "good words"
+    assert result["url"] == "https://nl.wikipedia.org/wiki/X"
+
+
+def test_no_supporting_source_is_unsupported():
+    result = verify.verify_claim(
+        lambda prompt: answered_with(
+            {
+                "verdict": "supported",
+                "quote": "",
+                "support": [{"url": "https://nl.wikipedia.org/wiki/X", "supports": False, "quote": ""}],
+            }
+        ),
+        "claim",
+        ["snippet"],
+    )
+    assert result["verdict"] == "unsupported"
+
+
+def test_completed_flag_parses_and_defaults_true():
+    done = verify.verify_claim(
+        lambda prompt: answered_with({"verdict": "supported", "quote": "q"}),
+        "claim",
+        ["snippet"],
+    )
+    assert done["completed"] is True
+    planned = verify.verify_claim(
+        lambda prompt: answered_with({"verdict": "supported", "quote": "q", "completed": False}),
+        "claim",
+        ["snippet"],
+    )
+    assert planned["completed"] is False
+
+
+def test_verify_prompt_is_strict_about_plans():
+    seen = {}
+
+    def respond(prompt):
+        seen["prompt"] = prompt
+        return fixture("verify_supported.json")
+
+    verify.verify_claim(respond, "claim", ["snippet"])
+    assert "planned" in seen["prompt"] and "attempted" in seen["prompt"]
+
+
+def test_verify_all_runs_jobs_and_keeps_order():
+    results = verify.verify_all(
+        lambda prompt: fixture("verify_supported.json"),
+        [("claim one", ["s1"]), ("claim two", ["s2"]), ("claim three", ["s3"])],
+        max_workers=2,
+    )
+    assert [r["verdict"] for r in results] == ["supported"] * 3
+
+
+def test_verify_all_captures_job_errors():
+    def respond(prompt):
+        if "bad" in prompt:
+            raise verify.VerifyError("no messages")
+        return fixture("verify_supported.json")
+
+    results = verify.verify_all(respond, [("good", ["s"]), ("bad", ["s"])], max_workers=2)
+    assert results[0]["verdict"] == "supported"
+    assert results[1]["verdict"] == "unsupported"
+    assert "no messages" in results[1]["note"]
 
 
 def test_war_politics_only_flag_defaults_and_parses():

@@ -57,19 +57,29 @@ def test_fetch_facts_resolves_labels_and_references():
     assert designation["references"] == []
 
 
-def test_lifespan_question_leads_with_local_article():
+def test_lifespan_question_reads_local_languages_first():
     question = research.lifespan_question(
-        "Test Tower", "Test Town", {"nl": "Testtoren", "en": "Test Tower"}, lang="nl"
+        "Test Tower", "Test Town", {"nl": "Testtoren", "en": "Test Tower"},
+        read_langs=["nl", "en"],
     )
     assert question.index("nl.wikipedia.org/wiki/Testtoren") < question.index("en.wikipedia")
     assert "Do not narrate" in question
 
 
-def test_lifespan_question_prefers_user_language():
+def test_lifespan_question_reading_order_is_configurable():
     question = research.lifespan_question(
-        "Test Tower", "Test Town", {"nl": "Testtoren", "en": "Test Tower"}, lang="en"
+        "Test Tower", "Test Town", {"nl": "Testtoren", "en": "Test Tower"},
+        read_langs=["en", "nl"],
     )
     assert question.index("en.wikipedia.org/wiki/Test_Tower") < question.index("nl.wikipedia")
+
+
+def test_read_langs_local_first_then_user_then_english():
+    assert research.read_langs("nl", "en") == ["nl", "en"]
+    assert research.read_langs("ca", "en") == ["fr", "en"]
+    assert research.read_langs("dk", "fr") == ["da", "fr", "en"]
+    assert research.read_langs(None, "en") == ["en"]
+    assert research.read_langs("xx", "en") == ["en"]
 
 
 def test_fetch_facts_labels_in_user_language_with_english_fallback():
@@ -211,6 +221,19 @@ def test_build_timeline_keeps_planned_work_once_started():
     events = [{"year": 1999, "event": "rebuilt", "detail": "Rebuild planned; first pole put in ground."}]
     (seg,) = research.build_timeline(events)
     assert seg["state"] == "under reconstruction"
+
+
+def test_build_timeline_skips_uncompleted_changes():
+    events = [
+        {"year": 1932, "event": "burnt", "detail": "Burnt down.", "completed": True},
+        {"year": 1963, "event": "restored", "detail": "Rebuild promised; nothing happened.", "completed": False},
+        {"year": 1999, "event": "rebuilt", "detail": "First pole in ground.", "completed": True},
+    ]
+    segs = research.build_timeline(events)
+    assert [(s["from_year"], s["to_year"], s["state"]) for s in segs] == [
+        (1932, 1999, "burnt, only the base left"),
+        (1999, None, "under reconstruction"),
+    ]
 
 
 def test_build_timeline_merges_adjacent_equal_states():

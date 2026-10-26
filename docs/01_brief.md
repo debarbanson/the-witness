@@ -24,6 +24,10 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 4. **Open knowledge, worldwide and free:** the object is found through OpenStreetMap and Wikidata, its dated facts come from Wikidata, and real historical photos (public domain, CC0 or CC BY with credit, from Wikimedia Commons and Europeana) guide the paintings. Any object, in any country, in any language.
 5. **A finished film:** layered parallax, first-person captions and citations, ready to share.
 
+## Two audiences
+
+Every film comes in a version for adults and one for children aged 8 and up: the same verified facts, told in simpler words with picture-book paintings, and ending in a "spot the difference" game between a painted era and today's photo. Simple, but still true: every children's caption is verified again. Details: [08_children.md](08_children.md).
+
 ## Out of scope for the hackathon
 
 - Voice narration (no Meta text-to-speech model; captions carry the story).

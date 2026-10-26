@@ -59,6 +59,21 @@ STATE_AFTER = [
     (("repurposed", "converted", "conversion"), "repurposed"),
 ]
 
+# Wikipedia languages per country (Nominatim country codes): research reads
+# these first, then the user's language, then English.
+LOCAL_LANGS = {
+    "nl": ["nl"], "be": ["nl", "fr"], "dk": ["da"], "jp": ["ja"], "gb": ["en"],
+    "us": ["en"], "br": ["pt"], "ca": ["fr", "en"], "fr": ["fr"], "ml": ["fr"],
+    "au": ["en"], "sg": ["en"], "de": ["de"], "es": ["es"], "it": ["it"],
+}
+
+
+def read_langs(country_code, user_lang="en") -> list:
+    """Article reading order: local languages, user language, English."""
+    local = LOCAL_LANGS.get((country_code or "").lower(), [])
+    return list(dict.fromkeys([*local, user_lang, "en"]))
+
+
 # User-written and aggregator sites: may confirm a claim, never its only source.
 WEAK_NAMES = frozenset(
     {
@@ -94,7 +109,7 @@ class ResearchError(Exception):
     """The research step failed or returned unusable data."""
 
 
-def fetch_facts(qid, get=None, sleep=time.sleep, lang="en"):
+def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None):
     """Structured facts for the confirmed object. `get` is injectable."""
     get = get or requests.get
     try:
@@ -109,6 +124,7 @@ def fetch_facts(qid, get=None, sleep=time.sleep, lang="en"):
                 "format": "json",
             },
             sleep=sleep,
+            cache=cache,
         )
     except WebError as exc:
         raise ResearchError(str(exc))
@@ -126,7 +142,7 @@ def fetch_facts(qid, get=None, sleep=time.sleep, lang="en"):
                     for s in snaks:
                         need |= _item_ids(s)
     try:
-        labels = _entity_labels(sorted(need), get, sleep, lang) if need else {}
+        labels = _entity_labels(sorted(need), get, sleep, lang, cache) if need else {}
     except WebError as exc:
         raise ResearchError(str(exc))
     facts = []
@@ -164,7 +180,7 @@ def fetch_facts(qid, get=None, sleep=time.sleep, lang="en"):
     }
 
 
-def _entity_labels(qids, get, sleep=time.sleep, lang="en") -> dict:
+def _entity_labels(qids, get, sleep=time.sleep, lang="en", cache=None) -> dict:
     langs = "|".join(dict.fromkeys([lang, "en", "nl"]))
     data = mediawiki_get(
         get,
@@ -177,6 +193,7 @@ def _entity_labels(qids, get, sleep=time.sleep, lang="en") -> dict:
             "format": "json",
         },
         sleep=sleep,
+        cache=cache,
     )
     out = {}
     for qid, entity in data.get("entities", {}).items():
@@ -209,10 +226,11 @@ def _snak_value(snak: dict, labels: dict):
     return dv.get("value")
 
 
-def lifespan_question(name, place, articles, lang="en") -> str:
-    """Object-life question; the user's language article first when known."""
+def lifespan_question(name, place, articles, read_langs=("en",)) -> str:
+    """Object-life question; articles ordered by the reading languages."""
     where = f" in {place}" if place else ""
-    ordered = sorted(articles, key=lambda code: (code != lang, code))
+    order = list(read_langs)
+    ordered = sorted(articles, key=lambda code: (code not in order, order.index(code) if code in order else 0, code))
     reading = [
         f"https://{code}.wikipedia.org/wiki/{articles[code].replace(' ', '_')}"
         for code in ordered
@@ -269,6 +287,8 @@ def build_timeline(events: list) -> list:
     """
     by_year: dict = {}
     for event in sorted(events, key=lambda e: e["year"]):
+        if not event.get("completed", True):
+            continue
         state = _state_after(event["event"], event.get("detail", ""))
         if state is not None:
             by_year[event["year"]] = state

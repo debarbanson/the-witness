@@ -69,6 +69,16 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 - Model: `muse-spark-1.3`; **TEST** whether `muse-wonder-1.0` (agentic, text out) gives better judgements for the extra cost.
 - **Open-weights option (planned).** Baseten credits were requested on 26 Oct to run this verification step, and the visual check in step 5, on Meta's open-weights model Muse Spark Open (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; Baseten's OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`). Build `verify.py` and `check.py` with the model behind one small setting (provider, base URL, model id, key name), so switching is configuration, not code. Default: the Meta Model API. This targets the "Best Build on Meta Open Weight Models" prize.
 
+## Step 3a: Choose the scenes
+
+A 40 to 60 second film holds at most 7 scenes of 6 to 8 seconds. When there are more verified periods, choose:
+
+1. Every period in which the object itself changed state (built, extended, decorated, damaged, burnt, restored, rebuilt, repurposed): these carry the story.
+2. Then the periods with the strongest verified surroundings claims, spread across the timeline.
+3. Today, closing on the user's photo, always last.
+
+Merge or drop the rest. The captions of dropped periods may still appear as a short line inside a neighbouring scene ("in 1802 I was sold and ground tobacco"), but never get a painting of their own. The chosen scenes and the reason for each are kept in `research.json`.
+
 ## Step 3b: Enough for a film?
 
 Never fill a gap by inventing. After verification, count what is left and choose the outcome:
@@ -92,6 +102,7 @@ The thresholds are first guesses; tune them on the demo subjects.
 Pattern from Meta's cookbook [Keep an image series consistent](https://dev.meta.ai/docs/cookbook/anchored-image-series.md):
 
 - Responses API, model `muse-image-1.0`. Each era is a turn chained with `previous_response_id`, so every era sees the anchor.
+- **Parallel eras (TEST for speed).** Painting eras one after another, each chained on the previous, takes about 3 minutes for 7 eras. Instead, branch every era from the anchor turn (`previous_response_id` = the anchor's id) and paint them in parallel (the limit is 150 images a minute). Consistency then rests on the anchor alone: measure object drift and style against the serial chain on De Adriaan before switching.
 - **Anchor turn:** the user's photo as `input_image`, with an instruction to keep the place's viewpoint and composition and to establish the painted style.
 - **Era turns:** the object's verified state for that year (from the state timeline) plus the verified surroundings (season, period dress and transport) and the shared style words. The object is painted as it was then: whole, burnt, a stump, under scaffolding, rebuilt.
 - **Settings go inside the image tool** (proven 26 Oct; top-level parameters return 400 `unknown parameter`): `tools: [{"type": "image_generation", "size": "1024x1536", "enable_image_search": false}]`. `"1080x1920"` and `"1024x1792"` are rejected; `"1024x1536"` returns 1280x1920, which the renderer crops to 1080x1920.
@@ -123,6 +134,10 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 - `differs` triggers one repaint with the difference spelled out; a second `differs` drops the era and logs why.
 - This is the visual half of "no source, no claim": what the film shows of the object is checked, not only what it says.
 
+## Step 5b: Spot the difference (children's version)
+
+One painted era next to today's photo; `muse-spark-1.3` (vision) finds up to 5 visible differences with regions, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through steps 2 to 7; both versions are made together and cached.
+
 ## Step 6: People as layers (SAM 3.1)
 
 - On each painted era, `sam-3.1` with the prompt `person` (up to 16 objects) gives masks for period figures.
@@ -132,9 +147,29 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 
 - One HTML page per film: background, figure layers, caption and citation, each a pure function of time `t`.
 - The closing shot is the user's own photo as "today": the last painted era dissolves into it, using the SAM cut-out from step 1 to bring the object in first.
-- Playwright steps `t` frame by frame at 30 fps and captures 1080x1920 frames; ffmpeg encodes H.264 MP4.
+- **The film plays in the browser, live.** The page is the film: every frame is a pure function of `t`, so the web page plays it directly the moment the last painting is checked, with no rendering wait.
+- **MP4 only for download or sharing**, made in the background when asked: Playwright steps `t` frame by frame at 30 fps and captures 1080x1920 frames; ffmpeg encodes H.264 MP4.
 - Structure: title card (object, place) → anchor year → one era per 6 to 8 seconds with slow push-in and crossfade → today (the user's original photo) → end card with all sources and the AI-imagery label.
 - Captions are first person from the object, written from verified claims only, max 2 lines each.
+
+## Time budget per film
+
+A visitor will not watch a spinner for minutes, but will wait about two minutes if every few seconds brings something worth seeing. Targets (our judgement, to be measured; step timings are logged per object):
+
+| Moment | What the user sees | Target |
+|---|---|---|
+| Object recognised | "Is this De Adriaan, Haarlem?" | within 15 s |
+| The story | The verified timeline, each fact with its source, readable while the rest is made | within 60 s of confirming |
+| The paintings | Eras appear one by one in the timeline | first within 90 s, all within 2 min |
+| The film | Plays in the browser | within 2 to 3 min of confirming |
+| Any moment | Never more than 10 to 15 s without visible progress | always |
+
+How the budget is met:
+
+- **Research and verify in 60 to 90 s:** choose the scenes before verifying, verify in parallel, lighter reasoning for checks, cache (steps 2, 3 and 3a).
+- **Paint in 30 to 60 s:** parallel eras branched from the anchor (step 4), checks in parallel (step 5).
+- **No rendering wait:** the film plays in the browser; MP4 only on request (step 7).
+- **Cache per object:** a researched and painted object (Wikidata id plus language) is kept, so the next visitor of the Eiffel Tower gets the film at once. For the demo, famous objects open instantly, while a judge's own photo runs live.
 
 ## Cost per film (estimate from the published prices)
 

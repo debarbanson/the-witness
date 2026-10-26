@@ -27,7 +27,7 @@ OVERPASS_INSTANCES = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 ]
-USER_AGENT = "TheWitness/0.1 (Meta hackathon demo, one lookup per photo)"
+USER_AGENT = "the-witness/0.1 (https://github.com/debarbanson/the-witness)"
 RADIUS_M = 250
 DIRECTION_WINDOW_DEG = 35
 # Probe constants: the photo was taken in the Netherlands, the user reads

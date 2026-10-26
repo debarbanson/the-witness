@@ -4,9 +4,10 @@
 
 1. Every caption in a film comes from a claim with at least one `url_citation`.
 2. Every claim passes the verification step: the source text must support it. Unsupported claims are dropped, partly supported ones are rewritten to what the source says.
-3. Dates are only as precise as the source. "Around 1850" stays "around 1850".
-4. The source of each caption is shown on screen while it plays (site name) and in full on the end card.
-5. `research.json` keeps every claim, its sources and its verdict, so a film can be checked afterwards.
+3. **Source quality.** Encyclopedias (Wikipedia, Wikidata), heritage registers, official sites of the object or its owner or municipality, newspapers, archives and books count as sources. User-written sites (review sites such as Tripadvisor, forums, social media) may confirm a claim but never stand alone as its only source.
+4. Dates are only as precise as the source. "Around 1850" stays "around 1850".
+5. The source of each caption is shown on screen while it plays (site name) and in full on the end card.
+6. `research.json` keeps every claim, its sources and its verdict, so a film can be checked afterwards.
 
 ## What the paintings may show
 
@@ -25,7 +26,7 @@
 
 - Each film carries a visible "AI-generated imagery" label on the end card.
 - Meta's provenance signals on generated images are never removed ([Acceptable Use Policy](https://dev.meta.ai/legal/acceptable-use-policy)).
-- Reference images are public domain only, with their source listed in `sources.md`.
+- Reference images are public domain, CC0 or CC BY only. CC BY images are credited by author, licence and link on the end card and in `sources.md`. Never CC BY-SA (share-alike could bind the film's own licence), NC or ND, and never an image without a clear licence.
 
 ## Choosing demo subjects
 

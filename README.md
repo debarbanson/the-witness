@@ -51,4 +51,4 @@ Everything in this repository was written between the kickoff on 26 October and 
 
 ## Licence
 
-MIT for the code. Generated images carry Meta's provenance signals and the on-screen AI label; reference images are public domain only, listed per film.
+MIT for the code. Generated images carry Meta's provenance signals and the on-screen AI label; reference images are public domain, CC0 or CC BY, listed and credited per film.

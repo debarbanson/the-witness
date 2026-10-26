@@ -17,7 +17,7 @@
 
 ## Excluded content
 
-- **War and armed conflict, and political events or figures.** Hackathon rule ("anything political or involving war") and a design choice. Eras whose only verified claims are about war or politics are skipped; the film moves to the next era.
+- **War and politics are never the theme.** The hackathon rule excludes projects about war or politics; The Witness is about places. A sourced, factual mention is allowed (for example "a war memorial was placed beside me in 1950"), but no combat or destruction scenes are painted, no political figures are shown, and an era whose only claims are about war or politics is summarised in one neutral caption or skipped. (Interpretation to confirm in the hackathon Discord #questions.)
 - **Living private persons** are never named or depicted.
 - **No impersonation and no defamatory images** (Meta Acceptable Use Policy).
 
@@ -29,4 +29,4 @@
 
 ## Choosing demo subjects
 
-Pick objects with a peaceful, well-documented history: a Dutch windmill, a centuries-old tree, a lighthouse. Check the first research pass before rendering: if most claims are about conflict, choose another subject.
+Any notable object works: a windmill, a water tower, a church, a lighthouse, an old tree. For the demo, pick objects whose own life changed visibly (built, extended, burnt, rebuilt, repurposed) and whose history is not mainly about conflict. Daytime photos make the best closing shot.

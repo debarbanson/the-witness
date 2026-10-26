@@ -24,12 +24,17 @@ Privacy: coordinates are used for the lookup in step 0 only and never stored. Ou
 
 From a photo alone, "a windmill" could be any of thousands. The research needs to know which one.
 
-1. **Nearby candidates (OpenStreetMap Overpass API).** `POST https://overpass-api.de/api/interpreter` with a query for objects within about 300 m of the coordinates, for example `nwr(around:300,<lat>,<lon>)[man_made=windmill];` and similar for `historic=*`, `natural=tree` with `denotation`, `man_made=lighthouse`. Keep the `name`, `wikidata` and `wikipedia` tags. **TEST** the `around` syntax and the tag set on day 2.
+1. **Nearby candidates, any kind of object.** The step never depends on what the user photographed; it gathers every named, notable thing nearby.
+   - **OpenStreetMap (Overpass API):** `POST https://overpass-api.de/api/interpreter` for everything within about 250 m that has a `name` and at least one of `wikidata`, `wikipedia`, `heritage`, `historic`, `tourism` or `man_made`, for example `nwr(around:250,<lat>,<lon>)[name][~"^(wikidata|wikipedia|heritage|historic|tourism|man_made)$"~"."];` with `out tags center;`. Keep `name`, the kind tags, `wikidata` and `wikipedia`.
+   - **Proven 26 Oct:** a narrow tag set (windmill, lighthouse, historic, tree) missed the owner's photo of the Roelofarendsveen water tower (`man_made=water_tower`, Wikidata Q2487636); a broader query found it. **TEST** the key-regex form above on that photo.
+   - **Wikipedia nearby articles** as a second source, for objects OSM tags poorly (MediaWiki `list=geosearch` around the coordinates). **TEST** on day 2.
+   - **Reliability:** Overpass returned 502 twice on 26 Oct. Retry with a pause (30 s after 429 or 502), then a second public Overpass instance; cache every result.
    - Fair use (OSM wiki, checked 26 Oct): under 10,000 queries and 1 GB a day, a `User-Agent` naming the app, no parallel scripts, cache results, and wait 30 s after a 429 ([Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API)).
-2. **Typed place to coordinates (Nominatim), fallback only.** At most 1 request per second, a `User-Agent` naming the app, results cached, attribution shown; no autocomplete ([usage policy](https://operations.osmfoundation.org/policies/nominatim/)).
-3. **Pick the match (Muse Spark, vision).** `muse-spark-1.3` gets the photo and the candidate list (names, types, distances) and returns the best match with a confidence, or "none of these".
-4. **Confirm with the user.** "Is this De Adriaan, Haarlem?" Yes, or a correction, before any research runs. The confirmed name, place and Wikidata or Wikipedia link (when present) seed step 2.
-5. OpenStreetMap attribution ("© OpenStreetMap contributors") appears on the end card when OSM data was used.
+2. **Rank by where the camera pointed.** Photos often carry `GPSImgDirection` (the owner's: 201 degrees). Compute each candidate's bearing from the photo; candidates within about 35 degrees of the view direction rank first, then by distance. Keep the top 5.
+3. **Typed place to coordinates (Nominatim), fallback only.** At most 1 request per second, a `User-Agent` naming the app, results cached, attribution shown; no autocomplete ([usage policy](https://operations.osmfoundation.org/policies/nominatim/)).
+4. **Pick the match (Muse Spark, vision).** `muse-spark-1.3` gets the photo and the ranked candidates (names, kinds, distances, bearings) and returns the best match with a confidence, or "none of these" (then the user types the name). The photo is sent re-encoded, without EXIF.
+5. **Confirm with the user.** "Is this De Adriaan, Haarlem?" Yes, or a correction, before any research runs. The confirmed name, place and Wikidata or Wikipedia link (when present) seed step 2.
+6. OpenStreetMap attribution ("© OpenStreetMap contributors") appears on the end card when OSM data was used.
 
 ## Step 1: Cut out the object (SAM 3.1), for the closing shot
 

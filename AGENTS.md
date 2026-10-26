@@ -13,8 +13,10 @@ Instructions for any coding agent working in this repository.
 - **Test first.** Write the failing pytest test, watch it fail, then implement. Pure logic (claim filtering, compositing, caption timing) is unit-tested; API calls sit behind small functions that tests replace with recorded responses.
 - **Verify before building on an API fact.** If `docs/02_pipeline.md` marks something TEST, prove it with one real call and record the result in the build log before code depends on it.
 - **No secrets in the repository.** Keys live in `.env.local` (ignored by git). Never print a key.
-- **The object is never generated.** Always composite the SAM cut-out over painted eras.
+- **The object changes only as its sources say.** Paint it in its verified state for each era, and check every painting against that state (pipeline step 5).
 - **No source, no claim.** Never let an unverified claim reach a caption.
+- **Location is personal data.** Use coordinates only to identify the object; never store them, log them or write them into outputs (re-encode images, never copy EXIF).
+- **Be polite to OpenStreetMap.** A `User-Agent` naming the app, cached results, no parallel calls, at most 1 Nominatim request per second.
 - **Small steps.** One pipeline step per change, each runnable from the command line on a real photo.
 - **Update the build log** at the end of each working day: what was built, what was proven, what changed.
 - No em-dashes in docs or comments; British English.
@@ -23,7 +25,8 @@ Instructions for any coding agent working in this repository.
 
 ```
 witness/          the package (one module per pipeline step)
-  segment.py  research.py  verify.py  paint.py  layers.py  render/
+  identify.py  segment.py  research.py  verify.py  paint.py  check.py  layers.py  render/
+web/              FastAPI app and the static page (docs/06_web.md)
 tests/            pytest, with recorded API responses in tests/fixtures
 out/              generated films (ignored by git)
 ```

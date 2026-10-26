@@ -19,8 +19,8 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 ## What makes it more than an image generator
 
 1. **Research with receipts:** every caption is backed by a URL the viewer can see, and claims that cannot be verified are dropped.
-2. **The object stays real:** it is cut from the user's own photo by SAM 3.1 and never redrawn.
-3. **A consistent series:** the eras are painted as one chained conversation anchored on the object, so the film feels like one place through time.
+2. **The object's own history is shown truthfully:** built, extended, burnt, rebuilt, each state is a sourced claim, and every painted era is checked against it.
+3. **A consistent series:** the eras are painted as one chained conversation anchored on the user's photo, so the film feels like one place through time, ending on the real photo as "today".
 4. **A finished film:** layered parallax, first-person captions and citations, ready to share.
 
 ## Out of scope for the hackathon
@@ -33,5 +33,5 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 
 - Three films from three real photos (a windmill, an old tree, a lighthouse), each 40 to 60 seconds.
 - Every caption has a working source link, shown on screen and in an end card.
-- The object is pixel-identical in every era.
+- In every era the object matches its verified state for that year (for example De Adriaan: built 1779, burnt 1932, rebuilt 2002).
 - Generated in under 10 minutes per film, for under $1 in API cost.

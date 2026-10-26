@@ -12,7 +12,8 @@
 
 - The painted eras are illustrations, not documents. The end card says so: "Scenes are AI-generated illustrations based on the sources listed."
 - Scene details (dress, transport, surroundings) follow the era in general; specific events are only depicted when a verified claim names them.
-- The object itself is never generated: it is the user's photo, composited into every era.
+- **The object is shown in its verified state for each era.** If it burned, it is shown burnt; if it was rebuilt, the rebuilt form appears from that year. With no sourced change, it keeps the form of the previous era. Each painting is checked against that state before it is used.
+- The film ends on the user's own photo, the only photographic image in it.
 
 ## Excluded content
 

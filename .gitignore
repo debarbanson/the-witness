@@ -1,0 +1,11 @@
+# secrets: never commit
+.env
+.env.*
+!.env.example
+
+# local output
+out/
+node_modules/
+.DS_Store
+__pycache__/
+.venv/

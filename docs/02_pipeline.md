@@ -67,6 +67,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 - Only `supported` claims reach the film; `partly` claims are rewritten to what the source says.
 - The same pass applies the content rules from [03_accuracy.md](03_accuracy.md): war, political events and living private persons are filtered out.
 - Model: `muse-spark-1.3`; **TEST** whether `muse-wonder-1.0` (agentic, text out) gives better judgements for the extra cost.
+- **Open-weights option (planned).** Baseten credits were requested on 26 Oct to run this verification step, and the visual check in step 5, on Meta's open-weights model Muse Spark Open (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; Baseten's OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`). Build `verify.py` and `check.py` with the model behind one small setting (provider, base URL, model id, key name), so switching is configuration, not code. Default: the Meta Model API. This targets the "Best Build on Meta Open Weight Models" prize.
 
 ## Step 3b: Enough for a film?
 

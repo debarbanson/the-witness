@@ -1,0 +1,1 @@
+{"_fixture_note": "Shape-faithful synthetic geosearch response. Coordinates are fake, not a real photo point.", "query": {"geosearch": [{"dist": 25.4, "lat": 52.0002, "lon": 4.0001, "ns": 0, "pageid": 9001, "primary": "", "title": "Q999"}, {"dist": 180.0, "lat": 51.9985, "lon": 4.001, "ns": 0, "pageid": 9002, "title": "Q1000"}]}}

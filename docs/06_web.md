@@ -17,7 +17,7 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 - **Back end:** Python, a small FastAPI app around the same `witness` package the command line uses. A film takes minutes, so `POST /films` starts a job and returns its id; `GET /films/{id}` returns its progress events and, at the end, the film and sources.
 - **Front end:** one static HTML page with plain JavaScript, no framework. It polls the job and renders the progress events.
 - **Rendering on the server** needs Playwright with Chromium and ffmpeg, so the host must run a container.
-- **Hosting: TEST on day 4.** Candidates: Modal (Python containers; the hackathon offers $100 in credits, not guaranteed), or another container host. It must stay up through judging (5 to 9 November).
+- **Hosting: Modal, TEST on day 4.** A Modal account exists (workspace `debarbanson`), and the hackathon's $100 Modal credits were requested on 26 Oct (selected teams only, not guaranteed). Modal authenticates through its own CLI (`modal token new`, stored outside the repo), and the app's keys go into Modal secrets, never into the repo. Fallback: another container host. It must stay up through judging (5 to 9 November).
 - **Limits for a public link:** one film at a time per visitor, a daily cap on films, and a spend limit on the API key, so the credits cannot be drained.
 
 ## Privacy

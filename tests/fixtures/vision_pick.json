@@ -1,0 +1,80 @@
+{
+ "id": "resp_6adf9bb2dd0942f3590b475e",
+ "access_programs": null,
+ "created_at": 1793039282.0,
+ "error": null,
+ "incomplete_details": null,
+ "instructions": null,
+ "metadata": null,
+ "model": "muse-spark-1.3",
+ "object": "response",
+ "output": [
+  {
+   "id": "rs_6adf9bb2dd0942f3590b475e:rs_43c2d698-93e5-4866-9ba3-2ae79c1a1fb2",
+   "summary": [],
+   "type": "reasoning",
+   "content": null,
+   "encrypted_content": null,
+   "status": "completed"
+  },
+  {
+   "id": "msg_27a770af-0dab-4cc6-b3e5-c1bdaf931cd0",
+   "content": [
+    {
+     "annotations": [],
+     "text": "5. watertoren roelofarendsveen\nI am highly confident because the upward night view of a tall concrete tower with floodlights, windows, and a giant red-and-green tulip mural clearly matches the water tower seen from very close range.",
+     "type": "output_text",
+     "logprobs": []
+    }
+   ],
+   "role": "assistant",
+   "status": "completed",
+   "type": "message",
+   "phase": null
+  }
+ ],
+ "parallel_tool_calls": true,
+ "temperature": 1.0,
+ "tool_choice": "auto",
+ "tools": [],
+ "top_p": 1.0,
+ "background": false,
+ "completed_at": 1793039282.0,
+ "conversation": null,
+ "max_output_tokens": null,
+ "max_tool_calls": null,
+ "moderation": null,
+ "previous_response_id": null,
+ "prompt": null,
+ "prompt_cache_diagnostics": null,
+ "prompt_cache_key": null,
+ "prompt_cache_options": null,
+ "prompt_cache_retention": null,
+ "reasoning": {
+  "context": null,
+  "effort": "high",
+  "generate_summary": null,
+  "mode": null,
+  "summary": null
+ },
+ "safety_identifier": null,
+ "service_tier": "auto",
+ "status": "completed",
+ "text": null,
+ "top_logprobs": 0,
+ "truncation": "disabled",
+ "usage": {
+  "input_tokens": 1147,
+  "input_tokens_details": {
+   "cache_write_tokens": null,
+   "cached_tokens": 0
+  },
+  "output_tokens": 1736,
+  "output_tokens_details": {
+   "reasoning_tokens": 1676
+  },
+  "total_tokens": 2883
+ },
+ "user": null,
+ "store": true
+}

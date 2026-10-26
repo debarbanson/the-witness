@@ -1,0 +1,786 @@
+{
+ "id": "resp_6adf8a640585199ba6244ff0",
+ "access_programs": null,
+ "created_at": 1793034852.0,
+ "error": null,
+ "incomplete_details": null,
+ "instructions": null,
+ "metadata": null,
+ "model": "muse-spark-1.3",
+ "object": "response",
+ "output": [
+  {
+   "id": "rs_6adf8a640585199ba6244ff0:rs_40834150-896a-464a-baf2-45017b21b77c",
+   "summary": [],
+   "type": "reasoning",
+   "content": null,
+   "encrypted_content": null,
+   "status": "completed"
+  },
+  {
+   "id": "rs_0675a7f4-da1e-4cca-8f35-4dbdd629e5f9",
+   "content": [
+    {
+     "annotations": [],
+     "text": "I'll compile the De Adriaan timeline into the requested JSON, starting with searches on its construction and major changes.",
+     "type": "output_text",
+     "logprobs": []
+    }
+   ],
+   "role": "assistant",
+   "status": "completed",
+   "type": "message",
+   "phase": "commentary"
+  },
+  {
+   "id": "ws_call_cc24ec85-388b-4454-af86-18ed461e93af",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "De Adriaan windmill Haarlem built history burnt demolished rebuilt",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": [
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: 50 minutes Boat Cruise",
+     "url": "https://activities.marriott.com/europe/netherlands/hoofddorp/activities/haarlem_minutes_boat_cruise-XCDF5C",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: Scenic Canal Cruise through the Old City of Haarlem",
+     "url": "https://www.pelago.com/en-US/activity/p4p0xc49n-haarlem-50-minutes-boat-cruise-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "\u30cf\u30fc\u30ec\u30e0 \u306e Haarlem: 50 minutes Boat Cruise | Pelago",
+     "url": "https://www.pelago.com/ja/activity/p4p0xc49n-haarlem-50-minutes-boat-cruise-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "\u54c8\u52d2\u59c6\u7684Haarlem: 50 minutes Boat Cruise | Pelago",
+     "url": "https://www.pelago.com/zh/activity/p4p0xc49n-haarlem-50-minutes-boat-cruise-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan Windmill (Haarlem) \u2013 Hiking & Cycling Routes | Komoot",
+     "url": "https://WWW.KOMOOT.COM/highlight/6484708",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan in Haarlem Onesie by Merijn Van der Vliet - Fine Art America",
+     "url": "https://fineartamerica.com/featured/windmill-de-adriaan-in-haarlem-merijn-van-der-vliet.html?product=onesie",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: Tour Inside Windmill De Adriaan + View of the City",
+     "url": "https://mikestravelguide.com/haarlem-tour-inside-windmill-de-adriaan-view-of-the-city/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: 50 minutes Boat Cruise in Haarlem | Pelago",
+     "url": "https://www.pelago.com/activity/p4p0xc49n-haarlem-50-minutes-boat-cruise-haarlem/",
+     "snippet": ""
+    }
+   ]
+  },
+  {
+   "id": "ws_call_b499d8f7-309f-47d6-b15b-e8ed9a4d2120",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "Molen De Adriaan Haarlem geschiedenis gebouwd brand herbouw",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": [
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Cargo barge passes Moulin de Adriaan windmill, Haarlem, Holland Stock Photo - Alamy",
+     "url": "https://www.alamy.com/stock-photo-cargo-barge-passes-moulin-de-adriaan-windmill-haarlem-holland-25611340.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Landmark windmill De Adriaan in Haarlem Holland, The Netherlands. On the Spaarne River, canal with restaurant Zuidam at dusk Stock Photo - Alamy",
+     "url": "https://www.alamy.com/stock-photo-landmark-windmill-de-adriaan-in-haarlem-holland-the-netherlands-on-58670992.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill molen \"de Adriaan\" Haarlem the Netherlands by MichaeldrieD 3d model",
+     "url": "https://3dmdb.com/en/3d-model/windmill-molen-de-adriaan-haarlem-the-netherlands-by-michaeldried/8941385/?free=True&q=westen",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan (1779)",
+     "url": "https://www.lizflorals.com/blog/viewtopic.php?page=Windmill-De-Adriaan-%281779%29-42dbc0",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "MOLEN DE ADRIAAN MUSEUM - All You MUST Know Before You Go (2024)",
+     "url": "https://www.tripadvisor.ca/Attraction_Review-g188593-d2211207-Reviews-or20-Molen_De_Adriaan_Museum-Haarlem_North_Holland_Province.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan in Haarlem by Merijn Van der Vliet",
+     "url": "https://fineartamerica.com/featured/windmill-de-adriaan-in-haarlem-merijn-van-der-vliet.html",
+     "snippet": ""
+    }
+   ]
+  },
+  {
+   "id": "rs_6adf8a640585199ba6244ff0:rs_82be20ee-7c01-402c-8bbd-72f8b0e93f4b",
+   "summary": [],
+   "type": "reasoning",
+   "content": null,
+   "encrypted_content": null,
+   "status": "completed"
+  },
+  {
+   "id": "rs_8d67a916-89f5-49d9-a1ad-e1cf6f69a77c",
+   "content": [
+    {
+     "annotations": [],
+     "text": "Basic dates are emerging, so I'll dig into detailed histories to pin down extensions, damage, and restorations.",
+     "type": "output_text",
+     "logprobs": []
+    }
+   ],
+   "role": "assistant",
+   "status": "completed",
+   "type": "message",
+   "phase": "commentary"
+  },
+  {
+   "id": "ws_call_bfa65dce-ef78-4376-a2d6-8ba240c84be5",
+   "action": {
+    "type": "open_page",
+    "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": []
+  },
+  {
+   "id": "rs_6adf8a640585199ba6244ff0:rs_ba07b497-2df7-4b58-921f-30eaa1bf80e6",
+   "summary": [],
+   "type": "reasoning",
+   "content": null,
+   "encrypted_content": null,
+   "status": "completed"
+  },
+  {
+   "id": "ws_call_6a0c07b5-1234-40c4-88bc-33cce6232f30",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "site:molendatabase.nl De Adriaan Haarlem bouwjaar 1779 storm 1930 brand 1932 herbouw",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": []
+  },
+  {
+   "id": "ws_call_6ab4d624-caad-4790-8622-ee271e854f85",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "De Adriaan Haarlem official history 1778 1779 1865 1925 1930 1932 2002",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": [
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan in Haarlem, Netherlands.",
+     "url": "https://depositphotos.com/editorial/windmill-de-adriaan-in-haarlem-netherlands-53661827.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Oostpoort Center Map - Haarlem, North Holland, Netherlands",
+     "url": "https://mapcarta.com/W265659104",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "\u30cf\u30fc\u30ec\u30e0 \u306e Haarlem: 50 minutes Boat Cruise | Pelago",
+     "url": "https://www.pelago.com/ja/activity/p4p0xc49n-haarlem-50-minutes-boat-cruise-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan - Industrial windmill at Spaarne River, Haarlem, Netherlands",
+     "url": "https://aroundus.com/p/11890993-de-adriaan",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: 50 minutes Boat Cruise in Haarlem | Pelago",
+     "url": "https://www.pelago.com/en-GB/activity/p4p0xc49n-haarlem-50-minutes-boat-cruise-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "\u54c8\u52d2\u59c6\u7684Haarlem: 50 minutes Boat Cruise | Pelago",
+     "url": "https://www.pelago.com/zh/activity/p4p0xc49n-haarlem-50-minutes-boat-cruise-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: 50 minutes Boat Cruise",
+     "url": "https://activities.marriott.com/europe/netherlands/hoofddorp/activities/haarlem_minutes_boat_cruise-XCDF5C",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: Tour Inside Windmill De Adriaan + View of the City",
+     "url": "https://mikestravelguide.com/haarlem-tour-inside-windmill-de-adriaan-view-of-the-city/",
+     "snippet": ""
+    }
+   ]
+  },
+  {
+   "id": "ws_call_2dde7058-a0b2-4875-b333-fb8bf18a0f45",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "\"Molen De Adriaan\" Haarlem geschiedenis stoommachine stormschade",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": [
+    {
+     "type": "text_result",
+     "title": "The Historic Windmill 'Molen de Adriaan' in Central Haarlem",
+     "url": "https://netherlandstoday.nl/the-historic-windmill-molen-de-adriaan-in-central-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Landmark windmill De Adriaan in Haarlem Holland, The Netherlands. On the Spaarne River, canal with restaurant Zuidam at dusk Stock Photo - Alamy",
+     "url": "https://www.alamy.com/stock-photo-landmark-windmill-de-adriaan-in-haarlem-holland-the-netherlands-on-58670992.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "MOLEN DE ADRIAAN MUSEUM - All You MUST Know Before You Go (2024)",
+     "url": "https://www.tripadvisor.ca/Attraction_Review-g188593-d2211207-Reviews-or20-Molen_De_Adriaan_Museum-Haarlem_North_Holland_Province.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Highly Recommend the Windmill Tour - Review of Molen De Adriaan Museum, Haarlem, The Netherlands",
+     "url": "https://www.tripadvisor.co.nz/ShowUserReviews-g188593-d2211207-r871258255-Molen_De_Adriaan_Museum-Haarlem_North_Holland_Province.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan (Molen de Adriaan) is a windmill located on banks of the river Spaarne in Haarlem old town, Holland, Netherlands Stock Photo - Alamy",
+     "url": "https://www.alamy.com/de-adriaan-molen-de-adriaan-is-a-windmill-located-on-banks-of-the-river-spaarne-in-haarlem-old-town-holland-netherlands-image697807432.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Molen de Adriaan is a smocked windmill that sits on the scenic Spaarne River in central Haarlem. Molen de Adriaan originally built in 1779. Haarlem, North Holland, the Netherlands.",
+     "url": "https://stock.adobe.com/images/molen-de-adriaan-is-a-smocked-windmill-that-sits-on-the-scenic-spaarne-river-in-central-haarlem-molen-de-adriaan-originally-built-in-1779-haarlem-north-holland-the-netherlands/504256516",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Molen de Adriaan | Smithsonian Photo Contest | Smithsonian Magazine",
+     "url": "https://photocontest.smithsonianmag.com/photocontest/detail/molen-de-adriaan/\r",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Molen De Adriaan Museum \u2013 Haarlem",
+     "url": "https://tripomatic.com/en/places/4fHRcEGCplGd7_Hu",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Molen De Adriaan Museum in Haarlem",
+     "url": "https://travel.sygic.com/en/poi/molen-de-adriaan-museum-poi:43601",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Molen De Adriaan Haarlem (2026) \u2013 Best of TikTok, Instagram & Reddit Travel Guide",
+     "url": "https://www.airial.travel/attractions/netherlands/haarlem/molen-de-adriaan-haarlem-FyHLgFdn",
+     "snippet": ""
+    }
+   ]
+  },
+  {
+   "id": "ws_call_3d2f70e2-5c7b-4b1a-bcf0-1b6551fad38b",
+   "action": {
+    "type": "open_page",
+    "url": "https://netherlandstoday.nl/the-historic-windmill-molen-de-adriaan-in-central-haarlem/"
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": []
+  },
+  {
+   "id": "rs_6adf8a640585199ba6244ff0:rs_b9e94afe-0ed2-41b0-871e-569853c9f4e3",
+   "summary": [],
+   "type": "reasoning",
+   "content": null,
+   "encrypted_content": null,
+   "status": "completed"
+  },
+  {
+   "id": "rs_672722c1-76d2-4c9e-8373-d0d19d13a85e",
+   "content": [
+    {
+     "annotations": [],
+     "text": "I'll check the mill's official sources and heritage database for authoritative history.",
+     "type": "output_text",
+     "logprobs": []
+    }
+   ],
+   "role": "assistant",
+   "status": "completed",
+   "type": "message",
+   "phase": "commentary"
+  },
+  {
+   "id": "ws_call_673fb223-65a1-4ece-803c-66f40fb4e6b6",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "molenadriaan.nl geschiedenis Adriaan de Booys 1779 brand 1932 herbouw 2002",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": [
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan (1779) \u2013 Haarlem \u2013 Netherlands",
+     "url": "https://tropter.com/en/netherlands-europe/haarlem/windmill-de-adriaan-1779",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Moulin de Adriaan windmill, Haarlem, Holland Stock Photo - Alamy",
+     "url": "https://www.alamy.com/stock-photo-moulin-de-adriaan-windmill-haarlem-holland-25596598.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan Is A Windmill In The Netherlands That Burnt Down In 1932 And Was Rebuilt In 2002. The Original Windmill Dates From 1779 And The Mill Has Been A Distinctive Part Of The Skyline Of Haarlem For Centuries. Stock Photo, Picture and Royalty Free Image. Image 72109476.",
+     "url": "https://www.123rf.com/photo_72109476_de-adriaan-is-a-windmill-in-the-netherlands-that-burnt-down-in-1932-and-was-rebuilt-in-2002-the-orig.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "MOLEN DE ADRIAAN MUSEUM - All You MUST Know Before You Go (2024)",
+     "url": "https://www.tripadvisor.ca/Attraction_Review-g188593-d2211207-Reviews-or20-Molen_De_Adriaan_Museum-Haarlem_North_Holland_Province.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Molen De Adriaan Haarlem (2026) \u2013 Best of TikTok, Instagram & Reddit Travel Guide",
+     "url": "https://www.airial.travel/attractions/netherlands/haarlem/molen-de-adriaan-haarlem-FyHLgFdn",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Landmark windmill De Adriaan in Haarlem Holland, The Netherlands. On the Spaarne River, canal with restaurant Zuidam at dusk Stock Photo - Alamy",
+     "url": "https://www.alamy.com/stock-photo-landmark-windmill-de-adriaan-in-haarlem-holland-the-netherlands-on-58670992.html",
+     "snippet": ""
+    }
+   ]
+  },
+  {
+   "id": "ws_call_6399157a-60c1-4f0e-8904-a1b37572166d",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "\"De Adriaan\" Haarlem 1802 tobacco 1865 steam engine 1930 storm",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": [
+    {
+     "type": "text_result",
+     "title": "Timeline - Molen De Adriaan",
+     "url": "https://www.molenadriaan.nl/en/timeline/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://alchetron.com/De-Adriaan,-Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://en-academic.com/dic.nsf/enwiki/467004",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "De Adriaan",
+     "url": "https://patriciahysell.wordpress.com/2015/04/23/de-adriaan/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Your Best Free & Self-Guided Walking Tour In Haarlem, Noord- Holland, The Netherlands - Visiting The Dutch Countryside",
+     "url": "https://www.visitingthedutchcountryside.com/noord-holland/free-walking-tour-haarlem/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem Day Trip from Amsterdam: How, When, & What to See - Wandertoes",
+     "url": "http://wandertoes.com/haarlem-day-trip-from-amsterdam/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "The Adriaan in orange for Orange The World by Jeroen de Jongh Photography on canvas, poster, wallpaper and more",
+     "url": "https://www.artheroes.se/en/artwork/The-Adriaan-in-orange-for-Orange-The-World/1095110/93?mediumId=13&size=75x50",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: Tour Inside Windmill De Adriaan + View of the City",
+     "url": "https://powertraveller.com/haarlem-tour-inside-windmill-de-adriaan-view-of-the-city/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem: Windmill De Adriaan Guided Tour",
+     "url": "https://veronikasadventure.com/haarlem-windmill-de-adriaan-guided-tour/",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Where Is The Best Place To See Windmills In The Netherlands?",
+     "url": "https://madefortravellers.com/best-place-to-see-windmills-the-netherlands/",
+     "snippet": ""
+    }
+   ]
+  },
+  {
+   "id": "ws_call_b1f7ca3d-f150-45b2-8d7e-b409bfaa6d30",
+   "action": {
+    "type": "open_page",
+    "url": "https://www.molenadriaan.nl/en/timeline/"
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": []
+  },
+  {
+   "id": "rs_6adf8a640585199ba6244ff0:rs_af71516c-419b-40f9-a036-8e89a4ab2eb0",
+   "summary": [],
+   "type": "reasoning",
+   "content": null,
+   "encrypted_content": null,
+   "status": "completed"
+  },
+  {
+   "id": "ws_call_08b6cc8c-bfa1-4787-9fb3-a3cb4413fad1",
+   "action": {
+    "type": "search",
+    "queries": null,
+    "query": "De Adriaan Haarlem Nederlandse Wikipedia geschiedenis 1779 1802 1865 1930 1932 1999 2002",
+    "sources": null
+   },
+   "status": "completed",
+   "type": "web_search_call",
+   "results": [
+    {
+     "type": "text_result",
+     "title": "De Adriaan, Haarlem",
+     "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan (1779) \u2013 Haarlem \u2013 Netherlands",
+     "url": "https://tropter.com/en/netherlands-europe/haarlem/windmill-de-adriaan-1779",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan in Haarlem by Merijn Van der Vliet",
+     "url": "https://fineartamerica.com/featured/windmill-de-adriaan-in-haarlem-merijn-van-der-vliet.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Landmark windmill De Adriaan in Haarlem Holland, The Netherlands. On the Spaarne River, canal with restaurant Zuidam at dusk Stock Photo - Alamy",
+     "url": "https://www.alamy.com/stock-photo-landmark-windmill-de-adriaan-in-haarlem-holland-the-netherlands-on-58670992.html",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Haarlem History Timeline - Important Dates & People",
+     "url": "https://www.onthisday.com/countries/netherlands/haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Molen De Adriaan Haarlem (2026) \u2013 Best of TikTok, Instagram & Reddit Travel Guide",
+     "url": "https://www.airial.travel/attractions/netherlands/haarlem/molen-de-adriaan-haarlem-FyHLgFdn",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan (1779), Haarlem, The Netherlands - Reviews, Ratings, Tips and Why You Should Go \u2013 Wanderlog",
+     "url": "https://Wanderlog.com/place/details/204262/\u30c7\u30a2\u30c9\u30ea\u30a2\u30fc\u30f3\u98a8\u8eca1779\u5e74",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan (1779) - 4 Things to Know Before Visiting",
+     "url": "https://www.travalour.com/attraction/20430-windmill-de-adriaan-1779",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Adriaan van der Willigen",
+     "url": "https://en.wikipedia.org/wiki/Adriaan_van_der_Willigen",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "18 Attractions to Explore Near Windmill De Adriaan (1779)",
+     "url": "https://www.travalour.com/attraction/20430-windmill-de-adriaan-1779/nearby-attractions",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Timeline of Haarlem",
+     "url": "https://en.wikipedia.org/wiki/Timeline_of_Haarlem",
+     "snippet": ""
+    },
+    {
+     "type": "text_result",
+     "title": "Windmill De Adriaan (1779) in Haarlem, Netherlands - reviews,open hours,photo spots, things to do | WanderBoat AI Trip Planner",
+     "url": "https://wanderboat.ai/attractions/netherlands/haarlem/windmill-de-adriaan-1779/Ch5lbtFZTPuRepT5K_VmKw",
+     "snippet": ""
+    }
+   ]
+  },
+  {
+   "id": "rs_6adf8a640585199ba6244ff0:rs_17a10e74-2b12-46ae-baad-3e89509b1064",
+   "summary": [],
+   "type": "reasoning",
+   "content": null,
+   "encrypted_content": null,
+   "status": "completed"
+  },
+  {
+   "id": "msg_eb3469d9-ad3e-437c-aa9f-5ec25d65194f",
+   "content": [
+    {
+     "annotations": [
+      {
+       "end_index": 188,
+       "start_index": 0,
+       "title": "De Adriaan, Haarlem",
+       "type": "url_citation",
+       "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+      },
+      {
+       "end_index": 358,
+       "start_index": 188,
+       "title": "De Adriaan, Haarlem",
+       "type": "url_citation",
+       "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+      },
+      {
+       "end_index": 474,
+       "start_index": 358,
+       "title": "De Adriaan, Haarlem",
+       "type": "url_citation",
+       "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+      },
+      {
+       "end_index": 696,
+       "start_index": 474,
+       "title": "De Adriaan, Haarlem",
+       "type": "url_citation",
+       "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+      },
+      {
+       "end_index": 843,
+       "start_index": 696,
+       "title": "De Adriaan, Haarlem",
+       "type": "url_citation",
+       "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+      },
+      {
+       "end_index": 966,
+       "start_index": 843,
+       "title": "De Adriaan, Haarlem",
+       "type": "url_citation",
+       "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+      }
+     ],
+     "text": "{\"events\": [{\"detail\": \"Built on the foundations of the Goevrouwetoren (Goede Vrouwtoren / Go\u00ea Vrouwentoren) by Adriaan de Booys; permission granted in 1778, officially opened 19 May 1779.\", \"event\": \"built\", \"year\": 1779}, {\"detail\": \"A steam engine was placed in the windmill, transformed into a wind and steam mill to grind corn; not a commercial success.\", \"event\": \"extended\", \"year\": 1865}, {\"detail\": \"Severely damaged by a storm; grinding flour continued until then.\", \"event\": \"damaged\", \"year\": 1930}, {\"detail\": \"On the evening of 23 April 1932 the windmill burnt down completely; fire brigade could not prevent complete burning; extinguishing lasted for days; cause never established.\", \"event\": \"burnt\", \"year\": 1932}, {\"detail\": \"Rebuilding on the original foundations started; first pole / stone put in the ground 21 April 1999.\", \"event\": \"rebuilt\", \"year\": 1999}, {\"detail\": \"Rebuilt windmill reopened 23 April 2002, exactly 70 years after the fire.\", \"event\": \"rebuilt\", \"year\": 2002}], \"sources\": [\"https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem\", \"https://www.molenadriaan.nl/en/timeline/\"]}",
+     "type": "output_text",
+     "logprobs": []
+    }
+   ],
+   "role": "assistant",
+   "status": "completed",
+   "type": "message",
+   "phase": null
+  }
+ ],
+ "parallel_tool_calls": true,
+ "temperature": 1.0,
+ "tool_choice": "auto",
+ "tools": [
+  {
+   "type": "web_search",
+   "external_web_access": null,
+   "filters": null,
+   "search_context_size": null,
+   "user_location": null
+  }
+ ],
+ "top_p": 1.0,
+ "background": false,
+ "completed_at": 1793034872.0,
+ "conversation": null,
+ "max_output_tokens": null,
+ "max_tool_calls": null,
+ "moderation": null,
+ "previous_response_id": null,
+ "prompt": null,
+ "prompt_cache_diagnostics": null,
+ "prompt_cache_key": null,
+ "prompt_cache_options": null,
+ "prompt_cache_retention": null,
+ "reasoning": {
+  "context": null,
+  "effort": "high",
+  "generate_summary": null,
+  "mode": null,
+  "summary": null
+ },
+ "safety_identifier": null,
+ "service_tier": "auto",
+ "status": "completed",
+ "text": {
+  "format": {
+   "name": "object_life",
+   "schema_": {
+    "required": [
+     "events",
+     "sources"
+    ],
+    "properties": {
+     "events": {
+      "items": {
+       "additionalProperties": false,
+       "properties": {
+        "detail": {
+         "type": "string"
+        },
+        "event": {
+         "type": "string"
+        },
+        "year": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "year",
+        "event",
+        "detail"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     },
+     "sources": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "type": "object",
+    "additionalProperties": false
+   },
+   "type": "json_schema",
+   "description": null,
+   "strict": true
+  },
+  "verbosity": null
+ },
+ "top_logprobs": 0,
+ "truncation": "disabled",
+ "usage": {
+  "input_tokens": 76325,
+  "input_tokens_details": {
+   "cache_write_tokens": null,
+   "cached_tokens": 33952
+  },
+  "output_tokens": 4757,
+  "output_tokens_details": {
+   "reasoning_tokens": 3387
+  },
+  "total_tokens": 81082
+ },
+ "user": null,
+ "store": true
+}

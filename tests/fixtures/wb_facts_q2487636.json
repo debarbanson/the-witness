@@ -1,0 +1,117 @@
+{
+ "qid": "Q2487636",
+ "label": "watertoren Roelofarendsveen",
+ "claims": {
+  "P84": [
+   {
+    "mainsnak": {
+     "snaktype": "value",
+     "property": "P84",
+     "hash": "42a558876febfc88851e6f276a55f9fc9f82ce00",
+     "datavalue": {
+      "value": {
+       "entity-type": "item",
+       "numeric-id": 1975202,
+       "id": "Q1975202"
+      },
+      "type": "wikibase-entityid"
+     },
+     "datatype": "wikibase-item"
+    },
+    "type": "statement",
+    "id": "Q2487636$FC3C580B-4210-484E-90DB-58DCC09A4A07",
+    "rank": "normal",
+    "references": [
+     {
+      "hash": "732ec1c90a6f0694c7db9a71bf09fe7f2b674172",
+      "snaks": {
+       "P143": [
+        {
+         "snaktype": "value",
+         "property": "P143",
+         "hash": "9123b0de1cc9c3954366ba797d598e4e1ea4146f",
+         "datavalue": {
+          "value": {
+           "entity-type": "item",
+           "numeric-id": 10000,
+           "id": "Q10000"
+          },
+          "type": "wikibase-entityid"
+         },
+         "datatype": "wikibase-item"
+        }
+       ]
+      },
+      "snaks-order": [
+       "P143"
+      ]
+     }
+    ]
+   }
+  ],
+  "P1435": [
+   {
+    "mainsnak": {
+     "snaktype": "value",
+     "property": "P1435",
+     "hash": "96bb3f693fe08526d6580187ec3cc4e3171bf84b",
+     "datavalue": {
+      "value": {
+       "entity-type": "item",
+       "numeric-id": 2650048,
+       "id": "Q2650048"
+      },
+      "type": "wikibase-entityid"
+     },
+     "datatype": "wikibase-item"
+    },
+    "type": "statement",
+    "id": "Q2487636$74E85797-3DF2-488B-95BC-E581BFE3D89A",
+    "rank": "normal"
+   }
+  ],
+  "P18": [
+   {
+    "mainsnak": {
+     "snaktype": "value",
+     "property": "P18",
+     "hash": "74bfb92ab21104f6fbfeeb1e80ea31d9731babe8",
+     "datavalue": {
+      "value": "Roelofarendsveen watertoren.jpg",
+      "type": "string"
+     },
+     "datatype": "commonsMedia"
+    },
+    "type": "statement",
+    "id": "q2487636$91475D55-0522-4300-B82C-C2C51F27DF46",
+    "rank": "normal",
+    "references": [
+     {
+      "hash": "732ec1c90a6f0694c7db9a71bf09fe7f2b674172",
+      "snaks": {
+       "P143": [
+        {
+         "snaktype": "value",
+         "property": "P143",
+         "hash": "9123b0de1cc9c3954366ba797d598e4e1ea4146f",
+         "datavalue": {
+          "value": {
+           "entity-type": "item",
+           "numeric-id": 10000,
+           "id": "Q10000"
+          },
+          "type": "wikibase-entityid"
+         },
+         "datatype": "wikibase-item"
+        }
+       ]
+      },
+      "snaks-order": [
+       "P143"
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -59,10 +59,37 @@ def test_fetch_facts_resolves_labels_and_references():
 
 def test_lifespan_question_leads_with_local_article():
     question = research.lifespan_question(
-        "Test Tower", "Test Town", {"nl": "Testtoren", "en": "Test Tower"}
+        "Test Tower", "Test Town", {"nl": "Testtoren", "en": "Test Tower"}, lang="nl"
     )
     assert question.index("nl.wikipedia.org/wiki/Testtoren") < question.index("en.wikipedia")
     assert "Do not narrate" in question
+
+
+def test_lifespan_question_prefers_user_language():
+    question = research.lifespan_question(
+        "Test Tower", "Test Town", {"nl": "Testtoren", "en": "Test Tower"}, lang="en"
+    )
+    assert question.index("en.wikipedia.org/wiki/Test_Tower") < question.index("nl.wikipedia")
+
+
+def test_fetch_facts_labels_in_user_language_with_english_fallback():
+    recorded = fixture("wb_facts_q2487636.json")
+
+    def fetch(lang):
+        get = fake_get(
+            [
+                {"entities": {recorded["qid"]: {"labels": {"nl": {"value": recorded["label"]}}, "claims": recorded["claims"]}}},
+                fixture("wb_labels_q2487636.json"),
+            ]
+        )
+        return research.fetch_facts("Q2487636", get=get, lang=lang)
+
+    designation_en = next(f for f in fetch("en")["facts"] if f["property"] == "P1435")
+    assert designation_en["value"]["label"] == "municipal monument"
+    designation_nl = next(f for f in fetch("nl")["facts"] if f["property"] == "P1435")
+    assert designation_nl["value"]["label"] == "gemeentelijk monument"
+    architect = next(f for f in fetch("en")["facts"] if f["property"] == "P84")
+    assert architect["references"][0]["P143"][0]["label"] == "Nederlandstalige Wikipedia"
 
 
 def test_ask_lifespan_reads_last_message_only():
@@ -121,9 +148,78 @@ def test_build_timeline_decorated_is_restored():
     assert seg["state"] == "restored"
 
 
-def test_build_timeline_unknown_event_is_honest():
+def test_build_timeline_merges_same_state_periods():
+    events = [
+        {"year": 1779, "event": "built", "detail": ""},
+        {"year": 1779, "event": "built", "detail": ""},
+        {"year": 1802, "event": "repurposed", "detail": ""},
+    ]
+    segs = research.build_timeline(events)
+    assert [(s["from_year"], s["to_year"], s["state"]) for s in segs] == [
+        (1779, 1802, "standing"),
+        (1802, None, "repurposed"),
+    ]
+
+
+def test_build_timeline_same_year_last_state_wins():
+    events = [
+        {"year": 1932, "event": "burnt", "detail": ""},
+        {"year": 1932, "event": "rebuilt", "detail": ""},
+    ]
+    (seg,) = research.build_timeline(events)
+    assert (seg["from_year"], seg["to_year"], seg["state"]) == (1932, None, "rebuilt")
+
+
+def test_build_timeline_decorated_with_tulips():
+    (seg,) = research.build_timeline(
+        [{"year": 1986, "event": "decorated", "detail": "Decorated with tulips."}]
+    )
+    assert seg["state"] == "decorated with tulips"
+    (seg,) = research.build_timeline(
+        [{"year": 1986, "event": "extended", "detail": "Meters-high tulip on all sides."}]
+    )
+    assert seg["state"] == "decorated with tulips"
+    (seg,) = research.build_timeline(
+        [{"year": 1986, "event": "extended", "detail": "Opgesierd met metershoge tulp."}]
+    )
+    assert seg["state"] == "decorated with tulips"
+
+
+def test_build_timeline_reconstruction_is_ongoing():
+    (seg,) = research.build_timeline(
+        [{"year": 1999, "event": "reconstruction", "detail": "Work underway."}]
+    )
+    assert seg["state"] == "under reconstruction"
+
+
+def test_build_timeline_unknown_event_uses_event_text():
     (seg,) = research.build_timeline([{"year": 1900, "event": "moved", "detail": ""}])
-    assert seg["state"] == "after: moved"
+    assert seg["state"] == "moved"
+
+
+def test_build_timeline_skips_planned_but_prevented_changes():
+    events = [
+        {"year": 1920, "event": "extended", "detail": "Steam engine replaced."},
+        {"year": 1925, "event": "demolished", "detail": "Demolition planned but prevented."},
+        {"year": 1930, "event": "damaged", "detail": "Storm damage."},
+    ]
+    segs = research.build_timeline(events)
+    assert [(s["from_year"], s["to_year"]) for s in segs] == [(1920, 1930), (1930, None)]
+
+
+def test_build_timeline_keeps_planned_work_once_started():
+    events = [{"year": 1999, "event": "rebuilt", "detail": "Rebuild planned; first pole put in ground."}]
+    (seg,) = research.build_timeline(events)
+    assert seg["state"] == "under reconstruction"
+
+
+def test_build_timeline_merges_adjacent_equal_states():
+    events = [
+        {"year": 2003, "event": "repurposed", "detail": "Museum."},
+        {"year": 2004, "event": "repurposed", "detail": "Weddings."},
+    ]
+    (seg,) = research.build_timeline(events)
+    assert (seg["from_year"], seg["to_year"], seg["state"]) == (2003, None, "repurposed")
 
 
 def test_source_quality_rule():
@@ -138,6 +234,11 @@ def test_source_quality_rule():
     assert research.claim_quality_ok([]) is False
     assert research.is_weak_source("https://www.reddit.com/r/x") is True
     assert research.is_weak_source("https://www.molenadriaan.nl/en/timeline/") is False
+    assert research.is_weak_source("https://aroundus.com/p/11888475-x") is True
+    assert research.is_weak_source("https://wanderlog.com/places/x") is True
+    assert research.is_weak_source("https://www.getyourguide.com/x-l147772/") is True
+    assert research.is_weak_source("https://www.viator.com/tours/x/d1") is True
+    assert research.claim_quality_ok(["https://aroundus.com/p/11888475-x"]) is False
 
 
 def test_wikidata_claims_from_dated_statements():

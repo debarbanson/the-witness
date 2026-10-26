@@ -69,15 +69,61 @@ def test_flag_content_war_and_politics():
     assert verify.flag_content("Decorated with tulips in 1986") == set()
 
 
-def test_fetch_evidence_reads_wikipedia_extracts():
-    get = FakeGet([(200, fixture("wiki_extract.json"))])
-    evidence = verify.fetch_evidence(
-        ["https://nl.wikipedia.org/wiki/Testtoren", "https://example.com/page"],
-        get=get,
-    )
-    assert len(evidence) == 1
-    assert "1932" in evidence[0] and "nl.wikipedia.org" in evidence[0]
+def test_fetch_wikipedia_full_article_in_own_language():
+    get = FakeGet([(200, fixture("wiki_extract_full.json"))])
+    text = verify.fetch_source_text("https://nl.wikipedia.org/wiki/Testtoren", get=get)
+    assert "Tweede alinea" in text  # beyond the lead
+    assert get.calls[0]["url"] == "https://nl.wikipedia.org/w/api.php"
     assert "extracts" in get.calls[0]["params"]["prop"]
+
+
+def test_fetch_plain_page_extracts_main_text():
+    html = (
+        "<html><head><script>junk();</script></head><body><nav>menu</nav>"
+        "<p>First real paragraph about the tower built in 1932.</p>"
+        "<p>Short.</p>"
+        "<p>Second real paragraph with enough words to keep for evidence.</p>"
+        "</body></html>"
+    )
+    get = FakeGet([(200, html)])
+    text = verify.fetch_source_text("https://example.com/page", get=get)
+    assert "First real paragraph" in text
+    assert "Second real paragraph" in text
+    assert "junk" not in text and "Short." not in text
+    assert get.calls[0]["headers"]["User-Agent"] == verify.USER_AGENT
+
+
+def test_fetch_source_text_cached():
+    get = FakeGet([(200, fixture("wiki_extract_full.json"))])
+    url = "https://nl.wikipedia.org/wiki/Testtoren"
+    verify.fetch_source_text(url, get=get)
+    verify.fetch_source_text(url, get=get)
+    assert len(get.calls) == 1
+
+
+def test_select_paragraphs_prefers_year_then_keywords():
+    text = (
+        "An unrelated opening line with enough words to count.\n\n"
+        "In 1990 a heavy storm blew the tulips away.\n\n"
+        "The tulips came back later after repairs were done.\n\n"
+        "Another unrelated line with enough words to count here."
+    )
+    paras = verify.select_paragraphs(text, year=1990, keywords=["tulip"])
+    assert "1990" in paras[0]
+    assert any("came back" in p for p in paras)
+    assert all("unrelated" not in p for p in paras)
+
+
+def test_select_paragraphs_caps_and_falls_back():
+    text = "Short intro.\n\n" + "\n\n".join(f"Paragraph {i} with enough words to count as one." for i in range(10))
+    paras = verify.select_paragraphs(text, year=1800, keywords=["zzz"], max_paras=3)
+    assert len(paras) == 3  # falls back to the head when nothing matches
+
+
+def test_keywords_for_claim():
+    words = verify.keywords_for_claim("repurposed: Remained in function until 1987", "repurposed")
+    assert "repurposed" in words and "function" in words
+    assert "in" not in words and "1987" not in words
 
 
 class FakeGet:
@@ -97,12 +143,41 @@ class FakeResponse:
 
     def __init__(self, payload):
         self._payload = payload
+        self.text = payload if isinstance(payload, str) else ""
 
     def json(self):
         return self._payload
 
     def raise_for_status(self):
         pass
+
+
+@pytest.fixture(autouse=True)
+def clean_cache():
+    verify.clear_cache()
+    yield
+    verify.clear_cache()
+
+
+def test_verdict_records_supporting_url():
+    answered = {"output": [{"type": "message", "content": [{"type": "output_text", "text": '{"verdict": "supported", "quote": "q", "url": "https://example.com/p"}', "annotations": []}]}]}
+    result = verify.verify_claim(lambda prompt: answered, "claim", ["snippet"])
+    assert result["url"] == "https://example.com/p"
+    missing = verify.verify_claim(
+        lambda prompt: fixture("verify_supported.json"), "claim", ["snippet"]
+    )
+    assert missing["url"] is None
+
+
+def test_verify_prompt_invites_search_when_evidence_is_short():
+    seen = {}
+
+    def respond(prompt):
+        seen["prompt"] = prompt
+        return fixture("verify_supported.json")
+
+    verify.verify_claim(respond, "claim", ["snippet"])
+    assert "search" in seen["prompt"].lower()
 
 
 def test_war_politics_only_flag_defaults_and_parses():

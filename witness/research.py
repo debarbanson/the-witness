@@ -49,6 +49,7 @@ LIFESPAN_SCHEMA = {
 # Event word to the object's state from that year on. Order matters:
 # more specific words first ("rebuilt" contains "built").
 STATE_AFTER = [
+    (("reconstruction", "rebuilding", "restoration"), "under reconstruction"),
     (("burnt", "burned", "fire", "brand", "destroyed", "demolished"), "burnt, only the base left"),
     (("rebuilt", "reopened", "reconstructed"), "rebuilt"),
     (("restored", "renovated", "redecorated", "decorated", "decoration"), "restored"),
@@ -58,7 +59,7 @@ STATE_AFTER = [
     (("repurposed", "converted", "conversion"), "repurposed"),
 ]
 
-# User-written sites: may confirm a claim, never its only source.
+# User-written and aggregator sites: may confirm a claim, never its only source.
 WEAK_NAMES = frozenset(
     {
         "tripadvisor",
@@ -71,6 +72,20 @@ WEAK_NAMES = frozenset(
         "reddit",
         "quora",
         "pinterest",
+        "aroundus",
+        "wanderlog",
+        "tripomatic",
+        "sygic",
+        "inspirock",
+        "triphobo",
+        "getyourguide",
+        "viator",
+        "expedia",
+        "booking",
+        "airbnb",
+        "klook",
+        "musement",
+        "tiqets",
     }
 )
 
@@ -79,7 +94,7 @@ class ResearchError(Exception):
     """The research step failed or returned unusable data."""
 
 
-def fetch_facts(qid, get=None, sleep=time.sleep):
+def fetch_facts(qid, get=None, sleep=time.sleep, lang="en"):
     """Structured facts for the confirmed object. `get` is injectable."""
     get = get or requests.get
     try:
@@ -111,7 +126,7 @@ def fetch_facts(qid, get=None, sleep=time.sleep):
                     for s in snaks:
                         need |= _item_ids(s)
     try:
-        labels = _entity_labels(sorted(need), get, sleep) if need else {}
+        labels = _entity_labels(sorted(need), get, sleep, lang) if need else {}
     except WebError as exc:
         raise ResearchError(str(exc))
     facts = []
@@ -137,10 +152,10 @@ def fetch_facts(qid, get=None, sleep=time.sleep):
                 }
             )
     lang_labels = entity.get("labels", {})
-    best = lang_labels.get("nl") or lang_labels.get("en")
+    best = _pick_label(lang_labels, lang)
     return {
         "qid": qid,
-        "label": best["value"] if isinstance(best, dict) and "value" in best else best,
+        "label": best,
         "facts": facts,
         "commons_category": next(
             (f["value"] for f in facts if f["property"] == "P373"), None
@@ -149,7 +164,8 @@ def fetch_facts(qid, get=None, sleep=time.sleep):
     }
 
 
-def _entity_labels(qids, get, sleep=time.sleep) -> dict:
+def _entity_labels(qids, get, sleep=time.sleep, lang="en") -> dict:
+    langs = "|".join(dict.fromkeys([lang, "en", "nl"]))
     data = mediawiki_get(
         get,
         "https://www.wikidata.org/w/api.php",
@@ -157,17 +173,23 @@ def _entity_labels(qids, get, sleep=time.sleep) -> dict:
             "action": "wbgetentities",
             "ids": "|".join(qids[:50]),
             "props": "labels",
-            "languages": "nl|en",
+            "languages": langs,
             "format": "json",
         },
         sleep=sleep,
     )
     out = {}
     for qid, entity in data.get("entities", {}).items():
-        lang_labels = entity.get("labels", {})
-        best = lang_labels.get("nl") or lang_labels.get("en")
-        out[qid] = best["value"] if best else qid
+        out[qid] = _pick_label(entity.get("labels", {}), lang) or qid
     return out
+
+
+def _pick_label(labels: dict, lang: str) -> str | None:
+    """Label in the user's language, English fallback, then anything."""
+    for code in dict.fromkeys([lang, "en", "nl", *labels]):
+        if labels.get(code):
+            return labels[code]["value"]
+    return None
 
 
 def _item_ids(snak: dict) -> set:
@@ -187,14 +209,14 @@ def _snak_value(snak: dict, labels: dict):
     return dv.get("value")
 
 
-def lifespan_question(name, place, articles) -> str:
-    """Object-life question; local-language article first when known."""
+def lifespan_question(name, place, articles, lang="en") -> str:
+    """Object-life question; the user's language article first when known."""
     where = f" in {place}" if place else ""
-    reading = []
-    for lang in ("nl", "en"):
-        if articles.get(lang):
-            title = articles[lang].replace(" ", "_")
-            reading.append(f"https://{lang}.wikipedia.org/wiki/{title}")
+    ordered = sorted(articles, key=lambda code: (code != lang, code))
+    reading = [
+        f"https://{code}.wikipedia.org/wiki/{articles[code].replace(' ', '_')}"
+        for code in ordered
+    ]
     start = (
         f"Start from {' and '.join(reading)} and verify with other sources. "
         if reading
@@ -239,17 +261,39 @@ def ask_lifespan(respond, question) -> dict:
 
 
 def build_timeline(events: list) -> list:
-    """Sorted life events to {from_year, to_year, state} segments."""
-    ordered = sorted(events, key=lambda e: e["year"])
-    states = [(e["year"], _state_after(e["event"], e.get("detail", ""))) for e in ordered]
-    return [
-        {"from_year": year, "to_year": states[i + 1][0] if i + 1 < len(states) else None, "state": state}
-        for i, (year, state) in enumerate(states)
-    ]
+    """Sorted life events to clean {from_year, to_year, state} segments.
+
+    One segment per distinct year (the last event of the year wins);
+    planned-but-prevented changes leave no segment; adjacent equal states
+    merge. Periods never overlap.
+    """
+    by_year: dict = {}
+    for event in sorted(events, key=lambda e: e["year"]):
+        state = _state_after(event["event"], event.get("detail", ""))
+        if state is not None:
+            by_year[event["year"]] = state
+    merged = []
+    for year in sorted(by_year):
+        if merged and merged[-1]["state"] == by_year[year]:
+            continue
+        merged.append({"from_year": year, "to_year": None, "state": by_year[year]})
+    for seg, nxt in zip(merged, merged[1:]):
+        seg["to_year"] = nxt["from_year"]
+    return merged
 
 
-def _state_after(event: str, detail: str = "") -> str:
+def _state_after(event: str, detail: str = "") -> str | None:
     words = set(re.findall(r"[a-z]+", event.lower()))
+    lowered = detail.lower()
+    if re.search(r"\b(prevented|averted|called off)\b", lowered) or (
+        re.search(r"\b(planned|proposed|considered)\b", lowered)
+        and not re.search(r"\b(start|started|began|complete|finished|opened|built|put in)\b", lowered)
+    ):
+        return None  # no change happened; leave no segment
+    if ("tulip" in lowered or "tulp" in lowered) and any(
+        k in words for k in ("decorated", "decoration", "extended", "restored", "beautified")
+    ):
+        return "decorated with tulips"
     for keywords, state in STATE_AFTER:
         if words & set(keywords):
             if state in ("rebuilt", "restored") and re.search(
@@ -258,7 +302,7 @@ def _state_after(event: str, detail: str = "") -> str:
             ):
                 return "under reconstruction"
             return state
-    return f"after: {event}"
+    return event.strip().lower().replace("_", " ") or "stood"
 
 
 def is_weak_source(url: str) -> bool:

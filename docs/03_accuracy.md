@@ -4,7 +4,7 @@
 
 1. Every caption in a film comes from a claim with at least one `url_citation`.
 2. Every claim passes the verification step: the source text must support it. Unsupported claims are dropped, partly supported ones are rewritten to what the source says.
-3. **Source quality.** Encyclopedias (Wikipedia, Wikidata), heritage registers, official sites of the object or its owner or municipality, newspapers, archives and books count as sources. User-written sites (review sites such as Tripadvisor, forums, social media) may confirm a claim but never stand alone as its only source.
+3. **Source quality.** Encyclopedias (Wikipedia, Wikidata), heritage registers, official sites of the object or its owner or municipality, newspapers, archives and books count as sources. User-written and aggregator sites (review sites such as Tripadvisor, place and booking aggregators such as AroundUs and GetYourGuide, forums, social media) may confirm a claim but never stand alone as its only source.
 4. Dates are only as precise as the source. "Around 1850" stays "around 1850".
 5. The source of each caption is shown on screen while it plays (site name) and in full on the end card.
 6. `research.json` keeps every claim, its sources and its verdict, so a film can be checked afterwards.

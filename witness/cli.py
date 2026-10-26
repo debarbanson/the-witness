@@ -20,11 +20,12 @@ def main(argv=None):
         cmd = sub.add_parser(name)
         cmd.add_argument("photo")
         cmd.add_argument("--place", default=None)
+        cmd.add_argument("--lang", default="en")
         cmd.add_argument("--yes", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "identify":
         return cmd_identify(args.photo, place=args.place, yes=args.yes)
-    return cmd_research(args.photo, place=args.place, yes=args.yes)
+    return cmd_research(args.photo, place=args.place, lang=args.lang, yes=args.yes)
 
 
 def cmd_identify(photo, place=None, yes=False):
@@ -48,7 +49,7 @@ def cmd_identify(photo, place=None, yes=False):
     return 0
 
 
-def cmd_research(photo, place=None, yes=False):
+def cmd_research(photo, place=None, lang="en", yes=False):
     try:
         found = identify.identify(photo, place=place, respond=vision_respond)
     except identify.NotIdentifiedError as exc:
@@ -66,10 +67,10 @@ def cmd_research(photo, place=None, yes=False):
 
     claims = []
     if found.qid:
-        facts = research.fetch_facts(found.qid)
+        facts = research.fetch_facts(found.qid, lang=lang)
         claims.extend(research.wikidata_claims(found.qid, facts))
         print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
-    question = research.lifespan_question(found.name, place or "", found.articles)
+    question = research.lifespan_question(found.name, place or "", found.articles, lang=lang)
     answer = research.ask_lifespan(lifespan_respond, question)
     claims.extend(research.assemble_claims(answer["events"], answer["citations"], answer["sources"]))
     print(f"lifespan events: {len(answer['events'])}")
@@ -84,12 +85,20 @@ def cmd_research(photo, place=None, yes=False):
         for lang, title in found.articles.items()
     ]
     all_urls = sorted({u for c in kept for u in c["sources"]} | set(article_urls))
-    evidence = answer["snippets"] + verify.fetch_evidence(all_urls)
-    skipped = [u for u in all_urls if "wikipedia.org" not in u]
-    if skipped:
-        print(f"note: no text fetched for {len(skipped)} non-Wikipedia source(s)")
+    texts = {}
+    for url in all_urls:
+        try:
+            texts[url] = verify.fetch_source_text(url)
+        except Exception as exc:  # noqa: BLE001 - one bad source must not kill the run
+            print(f"note: could not read {url} ({str(exc)[:100]})")
 
     for claim in kept:
+        keywords = verify.keywords_for_claim(claim["claim"], claim.get("event", ""))
+        evidence = list(answer["snippets"])
+        for url, text in texts.items():
+            for para in verify.select_paragraphs(text, claim["year"], keywords, max_paras=3):
+                evidence.append(f"{url}\n{para}")
+        evidence = evidence[:13]
         if not evidence:
             claim.update({"verdict": "unsupported", "quote": "", "rewritten": None,
                           "war_politics_only": False, "note": "no source text"})
@@ -118,6 +127,10 @@ def cmd_research(photo, place=None, yes=False):
         print(f"- {c['year']} [{c['verdict']}] {c['claim'][:120]}")
         for url in c["sources"]:
             print(f"    source: {url}")
+        if c.get("quote"):
+            print(f"    quote: {c['quote'][:150]}")
+        if c.get("url"):
+            print(f"    quote from: {c['url']}")
         if c["verdict"] == "partly" and c.get("rewritten"):
             print(f"    rewritten: {c['rewritten'][:120]}")
     print("\ntimeline:")
@@ -185,7 +198,12 @@ def verify_respond(prompt):
     except models.ModelError as exc:
         print(exc, file=sys.stderr)
         raise SystemExit(1)
-    resp = client.responses.create(model=models.VERIFY.model, input=prompt)
+    resp = client.responses.create(
+        model=models.VERIFY.model,
+        tools=[{"type": "web_search"}],
+        include=["web_search_call.results"],
+        input=prompt,
+    )
     return json.loads(resp.model_dump_json())
 
 

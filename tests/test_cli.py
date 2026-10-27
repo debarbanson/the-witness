@@ -52,6 +52,17 @@ def test_timeline_events_use_rewrite_words_for_partly_claims():
     assert segs[1]["state"]["description"] == "tulips added"
 
 
+def test_compare_verdicts_tallies_agreement():
+    from witness.cli import compare_verdicts
+
+    jobs = [{"claim": "a"}, {"claim": "b"}, {"claim": "c"}]
+    meta = [{"verdict": "supported"}, {"verdict": "supported"}, {"verdict": "unsupported"}]
+    alt = [{"verdict": "supported"}, {"verdict": "unsupported"}, {"verdict": "unsupported"}]
+    compared = compare_verdicts(jobs, meta, alt)
+    assert (compared["agree"], compared["total"]) == (2, 3)
+    assert compared["disagree"] == [{"claim": "b", "meta": "supported", "alt": "unsupported"}]
+
+
 def test_keep_stores_reviewed_research(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module

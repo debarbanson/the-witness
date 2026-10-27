@@ -47,6 +47,13 @@ class VerifyError(Exception):
     """The verify call failed or returned an unusable verdict."""
 
 
+def text_answer(text: str) -> dict:
+    """Plain answer text wrapped as a response, so Chat Completions
+    answers parse through the same contract."""
+    return {"output": [{"type": "message",
+                        "content": [{"type": "output_text", "text": text, "annotations": []}]}]}
+
+
 def verify_claim(respond, claim, snippets) -> dict:
     """Support check: does a passage state this fact? Passages only, no
     web search and no completion question; those are separate calls."""
@@ -189,7 +196,8 @@ def precheck_hit(year, keywords, passages) -> bool:
     return False
 
 
-def judge_claim(support_respond, job, search_respond=None, completion_respond=None) -> dict:
+def judge_claim(support_respond, job, search_respond=None, completion_respond=None,
+              completion=True) -> dict:
     """One claim judged end to end: support vote, second judgement when
     the precheck says evidence is present, completion for state-setting
     claims. Every round is kept in the answer."""
@@ -231,7 +239,7 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
     completed, completion_note = True, None
     event, detail = job.get("event", ""), job.get("detail", "")
     needs_completion = states.classify(event, detail) is not None or states.looks_incomplete(event, detail)
-    if verdict != "unsupported" and needs_completion:
+    if verdict != "unsupported" and needs_completion and completion:
         try:
             completed = check_completion(
                 completion_respond or support_respond, job["claim"], winner.get("quote", "")
@@ -301,14 +309,15 @@ def _slim(rounds) -> list:
 
 
 def judge_all(support_respond, jobs, search_respond=None, completion_respond=None,
-              max_workers=6) -> list:
+              max_workers=6, completion=True) -> list:
     """Judge several claims at once (a failing job becomes unsupported
     with a note instead of killing the run)."""
     from concurrent.futures import ThreadPoolExecutor
 
     def run(job):
         try:
-            return judge_claim(support_respond, job, search_respond, completion_respond)
+            return judge_claim(support_respond, job, search_respond, completion_respond,
+                               completion=completion)
         except VerifyError as exc:
             return {
                 "verdict": "unsupported", "quote": "", "url": None, "support": [],

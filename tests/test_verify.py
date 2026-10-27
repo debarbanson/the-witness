@@ -475,6 +475,20 @@ def test_judge_completion_only_for_state_setting_claims():
     assert len(asked) == 1
 
 
+def test_judge_skips_completion_when_asked():
+    asked = []
+
+    def completion(prompt):
+        asked.append(prompt)
+        return answered_with({"completed": False})
+
+    result = verify.judge_claim(scripted_support("supported"),
+                                job(event="burnt", detail="Burnt down."),
+                                completion_respond=completion, completion=False)
+    assert result["completed"] is True
+    assert asked == []
+
+
 def test_judge_completion_failure_keeps_claim_with_note():
     def completion(prompt):
         raise verify.VerifyError("bad json")
@@ -555,6 +569,13 @@ def test_regression_de_adriaan_states_and_1963_not_completed():
         completion_respond=lambda prompt: answered_with({"completed": False}),
     )
     assert promise["completed"] is False
+
+
+def test_text_answer_wraps_plain_text_as_response():
+    shaped = verify.text_answer('{"verdict": "supported"}')
+    assert shaped["output"][0]["content"][0]["text"] == '{"verdict": "supported"}'
+    result = verify.verify_claim(lambda prompt: shaped, "claim", ["snippet"])
+    assert result["verdict"] == "supported"  # legacy answers without per-source support
 
 
 def test_regression_eiffel_1967_proposal_is_caption_only():

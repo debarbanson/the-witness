@@ -24,6 +24,9 @@ def main(argv=None):
         cmd.add_argument("--lang", default="en")
         cmd.add_argument("--yes", action="store_true")
         cmd.add_argument("--no-cache", action="store_true")
+        if name == "research":
+            cmd.add_argument("--verify-with", default="meta",
+                             choices=("meta", "baseten", "both"))
     keep = sub.add_parser("keep")
     keep.add_argument("slug")
     args = parser.parse_args(argv)
@@ -33,7 +36,8 @@ def main(argv=None):
     if args.command == "keep":
         return cmd_keep(args.slug)
     return cmd_research(args.photo, place=args.place, lang=args.lang,
-                        yes=args.yes, no_cache=args.no_cache)
+                        yes=args.yes, no_cache=args.no_cache,
+                        verify_with=args.verify_with)
 
 
 def cmd_keep(slug):
@@ -80,8 +84,9 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
 SPARES = 4  # extra claims verified outside the draft scenes
 
 
-def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False):
+def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="meta"):
     cache = None if no_cache else Cache("out/cache")
+    models.reset_usage()
     timings = {}
     start = time.perf_counter()
     try:
@@ -189,13 +194,26 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False):
             "year": claim["year"], "keywords": keywords, "passages": evidence[:13],
             "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
         })
+    comparison = None
+    support = baseten_support_respond if verify_with == "baseten" else support_respond
     phase = time.perf_counter()
-    judged = verify.judge_all(support_respond, jobs, search_respond=verify_respond,
+    judged = verify.judge_all(support, jobs, search_respond=verify_respond,
                               completion_respond=support_respond)
+    timings["verify_s"] = round(time.perf_counter() - phase, 1)
+    if verify_with == "both":
+        phase = time.perf_counter()
+        alt = verify.judge_all(baseten_support_respond, jobs, search_respond=verify_respond,
+                               completion=False)
+        timings["verify_alt_s"] = round(time.perf_counter() - phase, 1)
+        comparison = compare_verdicts(jobs, judged, alt)
+        for claim, other in zip(to_check + spares, alt):
+            claim["alt_verdict"] = other["verdict"]
+            claim["alt_rounds"] = other.get("rounds", [])
+        print(f"agreement: {comparison['agree']}/{comparison['total']} "
+              f"(meta vs baseten support)")
     for claim, result in zip(to_check + spares, judged):
         claim.update(result)
         claim["war_politics_only"] = claim["war_politics_only"] or bool(verify.flag_content(claim["claim"]))
-    timings["verify_s"] = round(time.perf_counter() - phase, 1)
 
     verified = [c for c in kept if c["verdict"] == "supported" or (c["verdict"] == "partly" and c["rewritten"])]
     timeline = research.build_timeline(timeline_events(verified))
@@ -231,6 +249,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False):
     out_dir.mkdir(parents=True, exist_ok=True)
     timings["total_s"] = round(time.perf_counter() - start, 1)
     print(f"timings (s): {json.dumps(timings)}")
+    tokens = models.usage_totals()
+    print(f"tokens: {json.dumps(tokens)}")
     (out_dir / "research.json").write_text(
         json.dumps(
             {
@@ -241,6 +261,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False):
                 "scenes": chosen,
                 "outcome": result,
                 "timings": timings,
+                "tokens": tokens,
+                "comparison": comparison,
             },
             indent=2,
             ensure_ascii=False,
@@ -286,6 +308,16 @@ def _votes_for(claim, detail, anchor_year=None) -> int:
     if states.classify(claim.get("event", "stood"), detail) is not None:
         return 3
     return 1
+
+
+def compare_verdicts(jobs, primary, alt) -> dict:
+    """Agreement between two providers judging identical jobs."""
+    disagree = [
+        {"claim": job["claim"][:120], "meta": mine["verdict"], "alt": other["verdict"]}
+        for job, mine, other in zip(jobs, primary, alt)
+        if mine["verdict"] != other["verdict"]
+    ]
+    return {"agree": len(jobs) - len(disagree), "total": len(jobs), "disagree": disagree}
 
 
 def slug_for(name, qid, articles) -> str:
@@ -341,6 +373,15 @@ def support_respond(prompt):
         input=prompt,
     )
     return json.loads(resp.model_dump_json())
+
+
+def baseten_support_respond(prompt):
+    resp = models.chat(
+        _respond_for(models.VERIFY_OPEN),
+        models.VERIFY_OPEN,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return verify.text_answer(models.chat_answer(resp)["content"])
 
 
 def verify_respond(prompt):

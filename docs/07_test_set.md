@@ -740,3 +740,79 @@ above). Open: P11 (quote preference), P13, P14, plus the
 crown/regalia contents edge and claim splitting for
 burials. Painting blockers: none that silently mistates;
 the open items cost scenes or retries, not false eras.
+
+## Block 1: deterministic fast verify (28 October)
+
+All 12 re-ran with the cache off on the Block 1 code (literal-quote
+fast path, Wikidata build anchor, film-order check): 11 full films,
+1 short film (water tower), zero failures after the re-runs. Two runs
+first came back not_identified and one crashed; all three causes are
+fixed (see below). Per-object logs `out/testset/*-b1.log`
+(git-ignored). v, e, g are verified claims, eras, good sources.
+
+| Object | Outcome | Ident | Facts | Resrch | Fetch | Verify | Total | Story |
+|---|---|---|---|---|---|---|---|---|
+| biosphere | full (9v, 8e, 5g) | 12.9 | 0.7 | 36.1 | 4.8 | 41.4 | 95.9 | 83.0 |
+| brooklyn-bridge | full (15v, 15e, 6g) | 16.9 | 0.9 | 50.9 | 8.2 | 57.1 | 134.1 | 117.2 |
+| christ-redeemer | full (12v, 8e, 7g) | 19.8 | 0.9 | 39.0 | 6.7 | 74.4 | 140.9 | 121.1 |
+| de-adriaan | full (13v, 11e, 3g) | 13.3 | 0.7 | 39.5 | 5.3 | 77.1 | 135.9 | 122.6 |
+| djenne-mosque | full (8v, 7e, 4g) | 15.5 | 0.7 | 36.1 | 4.0 | 105.0 | 161.2 | 145.7 |
+| eiffel-tower | full (17v, 17e, 5g) | 19.0 | 1.0 | 58.9 | 6.5 | 58.7 | 144.1 | 125.1 |
+| kintai-bridge | full (7v, 5e, 4g) | 19.1 | 0.7 | 46.0 | 90.7 | 50.2 | 206.7 | 187.6 |
+| major-oak | full (7v, 7e, 7g) | 13.1 | 0.7 | 28.1 | 5.4 | 62.8 | 110.1 | 97.0 |
+| raffles-hotel | full (11v, 7e, 5g) | 14.0 | 0.8 | 46.0 | 5.8 | 64.8 | 131.3 | 117.3 |
+| rubjerg-knude | full (8v, 6e, 6g) | 21.6 | 0.5 | 36.4 | 5.7 | 46.2 | 110.4 | 88.8 |
+| sydney-opera | full (11v, 9e, 10g) | 13.0 | 0.9 | 30.6 | 17.3 | 30.4 | 92.2 | 79.2 |
+| tower | short (4v, 4e, 2g) | 22.1 | 0.5 | 43.9 | 0.5 | 46.7 | 113.8 | 91.7 |
+
+Fast paths decided 61 of 159 checked claims (38%) without a vote,
+ranging from 0 of 7 (tower) to 10 of 18 (brooklyn). Verify wall time
+moved from 43 to 132 s down to 30 to 105 s: the fast claims finish
+early but the parallel tail (three-vote state claims, completion
+checks, second judgements) still sets the time. Wrong-object count
+is 0; every identified object was the right one.
+
+Identify met 15 s on 5 of 12 (biosphere, de-adriaan, major-oak,
+raffles, sydney) with djenne near at 15.5 s; vision plus the second
+look dominate, with busy-backend retries adding up to 10 s on the
+bad runs. The 60 s story target was missed on all 12 in batch mode
+(79 to 188 s); research plus verify dominate now that fetch is
+bounded (kintai fetch 90.7 s on two hung articles is the outlier:
+bounded by workers, not fixed). Streaming answers with new
+measures instead (Block 2, below).
+
+### What the batch exposed (fixed)
+
+Busy search backend. Six runs (rubjerg, eiffel, two tower and two
+De Adriaan v-runs) came back not_identified with fast, empty answers
+from both geosearch APIs. Live probes caught the cause: the APIs
+return `cirrussearch-too-busy-error` (HTTP 200, failing about 60%
+of rapid calls that evening), which mediawiki_get raised at once
+instead of retrying. The code joins the retried API codes with a
+5 s backoff, nearby fetches get three tries, and source failures
+print as notes so they are never silent again.
+
+Duplicate claims crashed research. The Eiffel re-run died with
+KeyError 'verdict': two identical claim dicts meant the second
+landed in neither check list (value-equality guards). keep_quality
+now drops exact duplicates; the same claim twice is one claim.
+
+### Stability on the new metric (eras, conditions, scene years)
+
+De Adriaan is stable 3 for 3 on current code (v1, v3, v4 scenes
+identical: 1779, 1865 rebuilt, 1920, 1932 ruin, 1999
+under_construction, 2002 rebuilt, today). The water tower is not:
+short, short, full, too_little across b1, v1, v2, v3 with 2 to 5
+verified claims and different scene sets, including Dutch scene
+labels ("sinds 1986", "momenteel") under --lang en in v1 and a
+"1931 to 1932" build range in v3. Few-claim objects flap hardest:
+one verdict flipping moves the outcome.
+
+### Block 2: streaming (De Adriaan, cache off, timed)
+
+Opening card at 18.2 s (right after identify plus facts; it waited
+on research at 79.1 s before the reorder), first scene verified at
+80.0 s, film ready at 162.7 s. Scenes number in film order. The
+card time is identify-bound (vision twice plus busy retries on bad
+runs); speculative confirm overlaps research with the user's
+hesitation only in interactive mode.

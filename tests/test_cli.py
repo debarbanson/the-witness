@@ -384,3 +384,32 @@ def test_cli_progress_prints_source_errors_as_notes(capsys):
     out = capsys.readouterr().out
     assert "note: wikidata failed: busy backend" in out
     assert "verifying" not in out
+
+
+def test_film_facts_returns_anchor_without_research(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from witness import cli as cli_module
+    from witness import research as research_module
+
+    monkeypatch.setattr(research_module, "fetch_facts",
+                        lambda *a, **k: {"facts": [{"p": 1}]})
+    monkeypatch.setattr(research_module, "wikidata_claims",
+                        lambda qid, facts: [{"year": 1779, "anchor": "build"}])
+    found = SimpleNamespace(qid="Q1", country_code="nl")
+    timings = {}
+    first = cli_module.film_facts(found, "en", None, timings)
+    assert first["build_anchor_year"] == 1779
+    assert first["claims"] == [{"year": 1779, "anchor": "build"}]
+    assert "facts_s" in timings
+    out = capsys.readouterr().out
+    assert "build anchor: 1779 fixed by Wikidata" in out
+
+
+def test_film_facts_without_qid_has_no_anchor(capsys):
+    from types import SimpleNamespace
+    from witness.cli import film_facts
+
+    found = SimpleNamespace(qid=None, country_code=None)
+    first = film_facts(found, "en", None, {})
+    assert first["build_anchor_year"] is None
+    assert first["claims"] == []

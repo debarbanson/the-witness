@@ -67,6 +67,11 @@ def newly_ready_scenes(draft, judged_years, to_check_years, emitted):
             and s["from_year"] not in emitted]
 
 
+def scene_numbers(draft) -> dict:
+    """Scene numbers follow film order, never completion order."""
+    return {s["from_year"]: n for n, s in enumerate(draft, 1)}
+
+
 def buffer_ready(scenes_total, scenes_ready, elapsed, scene_seconds=7):
     """Playback starts when the remaining build fits in the play time.
 

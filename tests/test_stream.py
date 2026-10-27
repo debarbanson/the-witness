@@ -89,3 +89,8 @@ def test_declined_speculation_discards_the_result():
 
     confirmed, result = stream.confirm_speculative("Is this X?", begin, decide)
     assert (confirmed, result) == (False, None)
+
+
+def test_scene_numbers_follow_film_order_not_completion():
+    draft = [{"from_year": 1779}, {"from_year": 1920}, {"from_year": "today"}]
+    assert stream.scene_numbers(draft) == {1779: 1, 1920: 2, "today": 3}

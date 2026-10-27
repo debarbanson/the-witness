@@ -160,17 +160,9 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     support = baseten_support_respond if verify_with == "baseten" else support_respond
     workers = models.VERIFY_OPEN.workers if verify_with == "baseten" else models.VERIFY.workers
 
-    def gather():
-        phase = time.perf_counter()
-        facts = (research.fetch_facts(found.qid, None, time.sleep, lang, cache,
-                                      found.country_code)
-                 if found.qid else {"facts": []})
-        timings["facts_s"] = round(time.perf_counter() - phase, 1)
-        claims = research.wikidata_claims(found.qid, facts) if found.qid else []
-        print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
-        build_anchor_year = next((c["year"] for c in claims if c.get("anchor") == "build"), None)
-        if build_anchor_year is not None:
-            print(f"build anchor: {build_anchor_year} fixed by Wikidata")
+    def gather_rest(first):
+        claims = first["claims"]
+        build_anchor_year = first["build_anchor_year"]
         phase = time.perf_counter()
         question = research.lifespan_question(
             found.name, place or "", found.articles,
@@ -198,8 +190,21 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         jobs = build_jobs(to_check, fetched.texts, answer["snippets"], anchor_year)
         return {"kept": kept, "to_check": to_check, "pool": pool, "draft": draft, "jobs": jobs}
 
+    def gather():
+        return gather_rest(film_facts(found, lang, cache, timings))
+
+    def show_card(claims):
+        card = stream.opening_card(found.name, found.kind, claims, photo)
+        filmed.emit("opening_card", card)
+        print(f"\n---\n{card['name']} ({card['kind']})", flush=True)
+        if card["text"]:
+            print(card["text"])
+        print("---", flush=True)
+
     if yes:
-        gathered = gather()
+        first = film_facts(found, lang, cache, timings)
+        show_card(first["claims"])
+        gathered = gather_rest(first)
     else:
         before = models.usage_totals()
 
@@ -214,24 +219,20 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                 v.get("total_tokens", 0) for v in before.values())
             print(f"not confirmed; speculative work discarded (cost: {spent} tokens)")
             return 2
-    card = stream.opening_card(found.name, found.kind, gathered["kept"], photo)
-    filmed.emit("opening_card", card)
-    print(f"\n---\n{card['name']} ({card['kind']})")
-    if card["text"]:
-        print(card["text"])
-    print("---")
+        show_card(gathered["kept"])
 
     def emit_scene(scene_no, scene):
         filmed.emit("scene_verified", {"scene": scene_no, "year": scene["from_year"],
                                        "date_label": scene.get("date_label")})
-        print(f"Scene {scene_no} ({scene.get('date_label', scene['from_year'])}) verified")
+        print(f"Scene {scene_no} ({scene.get('date_label', scene['from_year'])}) verified",
+              flush=True)
 
     phase = time.perf_counter()
     to_check, draft, jobs = gathered["to_check"], gathered["draft"], gathered["jobs"]
     judged_years: list = []
     emitted: set = set()
     to_check_years = [c["year"] for c in to_check]
-    scene_no = 0
+    numbers = stream.scene_numbers(draft)
     for index, result in verify.judge_stream(support, jobs, search_respond=verify_respond,
                                              completion_respond=support,
                                              max_workers=workers, progress=progress):
@@ -242,8 +243,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         judged_years.append(claim["year"])
         for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years, emitted):
             emitted.add(scene["from_year"])
-            scene_no += 1
-            emit_scene(scene_no, scene)
+            emit_scene(numbers[scene["from_year"]], scene)
     fast = sum(1 for c in to_check if c.get("fast_path"))
     if fast:
         print(f"fast paths: {fast} of {len(to_check)} decided without a vote")
@@ -520,6 +520,22 @@ def _show_state(state: dict) -> str:
     if state.get("description"):
         shown += f": {state['description'][:80]}"
     return shown
+
+
+def film_facts(found, lang, cache, timings) -> dict:
+    """Wikidata facts and the build anchor: everything the opening card
+    needs, before research starts."""
+    phase = time.perf_counter()
+    facts = (research.fetch_facts(found.qid, None, time.sleep, lang, cache,
+                                  found.country_code)
+             if found.qid else {"facts": []})
+    timings["facts_s"] = round(time.perf_counter() - phase, 1)
+    claims = research.wikidata_claims(found.qid, facts) if found.qid else []
+    print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
+    build_anchor_year = next((c["year"] for c in claims if c.get("anchor") == "build"), None)
+    if build_anchor_year is not None:
+        print(f"build anchor: {build_anchor_year} fixed by Wikidata")
+    return {"facts": facts, "claims": claims, "build_anchor_year": build_anchor_year}
 
 
 def keep_quality(claims) -> list:

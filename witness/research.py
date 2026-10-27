@@ -244,7 +244,10 @@ def lifespan_question(name, place, articles, read_langs=("en",)) -> str:
         "event did not change what the object looks like. When the sources "
         "give only a vague date, put it in date_text (for example 'in the "
         "1960s' or 'about 800 years old') and give your best year for "
-        "sorting. State only what the sources say. Do not narrate "
+        "sorting only. When the sources give an age or date as a range, "
+        "keep the range as stated in date_text (for example 'between 800 "
+        "and 1,200 years old'); never collapse a range to one precise "
+        "year. State only what the sources say. Do not narrate "
         "your steps; answer with the JSON object only."
     )
 
@@ -286,6 +289,8 @@ def build_timeline(events: list) -> list:
     identical states merge. Periods never overlap.
     """
     by_year: dict = {}
+    detail_of: dict = {}
+    label_of: dict = {}
     previous = None
     for event in sorted(events, key=lambda e: e["year"]):
         if event.get("verdict", "supported") != "supported":
@@ -298,14 +303,26 @@ def build_timeline(events: list) -> list:
         )
         if state is not None:
             by_year[event["year"]] = state
+            detail_of[event["year"]] = event.get("detail", "")
+            label_of[event["year"]] = states.date_label(
+                event.get("date_text", ""), event["year"])
             previous = state["condition"]
     merged = []
     for year in sorted(by_year):
         if merged and merged[-1]["state"] == by_year[year]:
             continue
-        merged.append({"from_year": year, "to_year": None, "state": by_year[year]})
+        merged.append({"from_year": year, "to_year": None, "state": by_year[year],
+                       "date_label": label_of[year]})
     for seg, nxt in zip(merged, merged[1:]):
         seg["to_year"] = nxt["from_year"]
+    for seg, nxt in zip(merged, [*merged[1:], None]):
+        flag = states.check_span(
+            seg["state"]["condition"], seg["from_year"], seg["to_year"],
+            detail_of.get(seg["from_year"], ""),
+            nxt["state"]["condition"] if nxt else None,
+        )
+        if flag is not None:
+            seg["flag"] = flag
     return merged
 
 

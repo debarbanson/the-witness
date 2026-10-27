@@ -35,7 +35,7 @@ def test_votes_for_build_anchor_and_state_setting_claims():
     assert _votes_for({"event": "renamed", "year": 1900}, "Renamed.", 1779) == 1
 
 
-def test_timeline_events_use_rewrite_words_for_partly_claims():
+def test_timeline_events_keep_event_for_partly_claims():
     from witness import research
     from witness.cli import timeline_events
 
@@ -51,11 +51,82 @@ def test_timeline_events_use_rewrite_words_for_partly_claims():
          "rewritten": "The project was proposed in 1920.",
          "completed": True, "visible_change": ""},
     ])
-    assert events[1]["event"] == "" and "tulips" in events[1]["detail"]
+    assert events[1]["event"] == "restored" and "tulips" in events[1]["detail"]
     segs = research.build_timeline(events)
     assert [(s["from_year"], s["state"]["condition"]) for s in segs] == [
         (1932, "standing"), (1986, "standing")]
     assert segs[1]["state"]["description"] == "tulips added"
+
+
+def test_partly_reopening_after_fire_is_rebuilt_never_burnt():
+    """De Adriaan 2002: context words ("70 years after fire") never set it."""
+    from witness import research
+    from witness.cli import timeline_events
+
+    events = timeline_events([
+        {"year": 1999, "event": "rebuilt", "verdict": "partly",
+         "quote_span": "Rebuild started.", "rewritten": "Rebuilding started April 1999.",
+         "completed": True, "visible_change": ""},
+        {"year": 2002, "event": "rebuilt", "verdict": "partly",
+         "quote_span": "Reopened.",
+         "rewritten": "Rebuilt Adriaan reopened 23 April 2002, exactly 70 years "
+                      "after fire, on original foundations.",
+         "completed": True, "visible_change": "full windmill back on skyline"},
+    ])
+    segs = research.build_timeline(events)
+    assert [(s["from_year"], s["state"]["condition"]) for s in segs] == [
+        (1999, "under_construction"), (2002, "rebuilt")]
+
+
+def test_partly_re_erection_after_flood_is_rebuilt_never_ruin():
+    """Kintai 1674: destruction stated plus rebuild is genuine, not a facelift."""
+    from witness import research
+    from witness.cli import timeline_events
+
+    events = timeline_events([
+        {"year": 1673, "event": "built", "verdict": "supported",
+         "quote_span": "Built in 1673.", "completed": True, "visible_change": ""},
+        {"year": 1674, "event": "rebuilt", "verdict": "partly",
+         "quote_span": "Rebuilt.",
+         "rewritten": "The bridge was destroyed by a flood and was rebuilt in "
+                      "1674 with improvements.",
+         "completed": True, "visible_change": "bridge re-erected"},
+    ])
+    segs = research.build_timeline(events)
+    assert [(s["from_year"], s["state"]["condition"]) for s in segs] == [
+        (1673, "standing"), (1674, "rebuilt")]
+
+
+def test_partly_build_finished_and_lit_is_standing():
+    """Rubjerg 1899: first lighting is operational completion, not 54 years on site."""
+    from witness import research
+    from witness.cli import timeline_events
+
+    events = timeline_events([
+        {"year": 1899, "event": "built", "verdict": "partly",
+         "quote_span": "Built.",
+         "rewritten": "Construction began in 1899 on a lighthouse; light first "
+                      "turned on 27 December 1900.",
+         "completed": True, "visible_change": "new lighthouse built"},
+    ])
+    (seg,) = research.build_timeline(events)
+    assert (seg["from_year"], seg["state"]["condition"]) == (1899, "standing")
+
+
+def test_removed_barracks_is_caption_not_demolished_tower():
+    """Belem 1845: a gone ancillary part never demolishes the object."""
+    from witness import research
+    from witness.cli import timeline_events
+
+    events = timeline_events([
+        {"year": 1514, "event": "built", "verdict": "supported",
+         "quote_span": "Built in 1514.", "completed": True, "visible_change": ""},
+        {"year": 1845, "event": "demolished", "verdict": "supported",
+         "quote_span": "The engineer demolished the Philippine barracks.",
+         "completed": True, "visible_change": "barracks removed"},
+    ])
+    (seg,) = research.build_timeline(events)
+    assert (seg["from_year"], seg["state"]["condition"]) == (1514, "standing")
 
 
 def test_compare_verdicts_tallies_agreement():

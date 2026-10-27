@@ -248,12 +248,15 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
             print(f"    rewritten: {c['rewritten'][:120]}")
     print("\nscenes:")
     for s in chosen:
-        print(f"- {s['from_year']}: {_show_state(s['state'])} ({s['reason']})")
+        flagged = f" [FLAG: {s['flag']}]" if s.get("flag") else ""
+        print(f"- {s.get('date_label', s['from_year'])}: {_show_state(s['state'])} ({s['reason']}){flagged}")
         for line in s["caption_lines"]:
             print(f"    line: {line['line'][:100]}")
     print("\ntimeline:")
     for seg in timeline:
-        print(f"- {seg['from_year']} to {seg['to_year']}: {_show_state(seg['state'])}")
+        flagged = f" [FLAG: {seg['flag']}]" if seg.get("flag") else ""
+        print(f"- {seg.get('date_label', seg['from_year'])} to {seg['to_year']}: "
+              f"{_show_state(seg['state'])}{flagged}")
     print(f"\noutcome: {result['outcome']} ({result['reason']}; "
           f"{result['verified']} verified, {result['eras']} eras, {result['good_sources']} good sources)")
 
@@ -297,17 +300,19 @@ def _show_state(state: dict) -> str:
 
 
 def timeline_events(verified) -> list:
-    """Verified claims become timeline events. Partly claims count only
-    through their rewrite, classified on the rewrite's own words."""
+    """Verified claims become timeline events. A completed partly claim
+    keeps its event: the rewrite narrows the wording, and context words
+    in it never set the condition."""
     events = []
     for c in verified:
         if c["verdict"] == "partly" and c.get("rewritten"):
-            event, detail = "", c["rewritten"]
+            detail = c["rewritten"]
         else:
-            event, detail = c.get("event", "stood"), c.get("quote_span") or c["claim"]
-        events.append({"year": c["year"], "event": event, "detail": detail,
+            detail = c.get("quote_span") or c["claim"]
+        events.append({"year": c["year"], "event": c.get("event", "stood"), "detail": detail,
                        "completed": c.get("completed", True), "verdict": "supported",
-                       "visible_change": c.get("visible_change", "")})
+                       "visible_change": c.get("visible_change", ""),
+                       "date_text": c.get("date_text", "")})
     return events
 
 

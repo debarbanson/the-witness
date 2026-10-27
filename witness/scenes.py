@@ -17,9 +17,11 @@ def choose_scenes(timeline, claims, limit=LIMIT):
         {
             "from_year": seg["from_year"],
             "to_year": seg.get("to_year"),
+            "date_label": seg.get("date_label", str(seg["from_year"])),
             "state": seg["state"],
             "reason": _reason(seg["state"]),
             "caption_lines": [],
+            **({"flag": seg["flag"]} if seg.get("flag") else {}),
         }
         for seg in picked
     ]
@@ -39,6 +41,7 @@ def choose_scenes(timeline, claims, limit=LIMIT):
             {
                 "from_year": year,
                 "to_year": None,
+                "date_label": str(year),
                 "state": _state_at(timeline, year),
                 "reason": f"{counts[year]} verified surroundings claims",
                 "caption_lines": [],
@@ -54,6 +57,7 @@ def choose_scenes(timeline, claims, limit=LIMIT):
         {
             "from_year": "today",
             "to_year": None,
+            "date_label": "today",
             "state": {"condition": "standing", "degree": "total",
                       "scope": "whole", "description": ""},
             "reason": "closing on the user's photo",

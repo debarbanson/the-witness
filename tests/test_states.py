@@ -226,3 +226,66 @@ def test_non_visible_history_is_caption_only(event, detail):
 )
 def test_format_wikidate_uses_precision(time, precision, expected):
     assert states.format_wikidate(time, precision) == expected
+
+
+def test_rebuild_after_standing_with_destruction_stated_is_rebuild():
+    found = classify("rebuilt", "The bridge was destroyed by a flood and was "
+                     "rebuilt in 1674 with improvements.", previous="standing")
+    assert found["condition"] == "rebuilt"
+
+
+def test_first_lighting_is_operational_completion():
+    found = classify("built", "Construction began in 1899; light first turned "
+                     "on 27 December 1900.")
+    assert found["condition"] == "standing"
+    found = classify("built", "Tower finished; first lit on 1 May 1901.")
+    assert found["condition"] == "standing"
+
+
+def test_last_lighting_is_not_completion():
+    found = classify("built", "Construction began in 1899; light lit for last "
+                     "time in 1968.")
+    assert found["condition"] == "under_construction"
+
+
+def test_ancillary_buildings_are_parts():
+    assert states.scope_of("demolished", "Demolished the barracks.") == "part"
+    assert states.classify("demolished", "Demolished the barracks.") is None
+    assert states.classify("demolished", "Pulled down in 1960.") is not None
+
+
+@pytest.mark.parametrize(
+    "condition,from_year,to_year,claim,next_condition,flagged",
+    [
+        ("standing", 1932, 1986, "Built in 1932.", "standing", False),
+        ("rebuilt", 2002, None, "Reopened in 2002.", None, False),
+        ("under_construction", 1959, 1973, "Built in four stages.", "standing", False),
+        ("under_construction", 1899, 1953, "Construction began in 1899.",
+         "demolished", True),
+        ("ruin", 1932, 1999, "Burnt down in 1932.", "under_construction", False),
+        ("ruin", 1674, 1950, "Bridge re-erected in 1674.", "ruin", True),
+        ("burnt", 1976, 1990, "Covering burned away.", "standing", False),
+        ("burnt", 1900, 1960, "Burnt in 1900.", "standing", True),
+        ("damaged", 1901, 1981, "Cables broken.", "damaged", True),
+        ("ruin", 1900, 1980, "Stood in ruins for 80 years.", "standing", False),
+    ],
+)
+def test_implausible_spans_flagged(condition, from_year, to_year, claim,
+                                  next_condition, flagged):
+    found = states.check_span(condition, from_year, to_year, claim, next_condition)
+    assert (found is not None) == flagged
+
+
+@pytest.mark.parametrize(
+    "date_text,year,expected",
+    [
+        ("", 1908, "1908"),
+        ("in 1908", 1908, "1908"),
+        ("in the 1960s", 1965, "the 1960s"),
+        ("between 800 and 1,200 years old", 1026, "about 800 to 1,200 years old"),
+        ("between 400 and 500 years old", 1576, "about 400 to 500 years old"),
+        ("in the 11th century", 1026, "the 11th century"),
+    ],
+)
+def test_date_label_prefers_ranges_over_sort_year(date_text, year, expected):
+    assert states.date_label(date_text, year) == expected

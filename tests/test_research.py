@@ -403,3 +403,30 @@ def test_lifespan_schema_asks_visible_change_and_vague_date():
     question = research.lifespan_question("Oak", "Town", {})
     assert "visible" in question.lower()
     assert "date_text" in question or "vague date" in question.lower()
+
+
+def test_lifespan_question_asks_ranges_as_ranges():
+    question = research.lifespan_question("Oak", "Town", {})
+    assert "range" in question.lower()
+    assert "800" in question and "1,200" in question
+
+
+def test_build_timeline_flags_implausible_span():
+    events = [
+        {"year": 1899, "event": "construction",
+         "detail": "Construction began in 1899.", "visible_change": ""},
+        {"year": 1953, "event": "demolished",
+         "detail": "Foghorn taken down.", "visible_change": "foghorn removed"},
+    ]
+    segs = research.build_timeline(events)
+    assert segs[0]["flag"] is not None
+    assert "flag" not in segs[1] or segs[1].get("flag") is None
+
+
+def test_build_timeline_carries_date_label():
+    events = [
+        {"year": 1026, "event": "built", "detail": "Old tree.",
+         "date_text": "between 800 and 1,200 years old"},
+    ]
+    (seg,) = research.build_timeline(events)
+    assert seg["date_label"] == "about 800 to 1,200 years old"

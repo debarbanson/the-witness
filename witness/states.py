@@ -58,6 +58,7 @@ INTERIOR = (
 ATTACHED_PART = (
     "wing", "vleugel", "branch", "deck", "track", "rail", "cable",
     "span", "roadway", "chimney", "lift", "elevator", "escalator", "staircase",
+    "barracks", "barrack", "stables",
 )
 DESTRUCTIVE_WORDS = (
     "demolish", "destroy", "burn", "damage", "remove", "torn down",
@@ -124,6 +125,8 @@ CONSTRUCTIVE_EVENTS = (EVENT_ALTER + EVENT_RESTORE + EVENT_STANDING
 STANDING_WORDS = (
     "built", "opened", "completed", "inaugurated", "finished", "erected",
     "unveiled", "end of construction", "taken into use", "in use",
+    "taken into service", "in service", "first lit", "lit for the first time",
+    "first turned on",
     "gebouwd", "geopend", "voltooid", "opgericht", "opgeleverd", "onthuld",
 )
 RESTORE_WORDS = (
@@ -180,12 +183,24 @@ def _constructing(text: str) -> bool:
     return "construction" in text and bool(re.search(r"\bbeg[au]n\b|\bstarted\b", text))
 
 
+def _destruction_stated(text: str) -> bool:
+    """Unnegated destruction words: the change follows real damage."""
+    for words in (RUIN_WORDS, DEMOLISH_WORDS, DAMAGE_WORDS, FIRE_WORDS):
+        hit = _has(text, words)
+        if hit and not _negated(text, hit):
+            return True
+    return False
+
+
 def looks_incomplete(event: str, detail: str = "", visible_change: str = "") -> bool:
     """The text raises doubt: planned, promised or failed change without
-    completion words. Completion is asked exactly then."""
+    completion words. Completion is asked exactly then. Completion must
+    come from what the sources say (detail), never from the event label
+    vouching for itself."""
     text = f"{event} {detail} {visible_change}".lower()
+    said = f"{detail} {visible_change}".lower()
     incomplete = _has(text, INCOMPLETE_WORDS)
-    return bool(incomplete) and not _negated(text, incomplete) and not _has(text, COMPLETION_WORDS)
+    return bool(incomplete) and not _negated(text, incomplete) and not _has(said, COMPLETION_WORDS)
 
 
 def scope_of(event: str, detail: str = "") -> str:
@@ -247,7 +262,8 @@ def classify(event: str, detail: str = "", visible_change: str = "",
     if words & set(EVENT_REBUILD):
         if _has(text, START_WORDS):
             return state("under_construction")
-        if previous == "standing" and not _has(text, COMPLETED_WORDS):
+        if (previous == "standing" and not _has(text, COMPLETED_WORDS)
+                and not _destruction_stated(text)):
             return state("standing")  # a facelift, not a rebuild after ruin
         return state("rebuilt")
     if words & set(EVENT_MOVE):
@@ -322,3 +338,59 @@ def format_wikidate(time_value: str, precision: int) -> str:
     if precision < 7:
         return f"around {year}"
     return f"in {year}"
+
+
+# A transient state spanning longer than this is flagged and re-checked,
+# never painted silently. Ruins and damage clear when the next segment
+# corroborates the span (reconstruction follows the ruin); construction
+# and fire clear only when the claim itself states the span.
+SPAN_LIMITS = {
+    "under_construction": 30,
+    "ruin": 50,
+    "burnt": 20,
+    "damaged": 50,
+}
+SPAN_SUCCESSORS = {
+    "ruin": ("under_construction", "rebuilt", "standing"),
+    "damaged": ("standing", "rebuilt", "under_construction"),
+}
+
+
+def _span_stated(claim_text: str, duration: int) -> bool:
+    """The claim states a span covering the segment ("for 80 years")."""
+    for match in re.finditer(r"([\d,]+)\s*(?:-\s*)?years?\b", claim_text.lower()):
+        if int(match.group(1).replace(",", "")) >= duration * 0.7:
+            return True
+    for match in re.finditer(r"\b(?:for|took|over)\s+([\d,]+)\b", claim_text.lower()):
+        if int(match.group(1).replace(",", "")) >= duration * 0.7:
+            return True
+    return False
+
+
+def check_span(condition: str, from_year, to_year, claim_text: str = "",
+             next_condition: str | None = None) -> str | None:
+    """Flag an implausibly long transient state, or None when it reads true."""
+    limit = SPAN_LIMITS.get(condition)
+    if limit is None or to_year is None:
+        return None
+    duration = to_year - from_year
+    if duration <= limit:
+        return None
+    if _span_stated(claim_text or "", duration):
+        return None
+    if next_condition in SPAN_SUCCESSORS.get(condition, ()):
+        return None
+    return f"{condition} spans {duration} years, longer than the claim supports"
+
+
+def date_label(date_text: str, year: int) -> str:
+    """Display date: the range or vague phrase when one is given, else the year."""
+    text = (date_text or "").strip()
+    if not text:
+        return str(year)
+    ranged = re.match(r"between (.+) and (.+)", text)
+    if ranged:
+        return f"about {ranged.group(1)} to {ranged.group(2)}"
+    if text.lower().startswith("in "):
+        text = text[3:]
+    return text or str(year)

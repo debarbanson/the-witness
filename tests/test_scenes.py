@@ -79,3 +79,13 @@ def test_caption_lines_prefer_vague_date_text():
     lines = [line for s in scenes.choose_scenes(timeline, claims) for line in s["caption_lines"]]
     assert len(lines) == 1
     assert lines[0]["line"].startswith("about 800 years old")
+
+
+def test_scenes_carry_date_label_and_flag():
+    timeline = [seg(1026, 1908, "standing", "old tree")]
+    timeline[0]["date_label"] = "about 800 to 1,200 years old"
+    timeline[0]["flag"] = "implausible span"
+    (first, today) = scenes.choose_scenes(timeline, [])
+    assert first["date_label"] == "about 800 to 1,200 years old"
+    assert first["flag"] == "implausible span"
+    assert today["date_label"] == "today"

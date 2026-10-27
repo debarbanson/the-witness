@@ -197,6 +197,106 @@ def precheck_hit(year, keywords, passages) -> bool:
     return False
 
 
+QUOTE_MARKS = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"',
+    "\u00ab": '"', "\u00bb": '"',
+})
+
+
+def normalise_text(text: str) -> str:
+    """Whitespace runs collapse, curly quotes go straight, ends trimmed."""
+    return re.sub(r"\s+", " ", (text or "").translate(QUOTE_MARKS)).strip()
+
+
+ANCHOR_BUILT_WORDS = frozenset({
+    # Construction and opening words; uncovered languages fall back to a vote.
+    "built", "erected", "constructed", "completed", "finished", "opened",
+    "inaugurated", "unveiled", "founded", "established",
+    "gebouwd", "opgericht", "voltooid", "opgeleverd", "geopend", "onthuld",
+    "ingewijd", "gesticht",
+    "erbaut", "errichtet", "gebaut", "fertiggestellt", "vollendet", "eröffnet",
+    "eingeweiht", "enthüllt", "gegründet",
+    "construit", "édifié", "bâti", "achevé", "terminé", "inauguré", "ouvert",
+    "fondé",
+    "construido", "edificado", "terminado", "completado", "inaugurado",
+    "abierto", "fundado",
+    "construït", "edificat", "acabat", "terminat", "inaugurat", "obert",
+    "fundat",
+    "costruito", "edificato", "completato", "terminato", "inaugurato",
+    "aperto", "fondato",
+    "construído", "edificado", "concluído", "terminado", "inaugurado",
+    "aberto", "fundado",
+    "bygget", "opført", "færdig", "åbnet", "indviet", "grundlagt", "stiftet",
+    "byggd", "uppförd", "färdig", "öppnad", "invigd", "grundad",
+})
+
+ANCHOR_REJECT_STEMS = (
+    "rebuil", "reconstruct", "restor", "renov", "reopen", "repair",
+    "re-erect", "herbouw", "wederopbouw", "wiederaufbau", "restaur",
+    "reconstru", "ricostru", "genopbyg", "återuppbygg",
+)
+
+
+def _fetched_para(passage: str):
+    """Split a fetched "url\\nparagraph" passage; None for snippets."""
+    if "\n" not in passage:
+        return None
+    url, _, para = passage.partition("\n")
+    if urlparse(url or "").scheme not in ("http", "https") or " " in url:
+        return None
+    return url, para
+
+
+def anchor_hit(passages, year):
+    """A sentence pairing the anchor year with a construction word, from
+    the best-ranked fetched source. Weak sources and search snippets
+    never decide; rebuild and restoration sentences do not confirm an
+    inception. Returns (url, sentence) or None."""
+    if year is None:
+        return None
+    ordered = []
+    for passage in passages:
+        split = _fetched_para(passage)
+        if split is None:
+            continue
+        url, para = split
+        rank = _source_rank(url)
+        if rank >= 3:
+            continue
+        ordered.append((rank, url, para))
+    ordered.sort(key=lambda item: item[0])
+    for _, url, para in ordered:
+        for sentence in re.split(r"(?<=[.!?…。！？])\s+", para):
+            cleaned = sentence.strip()
+            if len(cleaned) < 30 or str(year) not in cleaned:
+                continue
+            lowered = cleaned.lower()
+            if not any(w in lowered for w in ANCHOR_BUILT_WORDS):
+                continue
+            if any(stem in lowered for stem in ANCHOR_REJECT_STEMS):
+                continue
+            return url, cleaned
+    return None
+
+
+def is_literal_quote(quote, passages, year, keywords, min_chars=30) -> bool:
+    """The quote really appears in the fetched passages and carries the
+    claim's year plus a key word: evidence checked in code, not by vote."""
+    if year is None or not keywords:
+        return False
+    norm = normalise_text(quote)
+    if len(norm) < min_chars:
+        return False
+    lowered = norm.lower()
+    if str(year) not in lowered:
+        return False
+    if not any(k.lower() in lowered for k in keywords):
+        return False
+    joined = "\n".join(normalise_text(p) for p in passages)
+    return norm in joined
+
+
 def judge_claim(support_respond, job, search_respond=None, completion_respond=None,
               completion=True) -> dict:
     """One claim judged end to end: support vote, second judgement when
@@ -204,9 +304,33 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
     claims. Every round is kept in the answer."""
     passages, urls = job.get("passages") or [], job.get("urls") or []
     votes = max(1, job.get("votes", 1))
+    fast_path = None
+    if job.get("anchor") == "build" and passages:
+        hit = anchor_hit(passages, job.get("year"))
+        if hit is not None:
+            url, sentence = hit
+            return {
+                "verdict": "supported", "quote": sentence, "url": url,
+                "support": [{"url": url, "supports": True, "quote": sentence}],
+                "note": "wikidata anchor confirmed in article text",
+                "completed": True,
+                "completion_note": "wikidata anchor needs no completion check",
+                "rewritten": None, "war_politics_only": False,
+                "rounds": [], "votes": 0, "fast_path": "anchor",
+            }
     if passages:
+        def quoted_supported(round):
+            return (
+                round["verdict"] == "supported"
+                and is_literal_quote(round.get("quote", ""), passages,
+                                     job.get("year"), job.get("keywords") or [])
+            )
+
         rounds = _vote_rounds(
-            lambda: _support_round(support_respond, job["claim"], passages), votes)
+            lambda: _support_round(support_respond, job["claim"], passages),
+            votes, stop=quoted_supported)
+        if rounds and quoted_supported(rounds[-1]):
+            fast_path = "literal_quote"
         decided_first = [r for r in rounds if r["verdict"] != "error"]
         if (
             decided_first
@@ -221,7 +345,8 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
         return {
             "verdict": "unsupported", "quote": "", "url": None, "support": [],
             "note": "no evidence", "completed": True, "completion_note": None,
-            "rewritten": None, "war_politics_only": False, "rounds": [], "votes": 0,
+            "rewritten": None, "war_politics_only": False, "rounds": [],
+            "votes": 0, "fast_path": None,
         }
     decided = [r for r in rounds if r["verdict"] != "error"]
     if not decided:
@@ -230,15 +355,19 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
             "verdict": "unsupported", "quote": "", "url": None, "support": [],
             "note": note, "completed": True, "completion_note": None,
             "rewritten": None, "war_politics_only": False,
-            "rounds": _slim(rounds), "votes": len(rounds),
+            "rounds": _slim(rounds), "votes": len(rounds), "fast_path": None,
         }
-    counts: dict = {}
-    for found in decided:
-        counts[found["verdict"]] = counts.get(found["verdict"], 0) + 1
-    top = max(counts.values())
-    winners = [v for v, n in counts.items() if n == top]
-    verdict = decided[-1]["verdict"] if len(winners) > 1 else winners[0]
-    winner = next(r for r in reversed(decided) if r["verdict"] == verdict)
+    if fast_path == "literal_quote":
+        winner = rounds[-1]
+        verdict = "supported"
+    else:
+        counts: dict = {}
+        for found in decided:
+            counts[found["verdict"]] = counts.get(found["verdict"], 0) + 1
+        top = max(counts.values())
+        winners = [v for v, n in counts.items() if n == top]
+        verdict = decided[-1]["verdict"] if len(winners) > 1 else winners[0]
+        winner = next(r for r in reversed(decided) if r["verdict"] == verdict)
     completed, completion_note = True, None
     event, detail = job.get("event", ""), job.get("detail", "")
     needs_completion = states.classify(event, detail) is not None or states.looks_incomplete(event, detail)
@@ -261,15 +390,19 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
         "war_politics_only": winner.get("war_politics_only", False),
         "rounds": _slim(rounds),
         "votes": len(rounds),
+        "fast_path": fast_path,
     }
 
 
-def _vote_rounds(one_round, votes: int) -> list:
+def _vote_rounds(one_round, votes: int, stop=None) -> list:
     """Vote rounds with early stop: when the first two decided answers
-    agree, the third call is skipped."""
+    agree, the third call is skipped. `stop` ends the vote at once
+    when a round already decides it (a literal quote)."""
     rounds = []
     while len(rounds) < votes:
         rounds.append(one_round())
+        if stop is not None and stop(rounds[-1]):
+            break
         if len(rounds) == 2:
             first, second = rounds
             if (first["verdict"] != "error" and first["verdict"] == second["verdict"]):

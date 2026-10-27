@@ -17,6 +17,7 @@ from witness.web import USER_AGENT, WebError, mediawiki_get
 
 FACT_PROPS = {
     "P571": "inception",
+    "P1619": "date of official opening",
     "P84": "architect",
     "P793": "significant event",
     "P576": "demolished or destroyed",
@@ -24,6 +25,10 @@ FACT_PROPS = {
     "P18": "image",
     "P373": "Commons category",
 }
+
+ANCHOR_PROPS = ("P571", "P1619")
+
+CONSTRUCTION_EVENTS = frozenset({"built", "completed", "constructed", "erected"})
 
 LIFESPAN_SCHEMA = {
     "type": "object",
@@ -340,6 +345,7 @@ def claim_quality_ok(urls: list) -> bool:
 
 PROPERTY_EVENTS = {
     "P571": "built",
+    "P1619": "opened",
     "P576": "demolished",
     "P18": "image",
     "P84": "architect",
@@ -367,22 +373,23 @@ def wikidata_claims(qid, facts) -> list:
             for values in ref.values():
                 sources.extend(v for v in values if isinstance(v, str) and v.startswith("http"))
         event = PROPERTY_EVENTS.get(fact["property"], _short_value(fact["value"]))
-        if fact["property"] in ("P571", "P576", "P793"):
+        if fact["property"] in ("P571", "P1619", "P576", "P793"):
             text = f"{event} {date_text}"
         else:
             text = f"{event}: {_short_value(fact['value'])}"
-        claims.append(
-            {
-                "year": year,
-                "event": event,
-                "kind": "object",
-                "claim": text,
-                "quote_span": None,
-                "date_text": date_text,
-                "visible_change": "",
-                "sources": sources,
-            }
-        )
+        claim = {
+            "year": year,
+            "event": event,
+            "kind": "object",
+            "claim": text,
+            "quote_span": None,
+            "date_text": date_text,
+            "visible_change": "",
+            "sources": sources,
+        }
+        if fact["property"] in ANCHOR_PROPS and fact["references"]:
+            claim["anchor"] = "build"
+        claims.append(claim)
     return claims
 
 
@@ -422,8 +429,13 @@ def sane_year(year) -> bool:
             and OLDEST_YEAR <= year <= date.today().year + 1)
 
 
-def assemble_claims(events, citations, sources) -> list:
-    """Life events become object claims; answer-level sources deduped."""
+def assemble_claims(events, citations, sources, anchor_year=None) -> list:
+    """Life events become object claims; answer-level sources deduped.
+
+    A Wikidata build anchor stands fixed: research may add claims but
+    never a second construction year, neither contradicting the anchor
+    nor duplicating it.
+    """
     urls = sorted({c["url"] for c in citations} | set(sources))
     return [
         {
@@ -438,4 +450,8 @@ def assemble_claims(events, citations, sources) -> list:
         }
         for e in events
         if sane_year(e.get("year"))
+        and not (
+            anchor_year is not None
+            and (e.get("event") or "").lower() in CONSTRUCTION_EVENTS
+        )
     ]

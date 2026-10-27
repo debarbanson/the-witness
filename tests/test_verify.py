@@ -674,6 +674,159 @@ def test_early_stop_keeps_second_judgement():
     assert len(result["rounds"]) == 3
 
 
+def quoted_support(*rounds):
+    """Scripted (verdict, quote) answers with good-source support."""
+    calls = []
+
+    def respond(prompt):
+        calls.append(prompt)
+        verdict, quote = rounds[min(len(calls) - 1, len(rounds) - 1)]
+        return answered_with(
+            {"verdict": verdict, "quote": quote,
+             "url": "https://en.wikipedia.org/wiki/X",
+             "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                          "supports": verdict != "unsupported", "quote": quote}]}
+        )
+
+    respond.calls = calls
+    return respond
+
+
+MILL_PASSAGES = ["The old mill was built in 1779 to grind corn for the village."]
+
+
+def test_literal_quote_skips_the_vote():
+    respond = quoted_support(("supported", "The old mill was built in 1779 to grind corn for the village."))
+    result = verify.judge_claim(
+        respond, job(votes=3, year=1779, keywords=["mill", "corn"], passages=MILL_PASSAGES,
+                     claim="The mill was built in 1779."),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 1
+    assert result["fast_path"] == "literal_quote"
+
+
+def test_literal_quote_tolerates_whitespace_and_quotes():
+    passages = ["The  \u2018old mill\u2019 was built in\n1779 to grind corn."]
+    respond = quoted_support(("supported", "The 'old mill' was built in 1779 to grind corn."))
+    result = verify.judge_claim(
+        respond, job(votes=3, year=1779, keywords=["mill"], passages=passages,
+                     claim="The mill was built in 1779."),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 1
+
+
+def test_quoteless_round_then_quoted_wins_and_stops():
+    respond = quoted_support(("unsupported", ""),
+                             ("supported", "The old mill was built in 1779 to grind corn for the village."))
+    result = verify.judge_claim(
+        respond, job(votes=3, year=1779, keywords=["mill"], passages=MILL_PASSAGES,
+                     claim="The mill was built in 1779."),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 2
+
+
+def test_paraphrased_quote_still_votes():
+    respond = quoted_support(("supported", "The mill dates to the late eighteenth century."))
+    result = verify.judge_claim(
+        respond, job(votes=3, year=1779, keywords=["mill"], passages=MILL_PASSAGES,
+                     claim="The mill was built in 1779."),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 2  # early stop, but a vote ran
+    assert result["fast_path"] is None
+
+
+def test_literal_quote_without_year_still_votes():
+    respond = quoted_support(("supported", "The old mill was built here on the river bank."))
+    passages = ["The old mill was built here on the river bank. It ground corn."]
+    result = verify.judge_claim(
+        respond, job(votes=3, year=1779, keywords=["mill"], passages=passages,
+                     claim="The mill was built in 1779."),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert len(respond.calls) == 2
+
+
+def test_quoted_partly_keeps_voting():
+    quote = "The old mill was built in 1779 to grind corn for the village."
+    respond = quoted_support(("partly", quote), ("unsupported", ""), ("unsupported", ""))
+    result = verify.judge_claim(
+        respond, job(votes=3, year=1779, keywords=["mill"], passages=MILL_PASSAGES,
+                     claim="The mill was built in 1779 by Jan Smit."),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert len(respond.calls) == 3  # the rewrite still needs agreement
+    assert result["verdict"] == "unsupported"
+
+
+def anchor_job(**overrides):
+    base = {"claim": "built 1932", "event": "built", "detail": "built 1932",
+            "year": 1932, "keywords": ["built"], "anchor": "build",
+            "passages": ["https://en.wikipedia.org/wiki/X\nThe tower was built in 1932 to store water."],
+            "urls": ["https://www.wikidata.org/wiki/Q999#P571"], "votes": 3}
+    base.update(overrides)
+    return base
+
+
+def test_anchor_sentence_confirms_without_model_call():
+    respond = quoted_support(("unsupported", ""))
+    result = verify.judge_claim(respond, anchor_job())
+    assert result["verdict"] == "supported"
+    assert respond.calls == []
+    assert result["fast_path"] == "anchor"
+    assert result["quote"] == "The tower was built in 1932 to store water."
+    assert result["url"] == "https://en.wikipedia.org/wiki/X"
+    assert result["completed"] is True
+
+
+def test_anchor_sentence_prefers_good_source_over_weak():
+    respond = quoted_support(("unsupported", ""))
+    result = verify.judge_claim(respond, anchor_job(passages=[
+        "https://tripadvisor.example/x\nBuilt in 1932, nice tower.",
+        "https://en.wikipedia.org/wiki/X\nThe tower was built in 1932 to store water.",
+    ]))
+    assert result["verdict"] == "supported"
+    assert result["url"] == "https://en.wikipedia.org/wiki/X"
+
+
+def test_anchor_sentence_ignores_search_snippets():
+    respond = quoted_support(("supported", "The tower was built in 1932."))
+    result = verify.judge_claim(
+        respond, anchor_job(passages=["https://en.wikipedia.org/wiki/X: the tower was built in 1932."]),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert respond.calls != []  # snippets alone never decide; the vote ran
+    assert result["fast_path"] is None
+
+
+def test_anchor_rebuild_mention_falls_back_to_vote():
+    respond = quoted_support(("supported", "Rebuilt after a fire."))
+    result = verify.judge_claim(
+        respond, anchor_job(year=1779, claim="built 1779", detail="built 1779",
+                            passages=["https://en.wikipedia.org/wiki/X\nThe mill was rebuilt in 1779 after the fire."]),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert respond.calls != []
+    assert result["fast_path"] is None
+
+
+def test_anchor_sentence_without_build_word_falls_back_to_vote():
+    respond = quoted_support(("supported", "The mill ground corn in 1779."))
+    result = verify.judge_claim(
+        respond, anchor_job(year=1779, claim="built 1779", detail="built 1779",
+                            passages=["https://en.wikipedia.org/wiki/X\nThe mill ground corn in 1779."]),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert respond.calls != []
+
+
+def test_anchor_sentence_reads_dutch():
+    respond = quoted_support(("unsupported", ""))
+    result = verify.judge_claim(respond, anchor_job(passages=[
+        "https://nl.wikipedia.org/wiki/X\nDe toren werd gebouwd in 1932 voor de druk.",
+    ]))
+    assert result["verdict"] == "supported"
+    assert respond.calls == []
+
+
 def test_verify_specs_carry_worker_limits():
     from witness import models
 

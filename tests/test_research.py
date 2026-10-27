@@ -317,6 +317,72 @@ def test_wikidata_claims_from_dated_statements():
     assert "https://example.com/archive" in claim["sources"]
 
 
+def test_inception_with_reference_is_the_build_anchor():
+    facts = {
+        "facts": [
+            {
+                "property": "P571",
+                "name": "inception",
+                "value": {"time": "+1932-00-00T00:00:00Z", "precision": 9},
+                "qualifiers": {},
+                "references": [{"P854": ["https://example.com/archive"]}],
+                "source": "https://www.wikidata.org/wiki/Q999#P571",
+            }
+        ]
+    }
+    (claim,) = research.wikidata_claims("Q999", facts)
+    assert claim["anchor"] == "build"
+
+
+def test_inception_without_reference_is_no_anchor():
+    facts = {
+        "facts": [
+            {
+                "property": "P571",
+                "name": "inception",
+                "value": {"time": "+1932-00-00T00:00:00Z", "precision": 9},
+                "qualifiers": {},
+                "references": [],
+                "source": "https://www.wikidata.org/wiki/Q999#P571",
+            }
+        ]
+    }
+    (claim,) = research.wikidata_claims("Q999", facts)
+    assert "anchor" not in claim
+
+
+def test_opening_date_with_reference_is_the_build_anchor():
+    facts = {
+        "facts": [
+            {
+                "property": "P1619",
+                "name": "date of official opening",
+                "value": {"time": "+1934-05-01T00:00:00Z", "precision": 11},
+                "qualifiers": {},
+                "references": [{"P854": ["https://example.com/archive"]}],
+                "source": "https://www.wikidata.org/wiki/Q999#P1619",
+            }
+        ]
+    }
+    (claim,) = research.wikidata_claims("Q999", facts)
+    assert claim["event"] == "opened"
+    assert claim["year"] == 1934
+    assert claim["anchor"] == "build"
+
+
+def test_assemble_claims_never_outvotes_the_anchor():
+    events = [
+        {"year": 1930, "event": "built", "detail": "Built in 1930."},
+        {"year": 1932, "event": "built", "detail": "Built in 1932."},
+        {"year": 1934, "event": "opened", "detail": "Opened in 1934."},
+        {"year": 1940, "event": "burnt", "detail": "Burnt in 1940."},
+    ]
+    claims = research.assemble_claims(events=events, citations=[], sources=[], anchor_year=1932)
+    assert [(c["year"], c["event"]) for c in claims] == [(1934, "opened"), (1940, "burnt")]
+    kept = research.assemble_claims(events=events, citations=[], sources=[])
+    assert len(kept) == 4
+
+
 def test_wikidata_claims_skips_undated():
     facts = {"facts": [{"property": "P84", "name": "architect", "value": {"qid": "Q1", "label": "X"}, "qualifiers": {}, "references": [], "source": "u"}]}
     assert research.wikidata_claims("Q999", facts) == []

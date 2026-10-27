@@ -153,6 +153,9 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
         claims.extend(research.wikidata_claims(found.qid, facts))
         timings["facts_s"] = round(time.perf_counter() - phase, 1)
         print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
+    build_anchor_year = next((c["year"] for c in claims if c.get("anchor") == "build"), None)
+    if build_anchor_year is not None:
+        print(f"build anchor: {build_anchor_year} fixed by Wikidata")
     phase = time.perf_counter()
     question = research.lifespan_question(
         found.name, place or "", found.articles,
@@ -160,7 +163,11 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     )
     answer = research.ask_lifespan(lifespan_respond, question)
     timings["research_s"] = round(time.perf_counter() - phase, 1)
-    claims.extend(research.assemble_claims(answer["events"], answer["citations"], answer["sources"]))
+    modelled = research.assemble_claims(answer["events"], answer["citations"], answer["sources"],
+                                        anchor_year=build_anchor_year)
+    if len(modelled) < len(answer["events"]):
+        print(f"dropped (anchor stands): {len(answer['events']) - len(modelled)} research build years")
+    claims.extend(modelled)
     print(f"lifespan events: {len(answer['events'])}")
 
     kept = [c for c in claims if research.claim_quality_ok(c["sources"])]
@@ -207,10 +214,10 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
         judged = verify.judge_all(support, jobs, search_respond=verify_respond,
                                   completion_respond=support_respond,
                                   max_workers=workers, progress=progress)
-        for claim, result in zip(claims, judged):
-            claim.update(result)
-            claim["war_politics_only"] = (
-                claim["war_politics_only"] or bool(verify.flag_content(claim["claim"])))
+        apply_judged(claims, jobs, judged)
+        fast = sum(1 for r in judged if r.get("fast_path"))
+        if fast:
+            print(f"fast paths: {fast} of {len(judged)} decided without a vote")
         return jobs, judged
 
     phase = time.perf_counter()
@@ -225,7 +232,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
                                max_workers=models.VERIFY_OPEN.workers, completion=False)
         timings["verify_alt_s"] = round(time.perf_counter() - phase, 1)
         comparison = compare_verdicts(jobs, judged, alt)
-        for claim, other in zip(to_check, alt):
+        for job, other in zip(jobs, alt):
+            claim = to_check[job["claim_index"]]
             claim["alt_verdict"] = other["verdict"]
             claim["alt_rounds"] = other.get("rounds", [])
         print(f"agreement: {comparison['agree']}/{comparison['total']} "
@@ -359,9 +367,11 @@ def spare_needs(chosen, pool) -> int:
 
 def build_jobs(claims, texts, snippets, anchor_year) -> list:
     """Verify jobs: claim plus the paragraphs that mention its year or
-    key words, best of three for the claims that matter."""
+    key words, best of three for the claims that matter. Jobs run in
+    film order: the build anchor first, then earliest year first, so
+    the first scene is ready first."""
     jobs = []
-    for claim in claims:
+    for index, claim in enumerate(claims):
         keywords = verify.keywords_for_claim(claim["claim"], claim.get("event", ""))
         evidence = list(snippets)
         for url, text in texts.items():
@@ -372,8 +382,19 @@ def build_jobs(claims, texts, snippets, anchor_year) -> list:
             "claim": claim["claim"], "event": claim.get("event", "stood"), "detail": detail,
             "year": claim["year"], "keywords": keywords, "passages": evidence[:13],
             "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
+            "anchor": claim.get("anchor"), "claim_index": index,
         })
+    jobs.sort(key=lambda j: (j["anchor"] != "build", j["year"]))
     return jobs
+
+
+def apply_judged(claims, jobs, judged) -> None:
+    """Judged results back onto their claims, whatever order the jobs ran in."""
+    for job, result in zip(jobs, judged):
+        claim = claims[job["claim_index"]]
+        claim.update(result)
+        claim["war_politics_only"] = (
+            claim["war_politics_only"] or bool(verify.flag_content(claim["claim"])))
 
 
 def timeline_events(verified) -> list:

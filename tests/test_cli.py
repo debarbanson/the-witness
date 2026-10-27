@@ -219,6 +219,33 @@ def test_claim_urls_skips_fetched_and_failed():
     assert urls == ["https://b.example/y"]
 
 
+def test_build_jobs_runs_in_film_order():
+    from witness.cli import build_jobs
+
+    texts = {"https://en.wikipedia.org/wiki/X": "The mill was built in 1779. Storms hit in 1930."}
+    claims = [
+        {"year": 1930, "event": "damaged", "claim": "damaged 1930", "sources": ["https://en.wikipedia.org/wiki/X"]},
+        {"year": 1779, "event": "built", "claim": "built 1779", "anchor": "build",
+         "sources": ["https://en.wikipedia.org/wiki/X"]},
+        {"year": 1850, "event": "stood", "claim": "stood 1850", "sources": ["https://en.wikipedia.org/wiki/X"]},
+    ]
+    jobs = build_jobs(claims, texts, [], 1779)
+    assert [(j["year"], j.get("anchor")) for j in jobs] == [
+        (1779, "build"), (1850, None), (1930, None)]
+    assert [j["claim_index"] for j in jobs] == [1, 2, 0]
+
+
+def test_apply_judged_maps_results_back_in_claim_order():
+    from witness.cli import apply_judged
+
+    claims = [{"year": 1930, "claim": "damaged 1930"}, {"year": 1779, "claim": "built 1779"}]
+    jobs = [{"claim_index": 1}, {"claim_index": 0}]
+    judged = [{"verdict": "supported", "war_politics_only": False},
+              {"verdict": "unsupported", "war_politics_only": False}]
+    apply_judged(claims, jobs, judged)
+    assert [c["verdict"] for c in claims] == ["unsupported", "supported"]
+
+
 def test_compare_verdicts_tallies_agreement():
     from witness.cli import compare_verdicts
 

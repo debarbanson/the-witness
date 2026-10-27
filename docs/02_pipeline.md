@@ -198,3 +198,15 @@ out/<slug>/
   layers/<n>/*.png    figure layers
   film.mp4  sources.md
 ```
+
+## Streaming (28 Oct)
+
+The film plays like a video stream. The rule that guards quality: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
+
+1. Opening card within seconds. Confirm the object and a card appears over the user's own photo: name, kind and "I have stood here since {year}". The year is the Wikidata build anchor, already verified, so the card needs no model call. Without an anchor the year line is omitted, never guessed. A historical photo joins the card only from a licence-checked cache.
+2. Speculative start. Facts, research and job building start while the user still looks at "Is this X?". On no the work is thrown away and its token cost is logged; on yes the wait is already over.
+3. Film order. Claims verify anchor-first then chronological, and each claim's completion streams out; when every checked claim of a draft scene is judged, that scene is verified and painting starts on it.
+4. Buffer playback. Scene 1 starts playing as soon as the remaining build time (measured rate, not a guess) fits inside the remaining viewing time. Between scenes one line names what is happening ("Checking 1932 against the sources...").
+5. Scene events. A ready scene emits number, year, captions with sources and image path. Known objects open instantly from reviewed or cached research.
+
+New measures: time to the opening card, time to the first painted scene (target 60 s, aim 30 s) and time to the full film.

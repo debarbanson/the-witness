@@ -791,6 +791,34 @@ def test_two_noes_reject_and_move_on(tmp_path):
     assert "rejected every pick" in str(exc_info.value)
 
 
+def test_failed_sources_emit_error_events(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    real = routed()
+
+    def failing_wiki(url, **kwargs):
+        params = kwargs.get("params", {}) or {}
+        if params.get("list") == "geosearch":
+            raise TimeoutError("wikidata down")
+        return real(url, **kwargs)
+
+    def failing_post(url, **kwargs):
+        raise TimeoutError("overpass down")
+
+    def respond(prompt, image_bytes):
+        assert "Test" in prompt
+        text = "YES\nFine." if "YES or NO" in prompt else "1 Test\nFine."
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    events = []
+    identify.identify(photo, post=failing_post, get=failing_wiki,
+                      respond=respond, sleep=lambda s: None,
+                      progress=lambda e, d: events.append((e, d)))
+    errors = {d["source"] for e, d in events if e == "source_error"}
+    assert {"wikidata", "overpass"} <= errors
+
+
 def test_failed_source_never_empties_other_sources(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)

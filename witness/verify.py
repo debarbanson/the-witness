@@ -457,14 +457,19 @@ def _slim(rounds) -> list:
              "url": r.get("url")} for r in rounds]
 
 
-def judge_all(support_respond, jobs, search_respond=None, completion_respond=None,
-              max_workers=6, completion=True, progress=None) -> list:
-    """Judge several claims at once (a failing job becomes unsupported
-    with a note instead of killing the run). `progress("verify", ...)`
-    fires per finished claim, in completion order; results keep job order."""
+def judge_stream(support_respond, jobs, search_respond=None, completion_respond=None,
+                 max_workers=6, completion=True, progress=None):
+    """Judge several claims at once, yielding (index, result) per claim
+    as it finishes. A failing job becomes unsupported with a note
+    instead of killing the run. `progress("verifying", ...)` names the
+    claim a worker picks up; `progress("verify", ...)` fires per
+    finished claim, in completion order."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def run(job):
+    def run(job, index):
+        if progress is not None:
+            progress("verifying", {"index": index, "year": job.get("year"),
+                                   "total": len(jobs)})
         try:
             return judge_claim(support_respond, job, search_respond, completion_respond,
                                completion=completion)
@@ -474,15 +479,28 @@ def judge_all(support_respond, jobs, search_respond=None, completion_respond=Non
                 "note": f"verify failed: {exc}", "completed": True,
                 "completion_note": None, "rewritten": None,
                 "war_politics_only": False, "rounds": [], "votes": 0,
+                "fast_path": None,
             }
 
-    out = [None] * len(jobs)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(run, job): i for i, job in enumerate(jobs)}
+        futures = {pool.submit(run, job, i): i for i, job in enumerate(jobs)}
         for done, future in enumerate(as_completed(futures), 1):
-            out[futures[future]] = future.result()
+            index = futures[future]
+            result = future.result()
             if progress is not None:
-                progress("verify", {"done": done, "total": len(jobs)})
+                progress("verify", {"done": done, "total": len(jobs), "index": index,
+                                    "year": jobs[index].get("year")})
+            yield index, result
+
+
+def judge_all(support_respond, jobs, search_respond=None, completion_respond=None,
+              max_workers=6, completion=True, progress=None) -> list:
+    """Judge several claims at once; results keep job order."""
+    out = [None] * len(jobs)
+    for index, result in judge_stream(support_respond, jobs, search_respond,
+                                      completion_respond, max_workers,
+                                      completion, progress):
+        out[index] = result
     return out
 
 

@@ -157,6 +157,54 @@ def test_plan_checks_covers_scenes_build_anchor_and_states():
     assert not (set(map(id, to_check)) & set(map(id, pool)))
 
 
+def test_keep_quality_drops_weak_only_claims(capsys):
+    from witness.cli import keep_quality
+
+    good = kept_claim(1779, "built", "Built.")
+    good["sources"] = ["https://en.wikipedia.org/wiki/X"]
+    weak = kept_claim(1850, "stood", "Stood.")
+    weak["sources"] = ["https://www.tripadvisor.example/x"]
+    kept = keep_quality([good, weak])
+    assert kept == [good]
+    assert "weak sources only" in capsys.readouterr().out
+
+
+def test_draft_scenes_match_plan_scene_years():
+    from witness.cli import draft_scenes, plan_checks
+
+    kept = [kept_claim(y, "stood", f"Stood in {y}.") for y in (1779, 1850, 1900)]
+    draft = draft_scenes(kept)
+    to_check, _ = plan_checks(kept)
+    scene_years = {s["from_year"] for s in draft if isinstance(s["from_year"], int)}
+    assert scene_years <= {c["year"] for c in to_check}
+
+
+def test_report_and_save_writes_research_json(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from witness.cli import report_and_save
+
+    monkeypatch.chdir(tmp_path)
+    found = SimpleNamespace(name="Test Mill", kind="mill", qid="Q1",
+                            articles={"en": "Test_Mill"})
+    kept = [kept_claim(1779, "built", "Built in 1779.")]
+    kept[0].update({"verdict": "supported", "quote": "q", "url": "u",
+                    "support": [], "note": "", "completed": True,
+                    "rewritten": None, "war_politics_only": False})
+    timeline = [{"from_year": 1779, "to_year": None, "date_label": "1779",
+                 "state": {"condition": "standing"}}]
+    chosen = [{"from_year": 1779, "date_label": "1779",
+               "state": {"condition": "standing"}, "reason": "built",
+               "caption_lines": []}]
+    result = {"outcome": "short_film", "reason": "test", "verified": 1,
+              "eras": 1, "good_sources": 1}
+    slug = report_and_save(found, "en", ["en"], kept, timeline, chosen, result,
+                           {"total_s": 1.0}, "baseten", [], None)
+    assert slug == "q1-test-mill"
+    saved = (tmp_path / "out" / slug / "research.json").read_text()
+    assert '"outcome": "short_film"' in saved
+
+
 def test_spare_needs_counts_lineless_scenes():
     from witness.cli import spare_needs
 

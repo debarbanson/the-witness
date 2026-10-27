@@ -37,7 +37,8 @@ def choose_scenes(timeline, claims, limit=LIMIT):
             continue
         if not claim.get("war_politics_only"):
             counts[year] = counts.get(year, 0) + 1
-        first_claim.setdefault(year, (claim.get("claim", ""), claim.get("date_text", "")))
+        first_claim.setdefault(
+            year, (claim.get("claim", ""), claim.get("date_text", ""), claim.get("url")))
     slots = limit - 1 - len(scenes)
     for year in sorted(counts, key=lambda y: (-counts[y], y))[: max(slots, 0)]:
         scenes.append(
@@ -53,9 +54,10 @@ def choose_scenes(timeline, claims, limit=LIMIT):
         covered.add(year)
     scenes.sort(key=lambda s: s["from_year"])
     for year in sorted(set(first_claim) - covered):
-        text, date_text = first_claim[year]
+        text, date_text, url = first_claim[year]
         dated = f"{date_text} {text}" if date_text else f"in {year} {text}"
-        _nearest(scenes, year)["caption_lines"].append({"year": year, "line": dated[:140]})
+        _nearest(scenes, year)["caption_lines"].append(
+            {"year": year, "line": dated[:140], "url": url})
     scenes.append(
         {
             "from_year": "today",

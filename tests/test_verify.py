@@ -1,6 +1,7 @@
 """Step 3: check each claim against its source snippets. No live calls."""
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -827,6 +828,40 @@ def test_anchor_sentence_reads_dutch():
     assert respond.calls == []
 
 
+def test_judge_stream_yields_each_claim_as_it_finishes():
+    inner = quoted_support(("supported", "The old mill dates to the eighteenth century."))
+    calls = []
+
+    def slow_then_fast(prompt):
+        calls.append(prompt)
+        if "Claim zero" in prompt:
+            time.sleep(0.3)
+        return inner(prompt)
+
+    jobs = [job(claim="Claim zero 1779.", year=1779),
+            job(claim="Claim one 1932.", year=1932)]
+    seen = list(verify.judge_stream(slow_then_fast, jobs, max_workers=2,
+                                    completion_respond=lambda p: answered_with({"completed": True})))
+    assert sorted(i for i, _ in seen) == [0, 1]
+    assert all(r["verdict"] == "supported" for _, r in seen)
+    assert seen[0][0] == 1  # the fast claim arrives first
+
+
+def test_judge_stream_progress_names_the_claim():
+    events = []
+    jobs = [job(year=1779), job(year=1932)]
+    list(verify.judge_stream(
+        quoted_support(("supported", "The old mill dates to the eighteenth century.")),
+        jobs, max_workers=2,
+        completion_respond=lambda p: answered_with({"completed": True}),
+        progress=lambda event, data: events.append((event, data))))
+    started = [d for e, d in events if e == "verifying"]
+    assert sorted(d["year"] for d in started) == [1779, 1932]
+    done = [d for e, d in events if e == "verify"]
+    assert sorted(d["year"] for d in done) == [1779, 1932]
+    assert all("index" in d for _, d in events)
+
+
 def test_verify_specs_carry_worker_limits():
     from witness import models
 
@@ -839,11 +874,12 @@ def test_judge_all_reports_progress_per_claim():
     verify.judge_all(
         lambda prompt: fixture("verify_supported.json"),
         [job(), job(), job()], max_workers=2,
-        progress=lambda event, data: seen.append((event, data["done"], data["total"])),
+        progress=lambda event, data: seen.append((event, data.get("done"), data["total"])),
     )
-    assert [s[0] for s in seen] == ["verify"] * 3
-    assert sorted(s[1] for s in seen) == [1, 2, 3]
-    assert {s[2] for s in seen} == {3}
+    done = [s for s in seen if s[0] == "verify"]
+    assert len(done) == 3
+    assert sorted(s[1] for s in done) == [1, 2, 3]
+    assert {s[2] for s in done} == {3}
 
 
 def test_fetch_many_reports_progress_per_page():

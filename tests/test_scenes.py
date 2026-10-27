@@ -59,6 +59,15 @@ def test_dropped_periods_become_caption_lines():
             assert abs(line["year"] - (scene["from_year"] or 0)) <= 20 or scene["from_year"] == "today"
 
 
+def test_caption_lines_carry_their_source_url():
+    timeline = [seg(1900, 1910)]
+    tagged = claim(1950, "something happened", war_politics_only=True)
+    tagged["url"] = "https://en.wikipedia.org/wiki/X"
+    lines = [line for s in scenes.choose_scenes(timeline, [tagged])
+             for line in s["caption_lines"]]
+    assert lines[0]["url"] == "https://en.wikipedia.org/wiki/X"
+
+
 def test_today_always_last_even_when_empty():
     assert scenes.choose_scenes([], [])[-1]["from_year"] == "today"
 

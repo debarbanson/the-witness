@@ -103,22 +103,28 @@ def clear_cache() -> None:
     _cache.clear()
 
 
-def _budgeted(key, budget, func, *args, **kwargs):
-    """Run a source fetch with a hard budget; late answers are dropped."""
+def _budgeted(key, budget, func, *args, progress=None, **kwargs):
+    """Run a source fetch with a hard budget; late answers are dropped
+    and failures are reported, never silent."""
     box: dict = {}
 
     def job():
         started = time.perf_counter()
         try:
             box["value"] = func(*args, **kwargs)
-        except SourceError:
+        except SourceError as exc:
             box["value"] = []
+            if progress is not None:
+                progress("source_error", {"source": key, "error": str(exc)[:160]})
         finally:
             box["elapsed"] = round(time.perf_counter() - started, 1)
 
     thread = threading.Thread(target=job, daemon=True)
     thread.start()
     thread.join(budget)
+    if thread.is_alive() and progress is not None:
+        progress("source_error", {"source": key,
+                                  "error": f"no answer within {budget} s"})
     return key, box.get("value", []), box.get("elapsed", budget)
 
 
@@ -171,7 +177,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         started = time.perf_counter()
         try:
             return func(*args, **kwargs)
-        except SourceError:
+        except SourceError as exc:
+            emit("source_error", {"source": key, "error": str(exc)[:160]})
             return default
         finally:
             steps[f"{key}_s"] = round(time.perf_counter() - started, 1)
@@ -202,8 +209,9 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         started = time.perf_counter()
         try:
             osm_box["osm"] = fetch_overpass(lat, lon, post, sleep, cache, radius)
-        except SourceError:
+        except SourceError as exc:
             osm_box["osm"] = []
+            emit("source_error", {"source": "overpass", "error": str(exc)[:160]})
         finally:
             osm_box["overpass_s"] = round(time.perf_counter() - started, 1)
 
@@ -214,9 +222,11 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     order = read_langs(country_code, lang)
     with ThreadPoolExecutor(max_workers=2) as pool:
         wiki_future = pool.submit(_budgeted, "wikidata", WIKIDATA_BUDGET,
-                                  fetch_wikidata_nearby, lat, lon, get, sleep, cache, radius)
+                                  fetch_wikidata_nearby, lat, lon, get, sleep, cache,
+                                  radius, progress=progress)
         wp_future = pool.submit(_budgeted, "wpgeo", WP_BUDGET,
-                                fetch_wp_nearby, lat, lon, order[0], get, sleep, cache, radius)
+                                fetch_wp_nearby, lat, lon, order[0], get, sleep, cache,
+                                radius, progress=progress)
         (_, wiki, wiki_s), (_, wpedia, wp_s) = wiki_future.result(), wp_future.result()
     steps["wikidata_s"], steps["wpgeo_s"] = wiki_s, wp_s
     overpass_thread.join(OVERPASS_BUDGET)

@@ -10,18 +10,18 @@ LIMIT = 7
 
 def choose_scenes(timeline, claims, limit=LIMIT):
     """Pick scenes with reasons; every claim year lands in a scene or a line."""
-    states = list(timeline)
-    if len(states) > limit - 1:
-        states = _spread(states, limit - 1)
+    picked = list(timeline)
+    if len(picked) > limit - 1:
+        picked = _spread(picked, limit - 1)
     scenes = [
         {
             "from_year": seg["from_year"],
             "to_year": seg.get("to_year"),
             "state": seg["state"],
-            "reason": f"object changed state ({seg['state']})",
+            "reason": _reason(seg["state"]),
             "caption_lines": [],
         }
-        for seg in states
+        for seg in picked
     ]
     covered = {s["from_year"] for s in scenes}
     counts: dict = {}
@@ -31,7 +31,7 @@ def choose_scenes(timeline, claims, limit=LIMIT):
         if year in covered:
             continue
         counts[year] = counts.get(year, 0) + 1
-        first_claim.setdefault(year, claim.get("claim", ""))
+        first_claim.setdefault(year, (claim.get("claim", ""), claim.get("date_text", "")))
     slots = limit - 1 - len(scenes)
     for year in sorted(counts, key=lambda y: (-counts[y], y))[: max(slots, 0)]:
         scenes.append(
@@ -46,18 +46,27 @@ def choose_scenes(timeline, claims, limit=LIMIT):
         covered.add(year)
     scenes.sort(key=lambda s: s["from_year"])
     for year in sorted(set(first_claim) - covered):
-        line = {"year": year, "line": f"in {year} {first_claim[year]}"[:140]}
-        _nearest(scenes, year)["caption_lines"].append(line)
+        text, date_text = first_claim[year]
+        dated = f"{date_text} {text}" if date_text else f"in {year} {text}"
+        _nearest(scenes, year)["caption_lines"].append({"year": year, "line": dated[:140]})
     scenes.append(
         {
             "from_year": "today",
             "to_year": None,
-            "state": "today",
+            "state": {"condition": "standing", "degree": "total",
+                      "scope": "whole", "description": ""},
             "reason": "closing on the user's photo",
             "caption_lines": [],
         }
     )
     return scenes
+
+
+def _reason(state: dict) -> str:
+    reason = f"object changed state ({state['condition']})"
+    if state.get("description"):
+        reason += f": {state['description']}"
+    return reason[:140]
 
 
 def _spread(items, n):
@@ -72,7 +81,8 @@ def _state_at(timeline, year):
         to_year = seg.get("to_year")
         if seg["from_year"] <= year and (to_year is None or year < to_year):
             return seg["state"]
-    return "unknown"
+    return {"condition": "standing", "degree": "total",
+            "scope": "whole", "description": ""}
 
 
 def _nearest(scenes, year):

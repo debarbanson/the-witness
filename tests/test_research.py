@@ -135,40 +135,37 @@ def test_ask_lifespan_rejects_garbage():
         )
 
 
+def cond(seg):
+    return seg["state"]["condition"]
+
+
 def test_build_timeline_states():
     events = [
         {"year": 1932, "event": "built", "detail": "Built."},
-        {"year": 1986, "event": "restored", "detail": "Decorated."},
+        {"year": 1986, "event": "restored", "detail": "Decorated.", "visible_change": "repainted"},
         {"year": 1987, "event": "repurposed", "detail": "Out of use."},
         {"year": 1999, "event": "rebuilt", "detail": "Rebuild started."},
         {"year": 2002, "event": "rebuilt", "detail": "Reopened."},
     ]
-    states = [(s["from_year"], s["to_year"], s["state"]) for s in research.build_timeline(events)]
-    assert states == [
+    segs = research.build_timeline(events)
+    assert [(s["from_year"], s["to_year"], cond(s)) for s in segs] == [
         (1932, 1986, "standing"),
-        (1986, 1987, "restored"),
-        (1987, 1999, "repurposed"),
-        (1999, 2002, "under reconstruction"),
+        (1986, 1999, "standing"),
+        (1999, 2002, "under_construction"),
         (2002, None, "rebuilt"),
     ]
+    assert segs[1]["state"]["description"] == "repainted"
+    assert segs[0]["state"]["scope"] == "whole"
 
 
-def test_build_timeline_decorated_is_restored():
-    (seg,) = research.build_timeline([{"year": 1986, "event": "decorated", "detail": ""}])
-    assert seg["state"] == "restored"
-
-
-def test_build_timeline_merges_same_state_periods():
+def test_build_timeline_non_visible_events_leave_no_segment():
     events = [
         {"year": 1779, "event": "built", "detail": ""},
-        {"year": 1779, "event": "built", "detail": ""},
-        {"year": 1802, "event": "repurposed", "detail": ""},
+        {"year": 1802, "event": "repurposed", "detail": "Sold to a merchant."},
+        {"year": 1964, "event": "heritage designation", "detail": "National Historic Landmark."},
     ]
-    segs = research.build_timeline(events)
-    assert [(s["from_year"], s["to_year"], s["state"]) for s in segs] == [
-        (1779, 1802, "standing"),
-        (1802, None, "repurposed"),
-    ]
+    (seg,) = research.build_timeline(events)
+    assert (seg["from_year"], seg["to_year"], cond(seg)) == (1779, None, "standing")
 
 
 def test_build_timeline_same_year_last_state_wins():
@@ -177,34 +174,27 @@ def test_build_timeline_same_year_last_state_wins():
         {"year": 1932, "event": "rebuilt", "detail": ""},
     ]
     (seg,) = research.build_timeline(events)
-    assert (seg["from_year"], seg["to_year"], seg["state"]) == (1932, None, "rebuilt")
+    assert (seg["from_year"], seg["to_year"], cond(seg)) == (1932, None, "rebuilt")
 
 
-def test_build_timeline_decorated_with_tulips():
+def test_build_timeline_decorated_with_tulips_is_visible():
     (seg,) = research.build_timeline(
-        [{"year": 1986, "event": "decorated", "detail": "Decorated with tulips."}]
+        [{"year": 1986, "event": "decorated", "detail": "Decorated with tulips.",
+          "visible_change": "decorated with tulips"}]
     )
-    assert seg["state"] == "decorated with tulips"
-    (seg,) = research.build_timeline(
-        [{"year": 1986, "event": "extended", "detail": "Meters-high tulip on all sides."}]
-    )
-    assert seg["state"] == "decorated with tulips"
-    (seg,) = research.build_timeline(
-        [{"year": 1986, "event": "extended", "detail": "Opgesierd met metershoge tulp."}]
-    )
-    assert seg["state"] == "decorated with tulips"
+    assert cond(seg) == "standing"
+    assert seg["state"]["description"] == "decorated with tulips"
 
 
 def test_build_timeline_reconstruction_is_ongoing():
     (seg,) = research.build_timeline(
         [{"year": 1999, "event": "reconstruction", "detail": "Work underway."}]
     )
-    assert seg["state"] == "under reconstruction"
+    assert cond(seg) == "under_construction"
 
 
-def test_build_timeline_unknown_event_uses_event_text():
-    (seg,) = research.build_timeline([{"year": 1900, "event": "moved", "detail": ""}])
-    assert seg["state"] == "moved"
+def test_build_timeline_unknown_event_without_visible_change_is_caption_only():
+    assert research.build_timeline([{"year": 1967, "event": "moved-proposed", "detail": "Talks held."}]) == []
 
 
 def test_build_timeline_skips_planned_but_prevented_changes():
@@ -220,7 +210,7 @@ def test_build_timeline_skips_planned_but_prevented_changes():
 def test_build_timeline_keeps_planned_work_once_started():
     events = [{"year": 1999, "event": "rebuilt", "detail": "Rebuild planned; first pole put in ground."}]
     (seg,) = research.build_timeline(events)
-    assert seg["state"] == "under reconstruction"
+    assert cond(seg) == "under_construction"
 
 
 def test_build_timeline_skips_uncompleted_changes():
@@ -230,19 +220,45 @@ def test_build_timeline_skips_uncompleted_changes():
         {"year": 1999, "event": "rebuilt", "detail": "First pole in ground.", "completed": True},
     ]
     segs = research.build_timeline(events)
-    assert [(s["from_year"], s["to_year"], s["state"]) for s in segs] == [
-        (1932, 1999, "burnt, only the base left"),
-        (1999, None, "under reconstruction"),
+    assert [(s["from_year"], s["to_year"], cond(s)) for s in segs] == [
+        (1932, 1999, "ruin"),
+        (1999, None, "under_construction"),
     ]
 
 
-def test_build_timeline_merges_adjacent_equal_states():
+def test_build_timeline_partly_claims_never_seed_states():
     events = [
-        {"year": 2003, "event": "repurposed", "detail": "Museum."},
-        {"year": 2004, "event": "repurposed", "detail": "Weddings."},
+        {"year": 1920, "event": "built", "detail": "Inception.", "verdict": "partly"},
+        {"year": 1926, "event": "construction", "detail": "Work started.", "verdict": "supported"},
     ]
     (seg,) = research.build_timeline(events)
-    assert (seg["from_year"], seg["to_year"], seg["state"]) == (2003, None, "repurposed")
+    assert (seg["from_year"], cond(seg)) == (1926, "under_construction")
+
+
+def test_build_timeline_part_scope_leaves_no_segment():
+    events = [
+        {"year": 1899, "event": "built", "detail": "Built."},
+        {"year": 2009, "event": "demolished", "detail": "Small outbuildings removed."},
+    ]
+    (seg,) = research.build_timeline(events)
+    assert (seg["from_year"], seg["to_year"], cond(seg)) == (1899, None, "standing")
+
+
+def test_build_timeline_merges_only_identical_states():
+    same = research.build_timeline(
+        [
+            {"year": 2003, "event": "restored", "detail": "Cleaned."},
+            {"year": 2004, "event": "restored", "detail": "Cleaned."},
+        ]
+    )
+    assert [(s["from_year"], s["to_year"]) for s in same] == [(2003, None)]
+    different = research.build_timeline(
+        [
+            {"year": 2003, "event": "restored", "detail": "Cleaned."},
+            {"year": 2004, "event": "restored", "detail": "Repainted."},
+        ]
+    )
+    assert [(s["from_year"], cond(s)) for s in different] == [(2003, "standing"), (2004, "standing")]
 
 
 def test_source_quality_rule():
@@ -290,6 +306,54 @@ def test_wikidata_claims_skips_undated():
     assert research.wikidata_claims("Q999", facts) == []
 
 
+def test_wikidata_claims_format_dates_by_precision():
+    facts = {
+        "facts": [
+            {
+                "property": "P571",
+                "name": "inception",
+                "value": {"time": "+1932-00-00T00:00:00Z", "precision": 9},
+                "qualifiers": {},
+                "references": [],
+                "source": "https://www.wikidata.org/wiki/Q999#P571",
+            },
+            {
+                "property": "P793",
+                "name": "significant event",
+                "value": {"qid": "Q1", "label": "renovation"},
+                "qualifiers": {"P585": [{"time": "+1960-00-00T00:00:00Z", "precision": 8}]},
+                "references": [],
+                "source": "https://www.wikidata.org/wiki/Q999#P793",
+            },
+        ]
+    }
+    claims = research.wikidata_claims("Q999", facts)
+    assert [(c["event"], c["date_text"]) for c in claims] == [
+        ("built", "in 1932"),
+        ("renovation", "in the 1960s"),
+    ]
+    assert all("+" not in c["claim"] and "T00:00:00Z" not in c["claim"] for c in claims)
+
+
+def test_wikidata_claims_name_thing_facts_for_meaning_classification():
+    facts = {
+        "facts": [
+            {
+                "property": "P84",
+                "name": "architect",
+                "value": {"qid": "Q1", "label": "Peter Hall"},
+                "qualifiers": {"P585": [{"time": "+1966-00-00T00:00:00Z", "precision": 9}]},
+                "references": [],
+                "source": "https://www.wikidata.org/wiki/Q999#P84",
+            }
+        ]
+    }
+    (claim,) = research.wikidata_claims("Q999", facts)
+    assert claim["event"] == "architect"
+    assert claim["date_text"] == "in 1966"
+    assert "Peter Hall" in claim["claim"]
+
+
 def test_assemble_claims_dedupes_sources():
     claims = research.assemble_claims(
         events=[{"year": 1932, "event": "built", "detail": "Built in 1932."}],
@@ -300,3 +364,26 @@ def test_assemble_claims_dedupes_sources():
     assert claim["year"] == 1932 and claim["kind"] == "object"
     assert sorted(claim["sources"]) == ["https://example.com/y", "https://nl.wikipedia.org/wiki/X"]
     assert "1932" in claim["claim"]
+
+
+def test_assemble_claims_carries_visible_change_and_date_text():
+    (claim,) = research.assemble_claims(
+        events=[
+            {
+                "year": 1026, "event": "built", "detail": "Thought to be 800 years old.",
+                "visible_change": "", "date_text": "about 800 years old",
+            }
+        ],
+        citations=[],
+        sources=[],
+    )
+    assert claim["visible_change"] == ""
+    assert claim["date_text"] == "about 800 years old"
+
+
+def test_lifespan_schema_asks_visible_change_and_vague_date():
+    event = research.LIFESPAN_SCHEMA["properties"]["events"]["items"]
+    assert set(event["required"]) == {"year", "event", "detail", "visible_change", "date_text"}
+    question = research.lifespan_question("Oak", "Town", {})
+    assert "visible" in question.lower()
+    assert "date_text" in question or "vague date" in question.lower()

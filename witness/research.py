@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from witness import states
 from witness.web import USER_AGENT, WebError, mediawiki_get
 
 FACT_PROPS = {
@@ -35,8 +36,10 @@ LIFESPAN_SCHEMA = {
                     "year": {"type": "integer"},
                     "event": {"type": "string"},
                     "detail": {"type": "string"},
+                    "visible_change": {"type": "string"},
+                    "date_text": {"type": "string"},
                 },
-                "required": ["year", "event", "detail"],
+                "required": ["year", "event", "detail", "visible_change", "date_text"],
                 "additionalProperties": False,
             },
         },
@@ -46,18 +49,7 @@ LIFESPAN_SCHEMA = {
     "additionalProperties": False,
 }
 
-# Event word to the object's state from that year on. Order matters:
-# more specific words first ("rebuilt" contains "built").
-STATE_AFTER = [
-    (("reconstruction", "rebuilding", "restoration"), "under reconstruction"),
-    (("burnt", "burned", "fire", "brand", "destroyed", "demolished"), "burnt, only the base left"),
-    (("rebuilt", "reopened", "reconstructed"), "rebuilt"),
-    (("restored", "renovated", "redecorated", "decorated", "decoration"), "restored"),
-    (("built", "opened", "completed"), "standing"),
-    (("extended", "extension", "steam"), "standing, extended"),
-    (("damaged", "storm"), "standing, damaged"),
-    (("repurposed", "converted", "conversion"), "repurposed"),
-]
+
 
 # Wikipedia languages per country (Nominatim country codes): research reads
 # these first, then the user's language, then English.
@@ -244,7 +236,13 @@ def lifespan_question(name, place, articles, read_langs=("en",)) -> str:
         f"What happened to the {name}{where} itself over its lifetime: "
         "when was it built, and was it ever extended, damaged, burnt, "
         "demolished, moved, restored, repurposed or rebuilt? Give the year of "
-        f"each change. {start}State only what the sources say. Do not narrate "
+        f"each change. {start}For each change give visible_change: what "
+        "visibly changed about the object's appearance (for example 'sails "
+        "replaced', 'height raised', 'repainted'); empty string when the "
+        "event did not change what the object looks like. When the sources "
+        "give only a vague date, put it in date_text (for example 'in the "
+        "1960s' or 'about 800 years old') and give your best year for "
+        "sorting. State only what the sources say. Do not narrate "
         "your steps; answer with the JSON object only."
     )
 
@@ -282,16 +280,23 @@ def build_timeline(events: list) -> list:
     """Sorted life events to clean {from_year, to_year, state} segments.
 
     One segment per distinct year (the last event of the year wins);
-    planned-but-prevented changes leave no segment; adjacent equal states
-    merge. Periods never overlap.
+    uncompleted and partly verified changes leave no segment; adjacent
+    identical states merge. Periods never overlap.
     """
     by_year: dict = {}
+    previous = None
     for event in sorted(events, key=lambda e: e["year"]):
+        if event.get("verdict", "supported") != "supported":
+            continue
         if not event.get("completed", True):
             continue
-        state = _state_after(event["event"], event.get("detail", ""))
+        state = states.classify(
+            event["event"], event.get("detail", ""),
+            event.get("visible_change", ""), previous,
+        )
         if state is not None:
             by_year[event["year"]] = state
+            previous = state["condition"]
     merged = []
     for year in sorted(by_year):
         if merged and merged[-1]["state"] == by_year[year]:
@@ -300,29 +305,6 @@ def build_timeline(events: list) -> list:
     for seg, nxt in zip(merged, merged[1:]):
         seg["to_year"] = nxt["from_year"]
     return merged
-
-
-def _state_after(event: str, detail: str = "") -> str | None:
-    words = set(re.findall(r"[a-z]+", event.lower()))
-    lowered = detail.lower()
-    if re.search(r"\b(prevented|averted|called off)\b", lowered) or (
-        re.search(r"\b(planned|proposed|considered)\b", lowered)
-        and not re.search(r"\b(start|started|began|complete|finished|opened|built|put in)\b", lowered)
-    ):
-        return None  # no change happened; leave no segment
-    if ("tulip" in lowered or "tulp" in lowered) and any(
-        k in words for k in ("decorated", "decoration", "extended", "restored", "beautified")
-    ):
-        return "decorated with tulips"
-    for keywords, state in STATE_AFTER:
-        if words & set(keywords):
-            if state in ("rebuilt", "restored") and re.search(
-                r"\b(start|started|began|under way|underway|first stone|first pole)\b",
-                detail.lower(),
-            ):
-                return "under reconstruction"
-            return state
-    return event.strip().lower().replace("_", " ") or "stood"
 
 
 def is_weak_source(url: str) -> bool:
@@ -337,46 +319,69 @@ def claim_quality_ok(urls: list) -> bool:
     return any(not is_weak_source(url) for url in urls)
 
 
-PROPERTY_EVENTS = {"P571": "built", "P576": "demolished"}
+PROPERTY_EVENTS = {
+    "P571": "built",
+    "P576": "demolished",
+    "P18": "image",
+    "P84": "architect",
+    "P1435": "heritage designation",
+}
 
 
 def wikidata_claims(qid, facts) -> list:
-    """Dated Wikidata statements become claims sourced to the item."""
+    """Dated Wikidata statements become claims sourced to the item.
+
+    Dates follow the statement's precision; raw timestamps never reach
+    claim text. State vs caption is decided later by meaning, never by
+    property: thing facts are simply named as what they are.
+    """
     claims = []
     for fact in facts["facts"]:
-        year = _statement_year(fact)
-        if year is None:
+        dated = _statement_date(fact)
+        if dated is None:
             continue
+        year, date_text = dated
         sources = [fact["source"]]
         for ref in fact["references"]:
             for values in ref.values():
                 sources.extend(v for v in values if isinstance(v, str) and v.startswith("http"))
         event = PROPERTY_EVENTS.get(fact["property"], _short_value(fact["value"]))
+        if fact["property"] in ("P571", "P576", "P793"):
+            text = f"{event} {date_text}"
+        else:
+            text = f"{event}: {_short_value(fact['value'])}"
         claims.append(
             {
                 "year": year,
                 "event": event,
                 "kind": "object",
-                "claim": f"{fact['name']}: {_short_value(fact['value'])}",
+                "claim": text,
                 "quote_span": None,
+                "date_text": date_text,
+                "visible_change": "",
                 "sources": sources,
             }
         )
     return claims
 
 
-def _statement_year(fact) -> int | None:
+def _statement_date(fact) -> tuple | None:
+    """Nominal year for sorting plus the precision-aware date phrase."""
     value = fact["value"]
     if isinstance(value, dict) and "time" in value:
-        match = re.search(r"\+?(-?\d{1,4})-", value["time"])
-        return int(match.group(1)) if match else None
+        return _dated(value["time"], value.get("precision", 9))
     for prop in ("P585", "P580"):
         for qual in fact["qualifiers"].get(prop, []):
             if isinstance(qual, dict) and "time" in qual:
-                match = re.search(r"\+?(-?\d{1,4})-", qual["time"])
-                if match:
-                    return int(match.group(1))
+                return _dated(qual["time"], qual.get("precision", 9))
     return None
+
+
+def _dated(time_value: str, precision: int) -> tuple | None:
+    match = re.search(r"\+?(-?\d{1,4})-", time_value)
+    if not match:
+        return None
+    return int(match.group(1)), states.format_wikidate(time_value, precision)
 
 
 def _short_value(value) -> str:
@@ -395,6 +400,8 @@ def assemble_claims(events, citations, sources) -> list:
             "kind": "object",
             "claim": f"{e['event']}: {e['detail']}",
             "quote_span": e["detail"],
+            "date_text": e.get("date_text", ""),
+            "visible_change": e.get("visible_change", ""),
             "sources": urls,
         }
         for e in events

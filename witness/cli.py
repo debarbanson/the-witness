@@ -105,7 +105,8 @@ def cmd_research(photo, place=None, lang="en", yes=False):
     # Choose before checking: draft scenes from unverified claims, then
     # verify only what the scenes need plus a few spares.
     draft_events = [
-        {"year": c["year"], "event": c.get("event", "stood"), "detail": c.get("quote_span") or c["claim"]}
+        {"year": c["year"], "event": c.get("event", "stood"), "detail": c.get("quote_span") or c["claim"],
+         "visible_change": c.get("visible_change", "")}
         for c in kept
     ]
     draft = scenes.choose_scenes(research.build_timeline(draft_events), kept)
@@ -150,7 +151,8 @@ def cmd_research(photo, place=None, lang="en", yes=False):
     verified = [c for c in kept if c["verdict"] == "supported" or (c["verdict"] == "partly" and c["rewritten"])]
     events = [
         {"year": c["year"], "event": c.get("event", "stood"), "detail": c.get("rewritten") or c.get("quote_span") or c["claim"],
-         "completed": c.get("completed", True)}
+         "completed": c.get("completed", True), "verdict": c.get("verdict", "supported"),
+         "visible_change": c.get("visible_change", "")}
         for c in verified
     ]
     timeline = research.build_timeline(events)
@@ -172,12 +174,12 @@ def cmd_research(photo, place=None, lang="en", yes=False):
             print(f"    rewritten: {c['rewritten'][:120]}")
     print("\nscenes:")
     for s in chosen:
-        print(f"- {s['from_year']}: {s['state']} ({s['reason']})")
+        print(f"- {s['from_year']}: {_show_state(s['state'])} ({s['reason']})")
         for line in s["caption_lines"]:
             print(f"    line: {line['line'][:100]}")
     print("\ntimeline:")
     for seg in timeline:
-        print(f"- {seg['from_year']} to {seg['to_year']}: {seg['state']}")
+        print(f"- {seg['from_year']} to {seg['to_year']}: {_show_state(seg['state'])}")
     print(f"\noutcome: {result['outcome']} ({result['reason']}; "
           f"{result['verified']} verified, {result['eras']} eras, {result['good_sources']} good sources)")
 
@@ -202,6 +204,17 @@ def cmd_research(photo, place=None, lang="en", yes=False):
     )
     print(f"saved: {out_dir / 'research.json'}")
     return 0
+
+
+def _show_state(state: dict) -> str:
+    shown = state["condition"]
+    if state.get("scope", "whole") != "whole":
+        shown += f" ({state['scope']})"
+    if state.get("degree", "total") != "total":
+        shown += f" ({state['degree']})"
+    if state.get("description"):
+        shown += f": {state['description'][:80]}"
+    return shown
 
 
 def slug_for(name, qid, articles) -> str:

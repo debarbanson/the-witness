@@ -598,6 +598,27 @@ def test_judge_all_runs_jobs_and_keeps_order():
     assert [r["verdict"] for r in results] == ["supported"] * 2
 
 
+def test_judge_all_reports_progress_per_claim():
+    seen = []
+    verify.judge_all(
+        lambda prompt: fixture("verify_supported.json"),
+        [job(), job(), job()], max_workers=2,
+        progress=lambda event, data: seen.append((event, data["done"], data["total"])),
+    )
+    assert [s[0] for s in seen] == ["verify"] * 3
+    assert sorted(s[1] for s in seen) == [1, 2, 3]
+    assert {s[2] for s in seen} == {3}
+
+
+def test_fetch_many_reports_progress_per_page():
+    seen = []
+    get = FakeGet([(200, "<html><body><p>Enough words in this paragraph to keep it.</p></body></html>")] * 2)
+    verify.fetch_many(["https://a.test/x", "https://b.test/y"], get=get,
+                      progress=lambda event, data: seen.append((event, data["done"])))
+    assert [s[0] for s in seen] == ["fetch"] * 2
+    assert sorted(s[1] for s in seen) == [1, 2]
+
+
 def test_judge_all_captures_job_errors():
     def respond(prompt):
         if "bad" in prompt:

@@ -82,6 +82,18 @@ def test_read_langs_local_first_then_user_then_english():
     assert research.read_langs("xx", "en") == ["en"]
 
 
+def test_fetch_facts_requests_local_languages_first():
+    recorded = fixture("wb_facts_q2487636.json")
+    get = fake_get(
+        [
+            {"entities": {recorded["qid"]: {"labels": {}, "claims": recorded["claims"]}}},
+            fixture("wb_labels_q2487636.json"),
+        ]
+    )
+    research.fetch_facts("Q2487636", get=get, country_code="jp", lang="en")
+    assert get.calls[0]["params"]["languages"] == "ja|en"
+
+
 def test_fetch_facts_labels_in_user_language_with_english_fallback():
     recorded = fixture("wb_facts_q2487636.json")
 

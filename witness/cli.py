@@ -8,6 +8,7 @@ import re
 import sys
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from witness import identify, models, outcome, research, scenes, states, verify
@@ -59,7 +60,10 @@ def cmd_keep(slug):
 def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
     cache = None if no_cache else Cache("out/cache")
     try:
-        found = identify.identify(photo, place=place, respond=vision_respond, cache=cache, lang=lang)
+        steps = {}
+        found = identify.identify(photo, place=place, respond=vision_respond, cache=cache,
+                                  lang=lang, timings=steps)
+        print(f"identify steps (s): {json.dumps(steps)}")
     except identify.NotIdentifiedError as exc:
         print(f"not identified: {exc}")
         return 2
@@ -84,15 +88,20 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
 SPARES = 4  # extra claims verified outside the draft scenes
 
 
-def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="meta"):
+def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="meta",
+                 progress=None):
     cache = None if no_cache else Cache("out/cache")
     models.reset_usage()
     timings = {}
     start = time.perf_counter()
     try:
         phase = time.perf_counter()
-        found = identify.identify(photo, place=place, respond=vision_respond, cache=cache, lang=lang)
+        identify_steps = {}
+        found = identify.identify(photo, place=place, respond=vision_respond, cache=cache,
+                                  lang=lang, timings=identify_steps, progress=progress)
         timings["identify_s"] = round(time.perf_counter() - phase, 1)
+        timings["identify_steps"] = identify_steps
+        print(f"identify steps (s): {json.dumps(identify_steps)}")
     except identify.NotIdentifiedError as exc:
         print(f"object: not identified ({exc})")
         print("outcome: not_identified")
@@ -103,15 +112,24 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     print(f"object: {found.name} ({found.kind})")
     if found.qid:
         print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")
-    if not yes:
-        answer = input(f"Is this {found.name}? [Y/n] ").strip().lower()
-        if answer not in ("", "y", "yes"):
-            print("not confirmed; stopping")
-            return 2
+    order = research.read_langs(found.country_code, lang)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        facts_future = (
+            pool.submit(research.fetch_facts, found.qid, None, time.sleep, lang, cache,
+                        found.country_code)
+            if found.qid else None
+        )
+        if not yes:
+            answer = input(f"Is this {found.name}? [Y/n] ").strip().lower()
+            if answer not in ("", "y", "yes"):
+                print("not confirmed; stopping")
+                return 2
+        phase = time.perf_counter()
+        facts = facts_future.result() if facts_future else {"facts": []}
     if cache is not None and found.qid:
         reviewed = cache.get_reviewed(found.qid, lang)
         if reviewed is not None:
-            slug = slug_for(found.name, found.qid, found.articles)
+            slug = slug_for(found.name, found.qid, found.articles, prefer=order)
             out_path = Path("out") / slug / "research.json"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
@@ -122,8 +140,6 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
 
     claims = []
     if found.qid:
-        phase = time.perf_counter()
-        facts = research.fetch_facts(found.qid, lang=lang, cache=cache)
         claims.extend(research.wikidata_claims(found.qid, facts))
         timings["facts_s"] = round(time.perf_counter() - phase, 1)
         print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
@@ -172,7 +188,7 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     ]
     all_urls = sorted({u for c in to_check + spares for u in c["sources"]} | set(article_urls))
     phase = time.perf_counter()
-    texts, fetch_errors = verify.fetch_many(all_urls, cache=cache)
+    texts, fetch_errors = verify.fetch_many(all_urls, cache=cache, progress=progress)
     for url in sorted(fetch_errors):
         print(f"note: could not read {url} ({str(fetch_errors[url])[:100]})")
     timings["fetch_s"] = round(time.perf_counter() - phase, 1)
@@ -195,7 +211,7 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     support = baseten_support_respond if verify_with == "baseten" else support_respond
     phase = time.perf_counter()
     judged = verify.judge_all(support, jobs, search_respond=verify_respond,
-                              completion_respond=support_respond)
+                              completion_respond=support_respond, progress=progress)
     timings["verify_s"] = round(time.perf_counter() - phase, 1)
     if verify_with == "both":
         phase = time.perf_counter()
@@ -241,7 +257,7 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     print(f"\noutcome: {result['outcome']} ({result['reason']}; "
           f"{result['verified']} verified, {result['eras']} eras, {result['good_sources']} good sources)")
 
-    slug = slug_for(found.name, found.qid, found.articles)
+    slug = slug_for(found.name, found.qid, found.articles, prefer=order)
     out_dir = Path("out") / slug
     out_dir.mkdir(parents=True, exist_ok=True)
     timings["total_s"] = round(time.perf_counter() - start, 1)
@@ -317,10 +333,11 @@ def compare_verdicts(jobs, primary, alt) -> dict:
     return {"agree": len(jobs) - len(disagree), "total": len(jobs), "disagree": disagree}
 
 
-def slug_for(name, qid, articles) -> str:
+def slug_for(name, qid, articles, prefer=("en",)) -> str:
     """Filesystem slug in any script: transliterated name, else an article
-    title, else the Wikidata id (e.g. q1196460-kintai-bridge)."""
-    candidates = [name, *(articles.get(lang, "") for lang in ("en", "nl", "fr", "de"))]
+    title in reading order, else the Wikidata id (e.g. q1196460-kintai-bridge)."""
+    fallbacks = [lang for lang in ("en", "nl", "fr", "de") if lang not in prefer]
+    candidates = [name, *(articles.get(lang, "") for lang in (*prefer, *fallbacks))]
     for text in candidates:
         ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
         slug = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")

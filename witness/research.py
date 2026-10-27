@@ -101,9 +101,10 @@ class ResearchError(Exception):
     """The research step failed or returned unusable data."""
 
 
-def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None):
+def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None, country_code=None):
     """Structured facts for the confirmed object. `get` is injectable."""
     get = get or requests.get
+    order = read_langs(country_code, lang)
     try:
         data = mediawiki_get(
             get,
@@ -112,7 +113,7 @@ def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None):
                 "action": "wbgetentities",
                 "ids": qid,
                 "props": "claims|labels",
-                "languages": "nl|en",
+                "languages": "|".join(order),
                 "format": "json",
             },
             sleep=sleep,
@@ -134,7 +135,7 @@ def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None):
                     for s in snaks:
                         need |= _item_ids(s)
     try:
-        labels = _entity_labels(sorted(need), get, sleep, lang, cache) if need else {}
+        labels = _entity_labels(sorted(need), get, sleep, order, cache) if need else {}
     except WebError as exc:
         raise ResearchError(str(exc))
     facts = []
@@ -160,7 +161,7 @@ def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None):
                 }
             )
     lang_labels = entity.get("labels", {})
-    best = _pick_label(lang_labels, lang)
+    best = _pick_label(lang_labels, order)
     return {
         "qid": qid,
         "label": best,
@@ -172,8 +173,8 @@ def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None):
     }
 
 
-def _entity_labels(qids, get, sleep=time.sleep, lang="en", cache=None) -> dict:
-    langs = "|".join(dict.fromkeys([lang, "en", "nl"]))
+def _entity_labels(qids, get, sleep=time.sleep, order=("en",), cache=None) -> dict:
+    langs = "|".join(order)
     data = mediawiki_get(
         get,
         "https://www.wikidata.org/w/api.php",
@@ -189,13 +190,13 @@ def _entity_labels(qids, get, sleep=time.sleep, lang="en", cache=None) -> dict:
     )
     out = {}
     for qid, entity in data.get("entities", {}).items():
-        out[qid] = _pick_label(entity.get("labels", {}), lang) or qid
+        out[qid] = _pick_label(entity.get("labels", {}), order) or qid
     return out
 
 
-def _pick_label(labels: dict, lang: str) -> str | None:
-    """Label in the user's language, English fallback, then anything."""
-    for code in dict.fromkeys([lang, "en", "nl", *labels]):
+def _pick_label(labels: dict, order) -> str | None:
+    """Label in reading order (local languages, user language, English)."""
+    for code in dict.fromkeys([*order, *labels]):
         if labels.get(code):
             return labels[code]["value"]
     return None

@@ -310,10 +310,11 @@ def _slim(rounds) -> list:
 
 
 def judge_all(support_respond, jobs, search_respond=None, completion_respond=None,
-              max_workers=6, completion=True) -> list:
+              max_workers=6, completion=True, progress=None) -> list:
     """Judge several claims at once (a failing job becomes unsupported
-    with a note instead of killing the run)."""
-    from concurrent.futures import ThreadPoolExecutor
+    with a note instead of killing the run). `progress("verify", ...)`
+    fires per finished claim, in completion order; results keep job order."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def run(job):
         try:
@@ -327,8 +328,14 @@ def judge_all(support_respond, jobs, search_respond=None, completion_respond=Non
                 "war_politics_only": False, "rounds": [], "votes": 0,
             }
 
+    out = [None] * len(jobs)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        return list(pool.map(run, jobs))
+        futures = {pool.submit(run, job): i for i, job in enumerate(jobs)}
+        for done, future in enumerate(as_completed(futures), 1):
+            out[futures[future]] = future.result()
+            if progress is not None:
+                progress("verify", {"done": done, "total": len(jobs)})
+    return out
 
 
 def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
@@ -386,16 +393,22 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
     return text
 
 
-def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=6):
+def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=6, progress=None):
     """Fetch many source pages: Wikimedia URLs one at a time in this
     thread (their rule), plain pages in parallel with at most one
     request per host at a time. Returns (texts, errors); a failure is
     logged by the caller and skipped, never retried."""
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     get = get or requests.get
     texts: dict = {}
     errors: dict = {}
+
+    def note(url):
+        if progress is not None:
+            progress("fetch", {"done": len(texts) + len(errors),
+                               "total": len(urls), "url": url})
+
     wiki = [u for u in urls if urlparse(u).netloc.lower().endswith(
         ("wikipedia.org", "wikidata.org", "wikimedia.org"))]
     for url in wiki:
@@ -403,6 +416,7 @@ def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=6):
             texts[url] = fetch_source_text(url, get=get, sleep=sleep, cache=cache)
         except (VerifyError, WebError, OSError) as exc:
             errors[url] = str(exc)
+        note(url)
     plain = [u for u in urls if u not in texts and u not in errors]
     locks: dict = {}
     locks_guard = threading.Lock()
@@ -421,11 +435,14 @@ def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=6):
 
     if plain:
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            for url, text, error in pool.map(run, plain):
+            futures = {pool.submit(run, url): url for url in plain}
+            for future in as_completed(futures):
+                url, text, error = future.result()
                 if error is None:
                     texts[url] = text
                 else:
                     errors[url] = error
+                note(url)
     return texts, errors
 
 

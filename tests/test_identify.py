@@ -53,6 +53,37 @@ class FakeTransport:
         return FakeResponse(status, payload)
 
 
+def routed(reverse_payload=None):
+    """Fake get routing by request, for parallel lookups in any order."""
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append({"url": url, **kwargs})
+        params = kwargs.get("params", {}) or {}
+        if "nominatim" in url and "reverse" in url:
+            return FakeResponse(200, reverse_payload or fixture("nominatim_reverse.json"))
+        if params.get("list") == "geosearch":
+            return FakeResponse(200, fixture("wikidata_geosearch.json"))
+        if params.get("props") == "labels":
+            return FakeResponse(200, fixture("wb_labels.json"))
+        if params.get("props") == "sitelinks":
+            return FakeResponse(200, fixture("wb_sitelinks.json"))
+        raise AssertionError(f"unexpected request {url} {params}")
+
+    get.calls = calls
+    return get
+
+
+def vision_pick(text="1 Test Tower\nHighly confident."):
+    def respond(prompt, image_bytes):
+        assert image_bytes[:2] == b"\xff\xd8"
+        assert "Test Tower" in prompt
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    return respond
+
+
 def gps_photo(path, lat=(52, 0, 0), lon=(4, 0, 0), direction=None):
     exif = Image.Exif()
     gps = {
@@ -193,33 +224,7 @@ def test_identify_end_to_end_with_fakes(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo, direction=201)
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
-    get = FakeTransport(
-        [
-            (200, fixture("nominatim_reverse.json")),
-            (200, fixture("wikidata_geosearch.json")),
-            (200, fixture("wb_labels.json")),
-            (200, fixture("wb_sitelinks.json")),
-        ]
-    )
-    def respond(prompt, image_bytes):
-        assert image_bytes[:2] == b"\xff\xd8"
-        assert "Test Tower" in prompt
-        return {
-            "output": [
-                {
-                    "type": "message",
-                    "content": [
-                        {
-                            "type": "output_text",
-                            "text": "1 Test Tower\nHighly confident.",
-                            "annotations": [],
-                        }
-                    ],
-                }
-            ]
-        }
-
-    found = identify.identify(photo, post=post, get=get, respond=respond)
+    found = identify.identify(photo, post=post, get=routed(), respond=vision_pick())
     assert found.name == "Test Tower"
     assert found.qid == "Q999"
     assert found.articles == {"nl": "Testtoren", "en": "Test Tower"}
@@ -231,18 +236,77 @@ def test_identify_none_raises_not_identified(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
-    get = FakeTransport(
-        [
-            (200, fixture("nominatim_reverse.json")),
-            (200, fixture("wikidata_geosearch.json")),
-            (200, fixture("wb_labels.json")),
-            (200, fixture("wb_sitelinks.json")),
-        ]
-    )
     with pytest.raises(identify.NotIdentifiedError):
         identify.identify(
-            photo, post=post, get=get, respond=lambda p, b: fixture("vision_none.json")
+            photo, post=post, get=routed(), respond=lambda p, b: fixture("vision_none.json")
         )
+
+
+def test_identify_runs_overpass_and_wikidata_in_parallel(tmp_path):
+    import threading
+
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    barrier = threading.Barrier(2, timeout=10)
+
+    def post(url, **kwargs):
+        barrier.wait()
+        return FakeResponse(200, fixture("overpass_nearby.json"))
+
+    get = routed()
+
+    def waiting_get(url, **kwargs):
+        if (kwargs.get("params", {}) or {}).get("list") == "geosearch":
+            barrier.wait()
+        return get(url, **kwargs)
+
+    found = identify.identify(photo, post=post, get=waiting_get, respond=vision_pick())
+    assert found.name == "Test Tower"  # barrier passed: the lookups overlapped
+
+
+def test_identify_times_each_step(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    timings = {}
+    identify.identify(photo, post=post, get=routed(), respond=vision_pick(), timings=timings)
+    assert {"reverse_s", "overpass_s", "wikidata_s", "sitelinks_s", "vision_s"} <= set(timings)
+    assert all(v >= 0 for v in timings.values())
+
+
+def test_identify_emits_progress_events(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    events = []
+    identify.identify(photo, post=post, get=routed(), respond=vision_pick(),
+                      progress=lambda event, data: events.append(event))
+    assert events == ["location", "candidates", "pick"]
+
+
+def test_identify_reads_local_languages_for_sitelinks_and_labels(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    get = routed({"address": {"country_code": "jp"}})
+    found = identify.identify(photo, post=post, get=get, respond=vision_pick(), lang="en")
+    assert found.country_code == "jp"
+    sitefilter = [c["params"]["sitefilter"] for c in get.calls if c["params"].get("props") == "sitelinks"]
+    assert sitefilter == ["jawiki|enwiki"]
+    label_langs = [c["params"]["languages"] for c in get.calls if c["params"].get("props") == "labels"]
+    assert label_langs == ["ja|en"]
+
+
+def test_fetch_overpass_uses_short_timeout_and_disk_cache(tmp_path):
+    from witness.cache import Cache
+
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    first = identify.fetch_overpass(52.0, 4.0, post=post, cache=Cache(tmp_path))
+    assert post.calls[0]["timeout"] == 30
+    identify.clear_cache()
+    second = identify.fetch_overpass(52.0, 4.0, post=post, cache=Cache(tmp_path))
+    assert second == first
+    assert len(post.calls) == 1
 
 
 def test_geocode_uses_nominatim_politely():

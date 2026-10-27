@@ -9,12 +9,14 @@ never stored or printed by this module.
 import io
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import requests
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, IFD
 
+from witness.research import read_langs
 from witness.web import USER_AGENT, WebError, mediawiki_get
 
 RADIUS_M = 250
@@ -87,41 +89,59 @@ def clear_cache() -> None:
     _cache.clear()
 
 
-def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep, cache=None, lang="en"):
-    """Run step 0. Transports and the vision call are injectable for tests."""
+def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
+             cache=None, lang="en", timings=None, progress=None):
+    """Run step 0. Transports and the vision call are injectable for tests.
+
+    Reverse geocoding runs first (labels and articles need the country);
+    then Overpass and Wikidata nearby in parallel, then sitelinks and the
+    vision pick in parallel. Per-step seconds go into `timings` when given;
+    `progress(event, data)` feeds the web page.
+    """
     post = post or _post
     get = get or _get
     if respond is None:
         raise IdentifyError("a vision respond callable is required")
+    steps = {} if timings is None else timings
+
+    def emit(event, data=None):
+        if progress is not None:
+            progress(event, data or {})
+
+    def guarded(key, default, func, *args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return func(*args, **kwargs)
+        except SourceError:
+            return default
+        finally:
+            steps[f"{key}_s"] = round(time.perf_counter() - started, 1)
+
     try:
         location = read_location(photo)
     except NoGpsError:
         if not place:
             raise
+        started = time.perf_counter()
         lat, lon = geocode(place, get=get, sleep=sleep)
+        steps["geocode_s"] = round(time.perf_counter() - started, 1)
         location = PhotoLocation(lat=lat, lon=lon, direction=None, precision="typed place")
     lat, lon = location.lat, location.lon
-    try:
-        country_code = reverse(lat, lon, get=get, sleep=sleep)
-    except SourceError:
-        country_code = None
-    try:
-        osm = fetch_overpass(lat, lon, post=post, sleep=sleep)
-    except SourceError:
-        osm = []
-    try:
-        wiki = fetch_wikidata_nearby(lat, lon, get=get, sleep=sleep, cache=cache, lang=lang)
-    except SourceError:
-        wiki = []
+    emit("location", {"precision": location.precision})
+    country_code = guarded("reverse", None, reverse, lat, lon, get=get, sleep=sleep)
+    order = read_langs(country_code, lang)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        osm_future = pool.submit(guarded, "overpass", [], fetch_overpass,
+                                 lat, lon, post, sleep, cache)
+        wiki_future = pool.submit(guarded, "wikidata", [], fetch_wikidata_nearby,
+                                  lat, lon, get, sleep, cache, lang, country_code)
+        osm, wiki = osm_future.result(), wiki_future.result()
     qids = [i["qid"] for i in wiki]
     qids += [t.get("wikidata") for el in osm for t in [el.get("tags", {})] if t.get("wikidata")]
-    try:
-        articles = fetch_sitelinks(sorted(set(qids)), get=get, sleep=sleep, cache=cache) if qids else {}
-    except SourceError:
-        articles = {}
     ranked = merge_and_rank(osm, wiki, lat, lon, location.direction)[:TOP_N]
     if not ranked:
         raise NotIdentifiedError("no named candidates near the photo")
+    emit("candidates", {"count": len(ranked), "names": [c.name for c in ranked]})
     shortlist = "\n".join(
         f"{i + 1}. {c.name} ({c.kind}, about {c.distance_m} m away, "
         f"bearing {c.bearing_deg} degrees)"
@@ -133,13 +153,30 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
         f"{shortlist}\nWhich one does the photo show? Answer with its number "
         "and name first, then one sentence of confidence. If none of them, say NONE."
     )
-    pick = parse_pick(respond(prompt, _reencoded(photo)))
+    photo_bytes = _reencoded(photo)
+
+    def vision():
+        started = time.perf_counter()
+        try:
+            return parse_pick(respond(prompt, photo_bytes))
+        finally:
+            steps["vision_s"] = round(time.perf_counter() - started, 1)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        articles_future = (
+            pool.submit(guarded, "sitelinks", {}, fetch_sitelinks,
+                        sorted(set(qids)), get, order, sleep, cache)
+            if qids else None
+        )
+        pick = pool.submit(vision).result()
+        articles = articles_future.result() if articles_future else {}
     if pick["none"]:
         raise NotIdentifiedError(pick.get("confidence") or "none of the candidates matched")
     number = pick.get("number")
     if number is None or not 1 <= number <= len(ranked):
         raise NotIdentifiedError(f"unparseable pick: {pick.get('name')}")
     chosen = ranked[number - 1]
+    emit("pick", {"name": chosen.name})
     return Identification(
         name=chosen.name,
         kind=chosen.kind,
@@ -197,17 +234,23 @@ def _reencoded(photo) -> bytes:
     return buf.getvalue()
 
 
-def fetch_overpass(lat, lon, post=None, sleep=time.sleep) -> list:
+def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None) -> list:
     key = ("overpass", round(lat, 5), round(lon, 5))
     if key in _cache:
         return _cache[key]
+    cache_key = f"overpass:{lat:.5f},{lon:.5f}"
+    if cache is not None:
+        hit = cache.get(cache_key)
+        if hit is not None:
+            _cache[key] = hit
+            return hit
     post = post or _post
     body = QUERY.format(radius=RADIUS_M, lat=f"{lat:.6f}", lon=f"{lon:.6f}")
     last_error = ""
     for url in OVERPASS_INSTANCES:
         for attempt in (0, 1):
             try:
-                resp = post(url, data={"data": body}, headers={"User-Agent": USER_AGENT}, timeout=60)
+                resp = post(url, data={"data": body}, headers={"User-Agent": USER_AGENT}, timeout=30)
             except Exception as exc:  # noqa: BLE001 - any transport error moves on
                 last_error = str(exc)[:120]
                 break
@@ -219,11 +262,14 @@ def fetch_overpass(lat, lon, post=None, sleep=time.sleep) -> list:
             resp.raise_for_status()
             elements = resp.json().get("elements", [])
             _cache[key] = elements
+            if cache is not None:
+                cache.put(cache_key, elements)
             return elements
     raise SourceError(f"Overpass failed on all instances ({last_error})")
 
 
-def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None, lang="en") -> list:
+def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None, lang="en",
+                          country_code=None) -> list:
     """Nearby items via geosearch on wikidata.org (WDQS avoided per pipeline)."""
     key = ("wd_nearby", round(lat, 5), round(lon, 5))
     if key in _cache:
@@ -245,7 +291,8 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None, lang
             sleep=sleep,
             cache=cache,
         )
-        labels = _wb_labels([r["title"] for r in data["query"]["geosearch"]], get, sleep, cache, lang)
+        labels = _wb_labels([r["title"] for r in data["query"]["geosearch"]], get, sleep, cache,
+                            read_langs(country_code, lang))
     except WebError as exc:
         raise SourceError(str(exc))
     raw = data["query"]["geosearch"]
@@ -258,7 +305,7 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None, lang
     return items
 
 
-def _wb_labels(qids, get, sleep=time.sleep, cache=None, lang="en") -> dict:
+def _wb_labels(qids, get, sleep=time.sleep, cache=None, order=("en",)) -> dict:
     if not qids:
         return {}
     data = mediawiki_get(
@@ -268,7 +315,7 @@ def _wb_labels(qids, get, sleep=time.sleep, cache=None, lang="en") -> dict:
             "action": "wbgetentities",
             "ids": "|".join(qids[:50]),
             "props": "labels",
-            "languages": "|".join(dict.fromkeys([lang, "en", "nl"])),
+            "languages": "|".join(order),
             "format": "json",
         },
         sleep=sleep,
@@ -278,7 +325,7 @@ def _wb_labels(qids, get, sleep=time.sleep, cache=None, lang="en") -> dict:
     for qid, entity in data.get("entities", {}).items():
         lang_labels = entity.get("labels", {})
         best = None
-        for code in dict.fromkeys([lang, "en", "nl", *lang_labels]):
+        for code in dict.fromkeys([*order, *lang_labels]):
             if lang_labels.get(code):
                 best = lang_labels[code]
                 break
@@ -286,7 +333,7 @@ def _wb_labels(qids, get, sleep=time.sleep, cache=None, lang="en") -> dict:
     return out
 
 
-def fetch_sitelinks(qids, get=None, languages=("nl", "en"), sleep=time.sleep, cache=None) -> dict:
+def fetch_sitelinks(qids, get=None, languages=("en",), sleep=time.sleep, cache=None) -> dict:
     if not qids:
         return {}
     get = get or _get

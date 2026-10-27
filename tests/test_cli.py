@@ -20,6 +20,12 @@ def test_slug_without_qid():
     assert slug_for("???", None, {}) == "film"
 
 
+def test_slug_prefers_reading_order():
+    articles = {"nl": "Grote Eik van Sherwood", "en": "Major Oak"}
+    assert slug_for("Major Oak", "Q388443", articles, prefer=("en",)) == "q388443-major-oak"
+    assert slug_for("???", "Q388443", articles, prefer=("nl", "en")) == "q388443-grote-eik-van-sherwood"
+
+
 def test_votes_for_build_anchor_and_state_setting_claims():
     from witness.cli import _votes_for
 

@@ -137,3 +137,11 @@ def test_usage_accumulates_per_provider():
     }
     models.reset_usage()
     assert models.usage_totals() == {}
+
+
+def test_paint_uses_muse_image_on_meta():
+    assert models.PAINT.provider == "meta"
+    assert models.PAINT.model == "muse-image-1.0"
+    assert models.PAINT.key_name == "MODEL_API_KEY"
+    assert models.PAINT.effort is None
+    assert models.PAINT.temperature is None

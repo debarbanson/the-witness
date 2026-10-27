@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from witness import identify, models, outcome, research, scenes, states, stream, verify
+from witness import check, identify, models, outcome, paint, research, scenes, states, stream, verify
 from witness.cache import Cache
 
 
@@ -34,12 +34,19 @@ def main(argv=None):
                              choices=("meta", "baseten"))
     keep = sub.add_parser("keep")
     keep.add_argument("slug")
+    paint_cmd = sub.add_parser("paint")
+    paint_cmd.add_argument("slug")
+    paint_cmd.add_argument("--photo", required=True)
+    paint_cmd.add_argument("--place", required=True)
+    paint_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel"))
     args = parser.parse_args(argv)
     if args.command == "identify":
         return cmd_identify(args.photo, place=args.place, lang=args.lang,
                             yes=args.yes, no_cache=args.no_cache)
     if args.command == "keep":
         return cmd_keep(args.slug)
+    if args.command == "paint":
+        return cmd_paint(args.slug, args.photo, place=args.place, mode=args.mode)
     if args.command == "film":
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
@@ -800,6 +807,102 @@ def baseten_support_respond(prompt):
         print(f"note: baseten support failed ({str(exc)[:100]}), meta fallback",
               file=sys.stderr)
         return support_respond(prompt)
+
+
+def paint_respond(prompt, prev_id, photo_bytes=None):
+    """One painting turn on Muse Image. Settings stay inside the tool."""
+    from openai import BadRequestError
+
+    content = [{"type": "input_text", "text": prompt}]
+    if photo_bytes is not None:
+        uri, _ = check.data_uri(photo_bytes)
+        content.append({"type": "input_image", "image_url": uri})
+    kwargs = {"tools": paint.image_tools(), "input": [
+        {"role": "user", "content": content}]}
+    if prev_id is not None:
+        kwargs["previous_response_id"] = prev_id
+    try:
+        resp = models.respond(_respond_for(models.PAINT), models.PAINT, **kwargs)
+    except BadRequestError as exc:
+        if "content_policy" in str(exc):
+            raise paint.PaintSafetyError(str(exc))
+        raise paint.PaintError(str(exc))
+    data = json.loads(resp.model_dump_json())
+    b64 = paint.extract_image_b64(data)
+    if b64 is None:
+        raise paint.PaintError("no image in the response")
+    return {"image": base64.b64decode(b64), "response_id": data["id"]}
+
+
+def check_respond(image_bytes, prompt):
+    """One painting check on Muse Spark with vision."""
+    uri, _ = check.data_uri(image_bytes)
+    resp = models.respond(
+        _respond_for(models.CHECK),
+        models.CHECK,
+        input=[{"role": "user", "content": [
+            {"type": "input_text", "text": prompt},
+            {"type": "input_image", "image_url": uri},
+        ]}],
+    )
+    data = json.loads(resp.model_dump_json())
+    texts = []
+    for item in data.get("output", []):
+        for block in item.get("content", []) or []:
+            if block.get("type") == "output_text":
+                texts.append(block.get("text", ""))
+    return "\n".join(texts)
+
+
+def cmd_paint(slug, photo, place=None, mode="parallel", paint_call=None,
+              check_call=None):
+    """Paint an object's eras from its research, checked per era."""
+    out_dir = Path("out") / slug
+    path = out_dir / "research.json"
+    if not path.exists():
+        print(f"no research at {path}")
+        return 2
+    data = json.loads(path.read_text())
+    name = data["object"]["name"]
+    photo_bytes = Path(photo).read_bytes()
+    eras = [s for s in data.get("scenes", [])
+            if isinstance(s.get("from_year"), int)]
+    if not eras:
+        print("no paintable eras in research")
+        return 2
+    call = paint_call or paint_respond
+    checker = check_call or check_respond
+    started = time.perf_counter()
+    if mode == "chain":
+        results = paint.paint_chain(call, photo_bytes, eras, name, place,
+                                    check_call=checker)
+    else:
+        results = paint.paint_parallel(call, photo_bytes, eras, name, place,
+                                       check_call=checker)
+    era_dir = out_dir / f"eras_{mode}"
+    era_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {"slug": slug, "mode": mode, "object": name,
+                "paint_s": round(time.perf_counter() - started, 1), "eras": []}
+    panels = []
+    for scene, result in zip(eras, results):
+        year = scene["from_year"]
+        entry = {"year": year, "verdict": result["verdict"],
+                 "attempts": result["attempts"]}
+        if result["image"] is not None:
+            (era_dir / f"{year}.png").write_bytes(result["image"])
+            entry["file"] = f"eras_{mode}/{year}.png"
+            panels.append((str(year), result["image"]))
+        else:
+            entry["note"] = result["note"]
+        manifest["eras"].append(entry)
+        print(f"{year}: {result['verdict']} "
+              f"(attempts {result['attempts']}) {result.get('note', '')}"[:160])
+    if panels:
+        paint.contact_sheet(panels, str(era_dir / "contact.png"))
+    (out_dir / f"paint_{mode}.json").write_text(json.dumps(manifest, indent=1))
+    kept = sum(1 for e in manifest["eras"] if e["verdict"] == "matches")
+    print(f"painted {kept} of {len(eras)} eras in {manifest['paint_s']} s ({mode})")
+    return 0
 
 
 def verify_respond(prompt):

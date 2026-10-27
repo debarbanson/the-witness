@@ -53,6 +53,15 @@ VERIFY = ModelSpec(
 # Step 5 shares the verify setting until it needs its own.
 CHECK = VERIFY
 
+# Step 4: anchored era painting. Settings travel inside the image
+# tool, never as top-level parameters; there is no seed.
+PAINT = ModelSpec(
+    provider="meta",
+    base_url="https://api.meta.ai/v1",
+    model="muse-image-1.0",
+    key_name="MODEL_API_KEY",
+)
+
 # Open-weights support checks on Baseten (credits granted 27 Oct). The
 # hackathon key only works with the -1026 model name, not the name in
 # Baseten's own docs. Chat Completions path; Meta stays on Responses.

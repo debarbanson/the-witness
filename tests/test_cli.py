@@ -69,6 +69,34 @@ def test_compare_verdicts_tallies_agreement():
     assert compared["disagree"] == [{"claim": "b", "meta": "supported", "alt": "unsupported"}]
 
 
+def test_baseten_support_passes_timeout_and_falls_back_to_meta(monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    seen = {}
+
+    class FakeChat:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return {"choices": [{"message": {"content": '{"verdict": "supported"}'}}]}
+
+    class FakeClient:
+        chat = type("chat", (), {"completions": FakeChat()})()
+
+    monkeypatch.setattr(cli_module, "_respond_for", lambda spec: FakeClient())
+    shaped = cli_module.baseten_support_respond("claim")
+    assert seen["timeout"] == 180
+    assert seen["model"] == "meta-models/muse-spark-open-1026"
+    assert shaped["output"][0]["content"][0]["text"] == '{"verdict": "supported"}'
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("cold start")
+
+    monkeypatch.setattr(models, "chat", boom)
+    monkeypatch.setattr(cli_module, "support_respond", lambda prompt: {"fallback": True})
+    assert cli_module.baseten_support_respond("claim") == {"fallback": True}
+
+
 def test_keep_stores_reviewed_research(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module

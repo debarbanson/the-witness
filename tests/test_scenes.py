@@ -11,8 +11,9 @@ def seg(year, to, condition="standing", description=""):
     return {"from_year": year, "to_year": to, "state": state(condition, description)}
 
 
-def claim(year, text="stood here", date_text=""):
-    return {"year": year, "claim": text, "date_text": date_text, "sources": ["https://example.com/x"]}
+def claim(year, text="stood here", date_text="", war_politics_only=False):
+    return {"year": year, "claim": text, "date_text": date_text,
+            "war_politics_only": war_politics_only, "sources": ["https://example.com/x"]}
 
 
 def test_small_timeline_keeps_every_state_change_plus_today():
@@ -60,6 +61,15 @@ def test_dropped_periods_become_caption_lines():
 
 def test_today_always_last_even_when_empty():
     assert scenes.choose_scenes([], [])[-1]["from_year"] == "today"
+
+
+def test_war_politics_only_claims_are_captions_never_scenes():
+    timeline = [seg(1900, None)]
+    claims = [claim(1950, f"war-only claim {i}", war_politics_only=True) for i in range(3)]
+    chosen = scenes.choose_scenes(timeline, claims)
+    assert all(s["from_year"] != 1950 for s in chosen)
+    lines = [line for s in chosen for line in s["caption_lines"]]
+    assert any(line["year"] == 1950 for line in lines)
 
 
 def test_caption_lines_prefer_vague_date_text():

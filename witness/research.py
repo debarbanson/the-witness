@@ -56,7 +56,8 @@ LIFESPAN_SCHEMA = {
 LOCAL_LANGS = {
     "nl": ["nl"], "be": ["nl", "fr"], "dk": ["da"], "jp": ["ja"], "gb": ["en"],
     "us": ["en"], "br": ["pt"], "ca": ["fr", "en"], "fr": ["fr"], "ml": ["fr"],
-    "au": ["en"], "sg": ["en"], "de": ["de"], "es": ["es"], "it": ["it"],
+    "au": ["en"], "sg": ["en"], "de": ["de"], "es": ["es", "ca"], "it": ["it"],
+    "pt": ["pt"], "se": ["sv"],
 }
 
 

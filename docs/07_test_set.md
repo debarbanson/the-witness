@@ -227,6 +227,38 @@ Timeline: standing 1932-now. Scenes: 1 plus today.
 - P15. Partly claims seed states: christ "standing" 1920-1926 comes
   from a partly inception claim predating construction.
 
+## Provider comparison: Meta vs Muse Spark Open (27 October)
+
+Passage-only support checks ran on both providers over identical jobs
+(same claims, same passages): the 6 fixed regression claims, then all
+12 test objects (`--verify-with both`). Completion and the web-search
+fallback stayed on Meta for both sides.
+
+- Regressions: 6/6 agreement (meta 40 s, open 35 s).
+- 12 objects: 127/133 agreement (95.5%). Per object: biosphere 10/11,
+  brooklyn 11/11, christ 14/14, de-adriaan 12/12, djenne 9/10, eiffel
+  10/11, kintai 12/13, oak 9/9, raffles 11/12, rubjerg 12/12, sydney
+  12/12, tower 5/6.
+- False negatives are symmetric: Open missed Eiffel 1887 built (Meta
+  partly, both quoting the evidence), Meta missed Biosphere 1967 built
+  (Open partly, quoting it). The other four disagreements are
+  supported-vs-partly washes with the same quote.
+- Time (verify phase, 12 objects): meta 750 s, open 797 s; per object
+  mixed either way. The first Baseten call took about 10 min (cold
+  start); later calls averaged about 2 s.
+- Tokens: baseten support-only 1.63 M (367 k in, 1.26 M out; the model
+  always reasons, and reasoning counts as output); meta whole pipeline
+  2.87 M (2.09 M in, 0.78 M out).
+- Cost: baseten support $2.04 for 12 films ($0.17 each) at $1.25 per M
+  input and output tokens; meta full pipeline $5.94 ($0.50 each) at
+  $1.25 in and $4.25 out. The $100 Baseten grant covers about 590
+  films of support checks.
+
+Decision: support checks default to Muse Spark Open on Baseten, with
+silent Meta fallback per call (180 s timeout) as demo insurance;
+research, vision, search fallback and completion stay on Meta.
+`--verify-with meta` overrides per run.
+
 ## Fit for the children's version
 
 Not built; scheduled Wed-Thu after the painting. What this round

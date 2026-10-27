@@ -78,6 +78,10 @@ def test_read_langs_local_first_then_user_then_english():
     assert research.read_langs("nl", "en") == ["nl", "en"]
     assert research.read_langs("ca", "en") == ["fr", "en"]
     assert research.read_langs("dk", "fr") == ["da", "fr", "en"]
+    assert research.read_langs("se", "en") == ["sv", "en"]
+    assert research.read_langs("es", "en") == ["es", "ca", "en"]
+    assert research.read_langs("it", "en") == ["it", "en"]
+    assert research.read_langs("pt", "en") == ["pt", "en"]
     assert research.read_langs(None, "en") == ["en"]
     assert research.read_langs("xx", "en") == ["en"]
 

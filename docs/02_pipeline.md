@@ -63,7 +63,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 
 ## Step 3: Verify (agentic check)
 
-- For each claim, a support call gets the claim and the fetched source passages (never snippets alone) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. Web search runs only when no passage was fetched.
+- For each claim, a support call gets the claim and the fetched source passages (never snippets alone) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. Support runs on the open-weights Muse Spark Open via Baseten by default, with Meta fallback per call; research, vision, the search fallback and completion stay on Meta. Web search runs only when no passage was fetched.
 - A deterministic precheck (the claim's year and key words in one passage) sends an `unsupported` answer to a second confrontation judgement instead of accepting it.
 - The build claim, the anchor claim and every claim that would set a state get best of three, with every round kept in `research.json`; temperature 0 steadies the calls (probed 27 Oct; `seed` is not in the SDK surface).
 - Completion ("did it really happen?") is asked separately, only for state-setting claims and claims whose own text raises doubt.

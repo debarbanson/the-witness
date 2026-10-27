@@ -26,7 +26,7 @@ def main(argv=None):
         cmd.add_argument("--yes", action="store_true")
         cmd.add_argument("--no-cache", action="store_true")
         if name == "research":
-            cmd.add_argument("--verify-with", default="meta",
+            cmd.add_argument("--verify-with", default="baseten",
                              choices=("meta", "baseten", "both"))
     keep = sub.add_parser("keep")
     keep.add_argument("slug")
@@ -88,7 +88,7 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
 SPARES = 4  # extra claims verified outside the draft scenes
 
 
-def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="meta",
+def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
                  progress=None):
     cache = None if no_cache else Cache("out/cache")
     models.reset_usage()
@@ -390,12 +390,18 @@ def support_respond(prompt):
 
 
 def baseten_support_respond(prompt):
-    resp = models.chat(
-        _respond_for(models.VERIFY_OPEN),
-        models.VERIFY_OPEN,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return verify.text_answer(models.chat_answer(resp)["content"])
+    try:
+        resp = models.chat(
+            _respond_for(models.VERIFY_OPEN),
+            models.VERIFY_OPEN,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=180,
+        )
+        return verify.text_answer(models.chat_answer(resp)["content"])
+    except Exception as exc:  # noqa: BLE001 - demo insurance: meta judges instead
+        print(f"note: baseten support failed ({str(exc)[:100]}), meta fallback",
+              file=sys.stderr)
+        return support_respond(prompt)
 
 
 def verify_respond(prompt):

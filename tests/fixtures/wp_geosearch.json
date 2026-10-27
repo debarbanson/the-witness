@@ -1,0 +1,1 @@
+{"_fixture_note": "Shape-faithful synthetic Wikipedia generator=geosearch response.", "query": {"pages": {"101": {"pageid": 101, "title": "Test Tower", "coordinates": [{"lat": 52.0002, "lon": 4.0001}], "pageprops": {"wikibase_item": "Q999"}}, "102": {"pageid": 102, "title": "Testplein", "coordinates": [{"lat": 52.0005, "lon": 4.0004}]}}}}

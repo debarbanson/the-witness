@@ -70,7 +70,8 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
     except identify.SourceError as exc:
         print(f"source failed: {exc}")
         return 2
-    print(f"object: {found.name} ({found.kind})")
+    kind = getattr(found, "description", "") or found.kind
+    print(f"object: {found.name} ({kind})")
     print(f"distance: about {found.distance_m} m")
     if found.qid:
         print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")

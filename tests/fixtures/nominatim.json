@@ -1,1 +1,1 @@
-[{"_fixture_note": "Shape-faithful synthetic Nominatim response. Coordinates are fake.", "display_name": "Test Tower, Test Town, Netherlands", "lat": "52.0002", "lon": "4.0001", "place_id": 1}]
+[{"_fixture_note": "Shape-faithful synthetic Nominatim response. Coordinates are fake.", "display_name": "Test Tower, Test Town, Netherlands", "lat": "52.0002", "lon": "4.0001", "place_id": 1, "address": {"country_code": "nl"}}]

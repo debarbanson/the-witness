@@ -62,10 +62,14 @@ def routed(reverse_payload=None):
         params = kwargs.get("params", {}) or {}
         if "nominatim" in url and "reverse" in url:
             return FakeResponse(200, reverse_payload or fixture("nominatim_reverse.json"))
+        if "nominatim" in url:
+            return FakeResponse(200, fixture("nominatim.json"))
+        if params.get("generator") == "geosearch":
+            return FakeResponse(200, fixture("wp_geosearch.json"))
         if params.get("list") == "geosearch":
             return FakeResponse(200, fixture("wikidata_geosearch.json"))
-        if params.get("props") == "labels":
-            return FakeResponse(200, fixture("wb_labels.json"))
+        if params.get("props") == "labels|descriptions|sitelinks|claims":
+            return FakeResponse(200, fixture("wb_enrich.json"))
         if params.get("props") == "sitelinks":
             return FakeResponse(200, fixture("wb_sitelinks.json"))
         raise AssertionError(f"unexpected request {url} {params}")
@@ -78,8 +82,9 @@ def vision_pick(text="1 Test Tower\nHighly confident."):
     def respond(prompt, image_bytes):
         assert image_bytes[:2] == b"\xff\xd8"
         assert "Test Tower" in prompt
+        answer = "YES\nThe photo shows the tower." if "YES or NO" in prompt else text
         return {"output": [{"type": "message", "content": [
-            {"type": "output_text", "text": text, "annotations": []}]}]}
+            {"type": "output_text", "text": answer, "annotations": []}]}]}
 
     return respond
 
@@ -124,10 +129,9 @@ def test_overpass_query_shape_and_user_agent():
     assert "wikidata|wikipedia|heritage|historic|tourism|man_made" in call["data"]["data"]
 
 
-def test_overpass_retries_then_second_instance():
+def test_overpass_moves_to_next_instance_without_sleep():
     post = FakeTransport(
         [
-            (502, {}),
             (502, {}),
             (200, fixture("overpass_nearby.json")),
         ]
@@ -137,14 +141,13 @@ def test_overpass_retries_then_second_instance():
     assert len(elements) == 4
     assert [c["url"] for c in post.calls] == [
         identify.OVERPASS_INSTANCES[0],
-        identify.OVERPASS_INSTANCES[0],
         identify.OVERPASS_INSTANCES[1],
     ]
-    assert sleeps == [30]
+    assert sleeps == []
 
 
 def test_overpass_all_instances_down_raises():
-    post = FakeTransport([(502, {})] * 4)
+    post = FakeTransport([(502, {})] * 2)
     with pytest.raises(identify.SourceError):
         identify.fetch_overpass(52.0, 4.0, post=post, sleep=lambda s: None)
 
@@ -156,34 +159,15 @@ def test_overpass_result_cached():
     assert len(post.calls) == 1
 
 
-def test_wikidata_nearby_merges_geosearch_and_labels():
-    get = FakeTransport(
-        [
-            (200, fixture("wikidata_geosearch.json")),
-            (200, fixture("wb_labels.json")),
-        ]
-    )
-    items = identify.fetch_wikidata_nearby(52.0, 4.0, get=get, lang="nl")
-    assert [(i["qid"], i["label"]) for i in items] == [
-        ("Q999", "Testtoren"),
-        ("Q1000", "Teststraat"),
+def test_wikidata_nearby_returns_qids_and_coords():
+    get = FakeTransport([(200, fixture("wikidata_geosearch.json"))])
+    items = identify.fetch_wikidata_nearby(52.0, 4.0, get=get)
+    assert [(i["qid"], i["lat"], i["lon"]) for i in items] == [
+        ("Q999", 52.0002, 4.0001),
+        ("Q1000", 51.9985, 4.001),
     ]
     assert get.calls[0]["params"]["list"] == "geosearch"
     assert get.calls[0]["headers"]["User-Agent"] == identify.USER_AGENT
-
-
-def test_wikidata_nearby_labels_follow_user_language():
-    get = FakeTransport(
-        [
-            (200, fixture("wikidata_geosearch.json")),
-            (200, fixture("wb_labels.json")),
-        ]
-    )
-    items = identify.fetch_wikidata_nearby(52.0, 4.0, get=get, lang="en")
-    assert [(i["qid"], i["label"]) for i in items] == [
-        ("Q999", "Test Tower"),
-        ("Q1000", "Test Street"),
-    ]
 
 
 def test_merge_drops_beyond_radius_and_ranks_by_distance():
@@ -229,7 +213,8 @@ def test_identify_end_to_end_with_fakes(tmp_path):
     assert found.qid == "Q999"
     assert found.articles == {"nl": "Testtoren", "en": "Test Tower"}
     assert found.country_code == "nl"
-    assert len(found.candidates) == 4
+    assert len(found.candidates) == 5
+    assert found.description == "water tower"
 
 
 def test_identify_none_raises_not_identified(tmp_path):
@@ -293,8 +278,9 @@ def test_identify_reads_local_languages_for_sitelinks_and_labels(tmp_path):
     assert found.country_code == "jp"
     sitefilter = [c["params"]["sitefilter"] for c in get.calls if c["params"].get("props") == "sitelinks"]
     assert sitefilter == ["jawiki|enwiki"]
-    label_langs = [c["params"]["languages"] for c in get.calls if c["params"].get("props") == "labels"]
-    assert label_langs == ["ja|en"]
+    enrich_langs = [c["params"]["languages"] for c in get.calls
+                    if c["params"].get("props") == "labels|descriptions|sitelinks|claims"]
+    assert enrich_langs == ["ja|en"]
 
 
 def test_fetch_overpass_uses_short_timeout_and_disk_cache(tmp_path):
@@ -302,7 +288,7 @@ def test_fetch_overpass_uses_short_timeout_and_disk_cache(tmp_path):
 
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
     first = identify.fetch_overpass(52.0, 4.0, post=post, cache=Cache(tmp_path))
-    assert post.calls[0]["timeout"] == 30
+    assert post.calls[0]["timeout"] == 5
     identify.clear_cache()
     second = identify.fetch_overpass(52.0, 4.0, post=post, cache=Cache(tmp_path))
     assert second == first
@@ -312,8 +298,9 @@ def test_fetch_overpass_uses_short_timeout_and_disk_cache(tmp_path):
 def test_geocode_uses_nominatim_politely():
     get = FakeTransport([(200, fixture("nominatim.json"))])
     sleeps = []
-    lat, lon = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
+    lat, lon, country = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
     assert (lat, lon) == (52.0002, 4.0001)
+    assert country == "nl"
     assert get.calls[0]["headers"]["User-Agent"] == identify.USER_AGENT
     assert get.calls[0]["timeout"] == 20
     assert sleeps == [1.1]
@@ -324,8 +311,9 @@ def test_geocode_retries_with_backoff_then_succeeds():
         [TimeoutError("t1"), TimeoutError("t2"), (200, fixture("nominatim.json"))]
     )
     sleeps = []
-    lat, lon = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
+    lat, lon, country = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
     assert (lat, lon) == (52.0002, 4.0001)
+    assert country == "nl"
     assert len(get.calls) == 3
     assert sleeps == [1.1, 2, 1.1, 4, 1.1]
 
@@ -342,3 +330,243 @@ def test_reverse_geocode_returns_country_code():
     get = FakeTransport([(200, fixture("nominatim_reverse.json"))])
     assert identify.reverse(52.0, 4.0, get=get, sleep=lambda s: None) == "nl"
     assert get.calls[0]["timeout"] == 20
+
+
+def test_enrich_reads_labels_descriptions_sitelinks_and_part_of():
+    get = FakeTransport([(200, fixture("wb_enrich.json"))])
+    enriched = identify.enrich_candidates(
+        get, ["Q9001", "Q9002", "Q9003", "Q9004"], ["en"])
+    assert enriched["Q9001"]["label"] == "Test Castle"
+    assert enriched["Q9001"]["description"] == "hill castle"
+    assert enriched["Q9001"]["sitelinks"] == 2
+    assert enriched["Q9001"]["part_of"] is None
+    assert enriched["Q9002"]["part_of"] == "Q9001"
+    assert enriched["Q9004"]["sitelinks"] == 6
+    assert get.calls[0]["params"]["props"] == "labels|descriptions|sitelinks|claims"
+
+
+def test_fold_parts_merges_into_present_parent():
+    castle = identify.Candidate("Test Castle", "wikidata item", "wikidata", "Q9001",
+                                distance_m=100, bearing_deg=0)
+    keep = identify.Candidate("Test Keep", "wikidata item", "wikidata", "Q9002",
+                              distance_m=15, bearing_deg=0)
+    folded = identify.fold_parts([keep, castle], {"Q9002": "Q9001"})
+    assert [c.name for c in folded] == ["Test Castle"]
+    assert folded[0].includes == ("Test Keep",)
+
+
+def test_fold_parts_keeps_orphans():
+    keep = identify.Candidate("Test Keep", "wikidata item", "wikidata", "Q9002",
+                              distance_m=15, bearing_deg=0)
+    assert identify.fold_parts([keep], {"Q9002": "Q9001"}) == [keep]
+
+
+def cand(name, qid=None, distance=10, sitelinks=0, source="wikidata", includes=()):
+    return identify.Candidate(name, "wikidata item", source, qid, distance_m=distance,
+                              bearing_deg=0, sitelinks=sitelinks, includes=includes)
+
+
+def test_rank_prefers_notable_over_near():
+    parts = [cand(f"Part {i}", f"QP{i}", distance=15 + i, sitelinks=1) for i in range(4)]
+    castle = cand("Test Castle", "Q9001", distance=100, sitelinks=40)
+    ranked = identify.rank_candidates([*parts, castle], place="Test Castle")
+    assert ranked[0].name == "Test Castle"
+
+
+def test_rank_keeps_lookalikes_for_vision():
+    metro = cand("Teston", "Q9003", distance=36, sitelinks=12)
+    arena = cand("Test Arena", "Q9004", distance=120, sitelinks=60)
+    ranked = identify.rank_candidates([metro, arena], place="Test Arena")
+    assert [c.name for c in ranked[:2]] == ["Test Arena", "Teston"]
+
+
+def test_rank_sorts_unlabelled_last():
+    near = cand("Q111", "Q111", distance=8, sitelinks=0)
+    far = [cand(f"Far {i}", f"QF{i}", distance=200 + i, sitelinks=30) for i in range(5)]
+    mid = cand("Mid Hall", "Q112", distance=50, sitelinks=0)
+    ranked = identify.rank_candidates([near, mid, *far])
+    assert [c.name for c in ranked][-1] == "Q111"
+
+
+def test_rank_keeps_nearest_three_as_safety_net():
+    far = [cand(f"Far {i}", f"QF{i}", distance=200 + i, sitelinks=30) for i in range(11)]
+    mid = cand("Mid Hall", "Q112", distance=50, sitelinks=0)
+    ranked = identify.rank_candidates([mid, *far])
+    names = [c.name for c in ranked]
+    assert "Mid Hall" in names
+    assert len(ranked) <= 13
+
+
+def test_rank_place_overlap_breaks_ties():
+    a = cand("Rupert Hall", "Q201", distance=20, sitelinks=1)
+    b = cand("Test Castle", "Q202", distance=20, sitelinks=1)
+    ranked = identify.rank_candidates([a, b], place="Test Castle town")
+    assert ranked[0].name == "Test Castle"
+
+
+def test_wp_nearby_parses_generator_response():
+    get = FakeTransport([(200, fixture("wp_geosearch.json"))])
+    items = identify.fetch_wp_nearby(52.0, 4.0, "nl", get=get)
+    assert [(i["qid"], i["label"]) for i in items] == [
+        ("Q999", "Test Tower"), (None, "Testplein")]
+    assert get.calls[0]["url"] == "https://nl.wikipedia.org/w/api.php"
+    assert get.calls[0]["params"]["generator"] == "geosearch"
+
+
+def test_merge_dedupes_wikipedia_by_qid():
+    ranked = identify.merge_and_rank(
+        [], [{"qid": "Q999", "lat": 52.0002, "lon": 4.0001}], 52.0, 4.0, None,
+        extra=[{"qid": "Q999", "label": "Test Tower", "lat": 52.0002, "lon": 4.0001}])
+    assert len(ranked) == 1
+    assert ranked[0].source == "wikidata+wikipedia"
+
+
+def test_second_look_parses_yes_no_and_ramblers():
+    yes = {"output": [{"type": "message", "content": [
+        {"type": "output_text", "text": "YES\nShows the tower."}]}]}
+    no = {"output": [{"type": "message", "content": [
+        {"type": "output_text", "text": "NO\nShows the square."}]}]}
+    ramble = {"output": [{"type": "message", "content": [
+        {"type": "output_text", "text": "It looks like the tower."}]}]}
+    assert identify.parse_second_look(yes) is True
+    assert identify.parse_second_look(no) is False
+    assert identify.parse_second_look(ramble) is True
+
+
+def test_second_look_no_retries_next_candidate(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    script = [
+        "2 Test Memorial\nLooks memorial-ish.",
+        "NO\nShows the tower, not the memorial.",
+        "1 Test Tower\nClearly the tower.",
+        "YES\nThe photo shows the tower.",
+    ]
+
+    def respond(prompt, image_bytes):
+        assert image_bytes[:2] == b"\xff\xd8"
+        text = script.pop(0)
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    found = identify.identify(photo, post=post, get=routed(), respond=respond)
+    assert found.name == "Test Tower"
+    assert script == []
+
+
+def test_second_look_rejecting_everything_raises(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    script = ["1 Test Tower\nMaybe.", "NO\nNot the tower.", "2 Test Memorial\nMaybe.",
+              "NO\nNot the memorial."]
+
+    def respond(prompt, image_bytes):
+        text = script.pop(0)
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    with pytest.raises(identify.NotIdentifiedError):
+        identify.identify(photo, post=post, get=routed(), respond=respond)
+
+
+def test_vision_shortlist_shows_kinds_and_descriptions(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    seen = {}
+
+    def respond(prompt, image_bytes):
+        if "YES or NO" in prompt:
+            text = "YES\nFine."
+        else:
+            seen["prompt"] = prompt
+            text = "1 Test Tower\nFine."
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    identify.identify(photo, post=post, get=routed(), respond=respond)
+    assert "water tower" in seen["prompt"]
+    assert "memorial" in seen["prompt"]
+    assert "a detail of it" in seen["prompt"]
+
+
+def test_overpass_budget_does_not_block_identify(tmp_path, monkeypatch):
+    import time as time_module
+
+    monkeypatch.setattr(identify, "OVERPASS_BUDGET", 0.2)
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+
+    def slow_post(url, **kwargs):
+        time_module.sleep(5)
+        return FakeResponse(200, fixture("overpass_nearby.json"))
+
+    def respond(prompt, image_bytes):
+        assert "Test" in prompt
+        text = "YES\nFine." if "YES or NO" in prompt else "1 Test\nFine."
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    timings = {}
+    found = identify.identify(photo, post=slow_post, get=routed(),
+                              respond=respond, timings=timings)
+    assert found.qid == "Q999"
+    assert timings["overpass_s"] < 2
+
+
+def test_hung_source_is_dropped_at_budget(tmp_path, monkeypatch):
+    import time as time_module
+
+    monkeypatch.setattr(identify, "WIKIDATA_BUDGET", 0.2)
+    monkeypatch.setattr(identify, "WP_BUDGET", 0.2)
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    get = routed()
+    real = get
+
+    def hanging(url, **kwargs):
+        params = kwargs.get("params", {}) or {}
+        if params.get("list") == "geosearch" or params.get("generator") == "geosearch":
+            time_module.sleep(5)
+        return real(url, **kwargs)
+
+    started = time_module.perf_counter()
+    found = identify.identify(photo, post=post, get=hanging,
+                              respond=vision_pick(), sleep=lambda s: None)
+    assert time_module.perf_counter() - started < 10
+    assert found.name == "Test Tower"
+
+
+def test_place_run_skips_reverse_geocode(tmp_path):
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8)).save(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    get = routed()
+    found = identify.identify(photo, place="Test Tower", post=post, get=get,
+                              respond=vision_pick())
+    assert found.country_code == "nl"
+    assert sum("nominatim" in c["url"] for c in get.calls) == 1
+
+
+def test_failed_source_never_empties_other_sources(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+
+    def failing_post(url, **kwargs):
+        raise TimeoutError("overpass down")
+
+    get = routed()
+    real = get
+
+    def failing_wiki(url, **kwargs):
+        params = kwargs.get("params", {}) or {}
+        if params.get("list") == "geosearch":
+            raise TimeoutError("wikidata down")
+        return real(url, **kwargs)
+
+    found = identify.identify(photo, post=failing_post, get=failing_wiki,
+                              respond=vision_pick(), sleep=lambda s: None)
+    assert found.name in ("Test Tower", "Testplein")

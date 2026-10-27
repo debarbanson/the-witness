@@ -631,6 +631,31 @@ def test_place_run_skips_reverse_geocode(tmp_path):
     assert sum("nominatim" in c["url"] for c in get.calls) == 1
 
 
+def test_nearby_budgets_fit_slow_answers():
+    # Worst case per source (two tries plus backoff) stays inside its budget,
+    # so slow sources cost seconds, never the whole identify.
+    assert identify.WIKIDATA_BUDGET == 15
+    assert identify.WP_BUDGET == 10
+    assert identify.WIKIDATA_TIMEOUT * 2 + 2 <= identify.WIKIDATA_BUDGET
+    assert identify.WP_TIMEOUT * 2 + 2 <= identify.WP_BUDGET
+
+
+def test_wikidata_nearby_fails_fast_with_two_tries():
+    get = FakeTransport([TimeoutError("slow"), TimeoutError("slow"), (200, {})])
+    with pytest.raises(identify.SourceError):
+        identify.fetch_wikidata_nearby(52.0, 4.0, get=get, sleep=lambda s: None)
+    assert len(get.calls) == 2
+    assert get.calls[0]["timeout"] == identify.WIKIDATA_TIMEOUT
+
+
+def test_wp_nearby_fails_fast_with_two_tries():
+    get = FakeTransport([TimeoutError("slow"), TimeoutError("slow"), (200, {})])
+    with pytest.raises(identify.SourceError):
+        identify.fetch_wp_nearby(52.0, 4.0, "en", get=get, sleep=lambda s: None)
+    assert len(get.calls) == 2
+    assert get.calls[0]["timeout"] == identify.WP_TIMEOUT
+
+
 def test_typed_place_searches_wider_than_gps(tmp_path):
     photo = tmp_path / "p.jpg"
     Image.new("RGB", (8, 8)).save(photo)

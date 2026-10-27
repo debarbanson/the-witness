@@ -26,8 +26,10 @@ PLACE_RADIUS_M = 1000  # a typed place is a fuzzy start; ranking sorts it out
 TOP_N = 10
 OVERPASS_BUDGET = 5
 OVERPASS_TIMEOUT = 5
-WIKIDATA_BUDGET = 8
-WP_BUDGET = 5
+WIKIDATA_BUDGET = 15
+WIKIDATA_TIMEOUT = 6
+WP_BUDGET = 10
+WP_TIMEOUT = 4
 OVERPASS_INSTANCES = [
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
@@ -395,7 +397,9 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None,
                 "format": "json",
             },
             sleep=sleep,
+            timeout=WIKIDATA_TIMEOUT,
             cache=cache,
+            tries=2,
         )
     except WebError as exc:
         raise SourceError(str(exc))
@@ -428,7 +432,9 @@ def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None,
                 "format": "json",
             },
             sleep=sleep,
+            timeout=WP_TIMEOUT,
             cache=cache,
+            tries=2,
         )
     except WebError as exc:
         raise SourceError(str(exc))

@@ -598,6 +598,42 @@ def test_judge_all_runs_jobs_and_keeps_order():
     assert [r["verdict"] for r in results] == ["supported"] * 2
 
 
+def test_best_of_three_stops_when_first_two_agree():
+    respond = scripted_support("supported", "supported", "unsupported")
+    result = verify.judge_claim(
+        respond, job(votes=3),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 2
+    assert len(result["rounds"]) == 2
+
+
+def test_best_of_three_runs_third_on_disagreement():
+    respond = scripted_support("supported", "partly", "supported")
+    result = verify.judge_claim(
+        respond, job(votes=3),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 3
+
+
+def test_early_stop_keeps_second_judgement():
+    passages = ["De watertoren is sinds 1986 opgesierd met een metershoge tulp."]
+    respond = scripted_support("unsupported", "unsupported", "supported")
+    result = verify.judge_claim(
+        respond, job(votes=3, year=1986, keywords=["meters", "tulip"], passages=passages),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert len(respond.calls) == 3  # two votes plus the confrontation
+    assert len(result["rounds"]) == 3
+
+
+def test_verify_specs_carry_worker_limits():
+    from witness import models
+
+    assert models.VERIFY.workers == 6
+    assert models.VERIFY_OPEN.workers == 10
+
+
 def test_judge_all_reports_progress_per_claim():
     seen = []
     verify.judge_all(

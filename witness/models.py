@@ -23,6 +23,7 @@ class ModelSpec:
     key_name: str
     effort: str | None = None  # reasoning effort; None keeps the default
     temperature: float | None = None  # None keeps the default; 0 steadies checks
+    workers: int = 6  # parallel calls; Baseten allows more (2M tokens/min)
 
 
 RESEARCH = ModelSpec(
@@ -61,6 +62,9 @@ VERIFY_OPEN = ModelSpec(
     model="meta-models/muse-spark-open-1026",
     key_name="BASETEN_API_KEY",
     temperature=0,
+    # 2M tokens/min throughput: ~15k tokens per support call allows
+    # about 130 calls/min, so 10 workers at ~3 s a call stays inside.
+    workers=10,
 )
 
 

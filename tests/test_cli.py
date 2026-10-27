@@ -129,6 +129,49 @@ def test_removed_barracks_is_caption_not_demolished_tower():
     assert (seg["from_year"], seg["state"]["condition"]) == (1514, "standing")
 
 
+def kept_claim(year, event, detail):
+    return {"year": year, "event": event, "kind": "object",
+            "claim": f"{event}: {detail}", "quote_span": detail,
+            "date_text": "", "visible_change": "", "sources": ["https://example.com/x"]}
+
+
+def test_plan_checks_covers_scenes_build_anchor_and_states():
+    from witness.cli import plan_checks
+
+    kept = [
+        kept_claim(1779, "built", "Built in 1779."),
+        kept_claim(1802, "repurposed", "Sold to a merchant."),
+        kept_claim(1865, "extended", "Steam engine added."),
+        kept_claim(1930, "damaged", "Storm damage."),
+        kept_claim(1932, "burnt", "Burnt down."),
+        kept_claim(1999, "rebuilt", "Rebuild started."),
+        kept_claim(2002, "rebuilt", "Reopened."),
+        kept_claim(2003, "repurposed", "Museum opened."),
+        kept_claim(2004, "repurposed", "Weddings held."),
+    ]
+    to_check, pool = plan_checks(kept)
+    years = {c["year"] for c in to_check}
+    assert {1779, 1865, 1930, 1932, 1999, 2002} <= years  # anchor, build, states
+    assert all(c in kept for c in to_check)
+    assert len(to_check) + len(pool) == len(kept)
+    assert not (set(map(id, to_check)) & set(map(id, pool)))
+
+
+def test_spare_needs_counts_lineless_scenes():
+    from witness.cli import spare_needs
+
+    scenes = [
+        {"from_year": 1779, "caption_lines": [{"year": 1802, "line": "sold"}]},
+        {"from_year": 1932, "caption_lines": []},
+        {"from_year": "today", "caption_lines": []},
+    ]
+    pool = [kept_claim(2003, "repurposed", "Museum opened.")]
+    assert spare_needs(scenes, pool) == 1
+    assert spare_needs(scenes, []) == 0
+    full = [{"from_year": 1779, "caption_lines": [{"year": 1802, "line": "sold"}]}]
+    assert spare_needs(full, pool) == 0
+
+
 def test_compare_verdicts_tallies_agreement():
     from witness.cli import compare_verdicts
 

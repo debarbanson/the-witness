@@ -205,7 +205,8 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
     passages, urls = job.get("passages") or [], job.get("urls") or []
     votes = max(1, job.get("votes", 1))
     if passages:
-        rounds = [_support_round(support_respond, job["claim"], passages) for _ in range(votes)]
+        rounds = _vote_rounds(
+            lambda: _support_round(support_respond, job["claim"], passages), votes)
         decided_first = [r for r in rounds if r["verdict"] != "error"]
         if (
             decided_first
@@ -214,7 +215,8 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
         ):
             rounds.append(_second_judgement(support_respond, job, passages))
     elif search_respond is not None:
-        rounds = [_search_round(search_respond, job["claim"], urls) for _ in range(votes)]
+        rounds = _vote_rounds(
+            lambda: _search_round(search_respond, job["claim"], urls), votes)
     else:
         return {
             "verdict": "unsupported", "quote": "", "url": None, "support": [],
@@ -260,6 +262,19 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
         "rounds": _slim(rounds),
         "votes": len(rounds),
     }
+
+
+def _vote_rounds(one_round, votes: int) -> list:
+    """Vote rounds with early stop: when the first two decided answers
+    agree, the third call is skipped."""
+    rounds = []
+    while len(rounds) < votes:
+        rounds.append(one_round())
+        if len(rounds) == 2:
+            first, second = rounds
+            if (first["verdict"] != "error" and first["verdict"] == second["verdict"]):
+                break
+    return rounds
 
 
 def _support_round(respond, claim, passages) -> dict:

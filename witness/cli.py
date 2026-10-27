@@ -159,79 +159,87 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
         if not research.claim_quality_ok(c["sources"]):
             print(f"dropped (weak sources only): {c['year']} {c['claim'][:80]}")
 
-    # Choose before checking: draft scenes from unverified claims, then
-    # verify only what the scenes need plus a few spares.
-    draft_events = [
-        {"year": c["year"], "event": c.get("event", "stood"), "detail": c.get("quote_span") or c["claim"],
-         "visible_change": c.get("visible_change", "")}
-        for c in kept
-    ]
-    draft = scenes.choose_scenes(research.build_timeline(draft_events), kept)
-    scene_years = {s["from_year"] for s in draft if isinstance(s["from_year"], int)}
-    to_check = [c for c in kept if c["year"] in scene_years]
-    spares = [c for c in kept if c["year"] not in scene_years][:SPARES]
-    if kept:  # the build and anchor claims are always verified, spares or not
-        anchor_year = min(c["year"] for c in kept)
-        for c in kept:
-            if (c.get("event") or "").lower() in outcome.BUILD_WORDS or c["year"] == anchor_year:
-                if c not in to_check and c not in spares:
-                    to_check.append(c)
-    for c in kept:
-        if c not in to_check and c not in spares:
-            c.update({"verdict": "unverified", "quote": "", "url": None, "support": [],
-                      "note": "outside chosen scenes", "completed": True,
-                      "rewritten": None, "war_politics_only": False})
-    print(f"checking {len(to_check) + len(spares)} of {len(kept)} claims ({len(spares)} spares)")
+    # Choose before checking: phase 1 verifies scene years, the build
+    # and anchor claims and every state claim; spares verify only when
+    # a scene needs a caption line.
+    to_check, pool = plan_checks(kept)
+    for c in pool:
+        c.update({"verdict": "unverified", "quote": "", "url": None, "support": [],
+                  "note": "outside chosen scenes", "completed": True,
+                  "rewritten": None, "war_politics_only": False})
+    print(f"checking {len(to_check)} of {len(kept)} claims (spares on need)")
 
     article_urls = [
         f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
         for lang, title in found.articles.items()
     ]
-    all_urls = sorted({u for c in to_check + spares for u in c["sources"]} | set(article_urls))
-    phase = time.perf_counter()
-    texts, fetch_errors = verify.fetch_many(all_urls, cache=cache, progress=progress)
-    for url in sorted(fetch_errors):
-        print(f"note: could not read {url} ({str(fetch_errors[url])[:100]})")
-    timings["fetch_s"] = round(time.perf_counter() - phase, 1)
-
-    jobs = []
+    texts: dict = {}
     anchor_year = min([c["year"] for c in kept], default=None)
-    for claim in to_check + spares:
-        keywords = verify.keywords_for_claim(claim["claim"], claim.get("event", ""))
-        evidence = list(answer["snippets"])
-        for url, text in texts.items():
-            for para in verify.select_paragraphs(text, claim["year"], keywords, max_paras=3):
-                evidence.append(f"{url}\n{para}")
-        detail = claim.get("quote_span") or claim["claim"]
-        jobs.append({
-            "claim": claim["claim"], "event": claim.get("event", "stood"), "detail": detail,
-            "year": claim["year"], "keywords": keywords, "passages": evidence[:13],
-            "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
-        })
-    comparison = None
     support = baseten_support_respond if verify_with == "baseten" else support_respond
+    workers = models.VERIFY_OPEN.workers if verify_with == "baseten" else models.VERIFY.workers
+    comparison = None
+
+    def fetch_texts(claims):
+        urls = sorted({u for c in claims for u in c["sources"] if u not in texts}
+                      | {u for u in article_urls if u not in texts})
+        if not urls:
+            return
+        fetched, errors = verify.fetch_many(urls, cache=cache, progress=progress)
+        texts.update(fetched)
+        for url in sorted(errors):
+            print(f"note: could not read {url} ({str(errors[url])[:100]})")
+
+    def judge(claims):
+        jobs = build_jobs(claims, texts, answer["snippets"], anchor_year)
+        judged = verify.judge_all(support, jobs, search_respond=verify_respond,
+                                  completion_respond=support_respond,
+                                  max_workers=workers, progress=progress)
+        for claim, result in zip(claims, judged):
+            claim.update(result)
+            claim["war_politics_only"] = (
+                claim["war_politics_only"] or bool(verify.flag_content(claim["claim"])))
+        return jobs, judged
+
     phase = time.perf_counter()
-    judged = verify.judge_all(support, jobs, search_respond=verify_respond,
-                              completion_respond=support_respond, progress=progress)
+    fetch_texts(to_check)
+    timings["fetch_s"] = round(time.perf_counter() - phase, 1)
+    phase = time.perf_counter()
+    jobs, judged = judge(to_check)
     timings["verify_s"] = round(time.perf_counter() - phase, 1)
     if verify_with == "both":
         phase = time.perf_counter()
         alt = verify.judge_all(baseten_support_respond, jobs, search_respond=verify_respond,
-                               completion=False)
+                               max_workers=models.VERIFY_OPEN.workers, completion=False)
         timings["verify_alt_s"] = round(time.perf_counter() - phase, 1)
         comparison = compare_verdicts(jobs, judged, alt)
-        for claim, other in zip(to_check + spares, alt):
+        for claim, other in zip(to_check, alt):
             claim["alt_verdict"] = other["verdict"]
             claim["alt_rounds"] = other.get("rounds", [])
         print(f"agreement: {comparison['agree']}/{comparison['total']} "
               f"(meta vs baseten support)")
-    for claim, result in zip(to_check + spares, judged):
-        claim.update(result)
-        claim["war_politics_only"] = claim["war_politics_only"] or bool(verify.flag_content(claim["claim"]))
 
-    verified = [c for c in kept if c["verdict"] == "supported" or (c["verdict"] == "partly" and c["rewritten"])]
-    timeline = research.build_timeline(timeline_events(verified))
-    chosen = scenes.choose_scenes(timeline, verified)
+    def refresh_film():
+        film_verified = [c for c in kept if c["verdict"] == "supported"
+                         or (c["verdict"] == "partly" and c["rewritten"])]
+        film_timeline = research.build_timeline(timeline_events(film_verified))
+        film_chosen = scenes.choose_scenes(film_timeline, film_verified)
+        return film_verified, film_timeline, film_chosen
+
+    verified, timeline, chosen = refresh_film()
+    need = spare_needs(chosen, [c for c in pool if c["verdict"] == "unverified"])
+    if need:
+        spares = sorted([c for c in pool if c["verdict"] == "unverified"],
+                        key=lambda c: states.classify(
+                            c.get("event", "stood"), c.get("quote_span") or c["claim"])
+                        is None)[:need]
+        print(f"checking {len(spares)} spares for caption lines")
+        phase = time.perf_counter()
+        fetch_texts(spares)
+        timings["fetch_s"] = round(timings["fetch_s"] + time.perf_counter() - phase, 1)
+        phase = time.perf_counter()
+        judge(spares)
+        timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
+        verified, timeline, chosen = refresh_film()
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
 
     print("\nclaims:")
@@ -298,6 +306,58 @@ def _show_state(state: dict) -> str:
     if state.get("description"):
         shown += f": {state['description'][:80]}"
     return shown
+
+
+def plan_checks(kept) -> tuple:
+    """Phase 1 set: scene years, build and anchor claims, every state
+    claim. Everything else waits in the spare pool."""
+    draft_events = [
+        {"year": c["year"], "event": c.get("event", "stood"),
+         "detail": c.get("quote_span") or c["claim"],
+         "visible_change": c.get("visible_change", "")}
+        for c in kept
+    ]
+    draft = scenes.choose_scenes(research.build_timeline(draft_events), kept)
+    scene_years = {s["from_year"] for s in draft if isinstance(s["from_year"], int)}
+    to_check = [c for c in kept if c["year"] in scene_years]
+    if kept:  # the build and anchor claims are always verified, spares or not
+        anchor_year = min(c["year"] for c in kept)
+        for c in kept:
+            if (c.get("event") or "").lower() in outcome.BUILD_WORDS or c["year"] == anchor_year:
+                if c not in to_check:
+                    to_check.append(c)
+    for c in kept:  # every claim that could set a state
+        detail = c.get("quote_span") or c["claim"]
+        if states.classify(c.get("event", "stood"), detail) is not None and c not in to_check:
+            to_check.append(c)
+    pool = [c for c in kept if c not in to_check]
+    return to_check, pool
+
+
+def spare_needs(chosen, pool) -> int:
+    """Spares verify only when a scene needs one: one per scene (other
+    than today) without a caption line, capped."""
+    needy = [s for s in chosen if s["from_year"] != "today" and not s["caption_lines"]]
+    return min(len(needy), SPARES, len(pool))
+
+
+def build_jobs(claims, texts, snippets, anchor_year) -> list:
+    """Verify jobs: claim plus the paragraphs that mention its year or
+    key words, best of three for the claims that matter."""
+    jobs = []
+    for claim in claims:
+        keywords = verify.keywords_for_claim(claim["claim"], claim.get("event", ""))
+        evidence = list(snippets)
+        for url, text in texts.items():
+            for para in verify.select_paragraphs(text, claim["year"], keywords, max_paras=3):
+                evidence.append(f"{url}\n{para}")
+        detail = claim.get("quote_span") or claim["claim"]
+        jobs.append({
+            "claim": claim["claim"], "event": claim.get("event", "stood"), "detail": detail,
+            "year": claim["year"], "keywords": keywords, "passages": evidence[:13],
+            "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
+        })
+    return jobs
 
 
 def timeline_events(verified) -> list:

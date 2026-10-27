@@ -22,23 +22,41 @@ class PaintSafetyError(PaintError):
     """The safety filter blocked the scene."""
 
 
+def is_safety_block(message) -> bool:
+    """Any 400 that names the content policy, whatever its wording."""
+    lowered = str(message).lower()
+    return "content_policy" in lowered or "content management policy" in lowered
+
+
 def image_tools() -> list:
     """Tool settings, proven 26 Oct (top-level parameters return 400)."""
     return [{"type": "image_generation", "size": SIZE,
              "enable_image_search": False}]
 
 
+REMAINS_CONDITIONS = ("burnt", "ruin", "demolished")
+
+
 def describe_state(object_name, state) -> str:
-    """The object's verified state as one paintable sentence."""
+    """The object's verified state as one paintable sentence.
+
+    Destroyed states are framed as remains, never as the destructive
+    event: the filter blocks event wording but passes aftermath.
+    """
     condition = state.get("condition", "standing")
-    description = state.get("description") or ""
+    description = (state.get("description") or "").strip()
     degree = state.get("degree") or ""
     scope = state.get("scope") or ""
+    if condition in REMAINS_CONDITIONS:
+        return f"Only the remains of {object_name} stand: {description}"
     if condition in ("standing", "rebuilt") and not description:
         return f"The {object_name} stands whole."
-    detail = f"{degree} {scope}".strip()
-    if detail and detail not in ("total whole",):
-        return f"The {object_name} is {condition} ({detail}): {description}"
+    if scope == "part":
+        return f"Part of {object_name} is {condition}: {description}"
+    if degree == "partial":
+        return f"{object_name} is partly {condition}: {description}"
+    if condition in ("standing", "rebuilt"):
+        return f"The {object_name} stands {condition}: {description}"
     return f"The {object_name} is {condition}: {description}"
 
 
@@ -101,6 +119,7 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
     year = scene.get("from_year")
     prompt = scene_prompt(scene, object_name, place)
     softened = False
+    model_retried = False
     for attempt in range(1 + max_repaints):
         try:
             result = call(prompt, prev_id)
@@ -111,6 +130,13 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
                         "note": "safety block twice; era skipped"}
             prompt = f"{prompt} Keep the scene tasteful and non-graphic."
             softened = True
+            continue
+        except PaintError as exc:
+            if model_retried:
+                return {"year": year, "image": None, "response_id": None,
+                        "verdict": "dropped", "attempts": attempt + 1,
+                        "note": f"paint failed twice: {exc}"}
+            model_retried = True
             continue
         verdict = check_module.check_painting(
             check_call, result["image"], object_name,

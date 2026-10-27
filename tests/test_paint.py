@@ -173,3 +173,62 @@ def test_contact_sheet_lays_images_side_by_side(tmp_path):
     sheet = Image.open(path)
     assert sheet.size[0] == 20  # two 10 px panels
     assert sheet.size[1] > 20  # plus the label strip
+
+
+def test_is_safety_block_matches_policy_wordings():
+    assert paint.is_safety_block("400 content_policy_violation")
+    assert paint.is_safety_block(
+        "400 - The response was filtered due to the prompt triggering "
+        "our content management policy.")
+    assert not paint.is_safety_block("500 internal error")
+    assert not paint.is_safety_block("unknown parameter: seed")
+
+
+def test_paint_scene_retries_model_error_once_then_drops():
+    calls = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        calls.append(prompt)
+        if len(calls) < 2:
+            raise paint.PaintError("500 internal error")
+        return {"image": b"img", "response_id": "r1"}
+
+    out = paint.paint_scene(call, lambda image, p: "MATCHES.",
+                            scene(1850), "De Adriaan", "Haarlem", "r0")
+    assert out["image"] == b"img"
+    assert out["attempts"] == 2
+
+
+def test_paint_scene_drops_era_on_repeated_model_error():
+    def call(prompt, prev_id, photo_bytes=None):
+        raise paint.PaintError("500 internal error")
+
+    out = paint.paint_scene(call, lambda image, p: "MATCHES.",
+                            scene(1850), "De Adriaan", "Haarlem", "r0")
+    assert out["image"] is None
+    assert out["verdict"] == "dropped"
+    assert "500" in out["note"]
+
+
+def test_describe_state_frames_destroyed_as_remains():
+    assert paint.describe_state(
+        "De Adriaan",
+        {"condition": "burnt", "degree": "partial", "scope": "whole",
+         "description": "Only the brick base is left."}) == (
+        "Only the remains of De Adriaan stand: Only the brick base is left.")
+    assert paint.describe_state(
+        "Mill",
+        {"condition": "ruin", "degree": "total", "scope": "whole",
+         "description": "Bare walls."}).startswith("Only the remains")
+
+
+def test_describe_state_words_partial_scope_plainly():
+    assert paint.describe_state(
+        "Tower",
+        {"condition": "damaged", "degree": "partial", "scope": "part",
+         "description": "One wing scorched."}) == (
+        "Part of Tower is damaged: One wing scorched.")
+    assert paint.describe_state(
+        "Mill",
+        {"condition": "standing", "degree": "total", "scope": "whole",
+         "description": ""}) == "The Mill stands whole."

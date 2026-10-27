@@ -39,6 +39,7 @@ def main(argv=None):
     paint_cmd.add_argument("--photo", required=True)
     paint_cmd.add_argument("--place", required=True)
     paint_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel"))
+    paint_cmd.add_argument("--scenes", default=None)
     args = parser.parse_args(argv)
     if args.command == "identify":
         return cmd_identify(args.photo, place=args.place, lang=args.lang,
@@ -46,7 +47,8 @@ def main(argv=None):
     if args.command == "keep":
         return cmd_keep(args.slug)
     if args.command == "paint":
-        return cmd_paint(args.slug, args.photo, place=args.place, mode=args.mode)
+        return cmd_paint(args.slug, args.photo, place=args.place,
+                         mode=args.mode, scenes=args.scenes)
     if args.command == "film":
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
@@ -824,7 +826,7 @@ def paint_respond(prompt, prev_id, photo_bytes=None):
     try:
         resp = models.respond(_respond_for(models.PAINT), models.PAINT, **kwargs)
     except BadRequestError as exc:
-        if "content_policy" in str(exc):
+        if paint.is_safety_block(exc):
             raise paint.PaintSafetyError(str(exc))
         raise paint.PaintError(str(exc))
     data = json.loads(resp.model_dump_json())
@@ -854,8 +856,8 @@ def check_respond(image_bytes, prompt):
     return "\n".join(texts)
 
 
-def cmd_paint(slug, photo, place=None, mode="parallel", paint_call=None,
-              check_call=None):
+def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
+              paint_call=None, check_call=None):
     """Paint an object's eras from its research, checked per era."""
     out_dir = Path("out") / slug
     path = out_dir / "research.json"
@@ -865,8 +867,10 @@ def cmd_paint(slug, photo, place=None, mode="parallel", paint_call=None,
     data = json.loads(path.read_text())
     name = data["object"]["name"]
     photo_bytes = Path(photo).read_bytes()
+    wanted = {int(y) for y in scenes.split(",")} if scenes else None
     eras = [s for s in data.get("scenes", [])
-            if isinstance(s.get("from_year"), int)]
+            if isinstance(s.get("from_year"), int)
+            and (wanted is None or s["from_year"] in wanted)]
     if not eras:
         print("no paintable eras in research")
         return 2

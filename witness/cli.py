@@ -885,9 +885,11 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
                                        check_call=checker)
     era_dir = out_dir / f"eras_{mode}"
     era_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {"slug": slug, "mode": mode, "object": name,
-                "paint_s": round(time.perf_counter() - started, 1), "eras": []}
-    panels = []
+    manifest_path = out_dir / f"paint_{mode}.json"
+    entries = {}
+    if manifest_path.exists():
+        for entry in json.loads(manifest_path.read_text()).get("eras", []):
+            entries[entry["year"]] = entry
     for scene, result in zip(eras, results):
         year = scene["from_year"]
         entry = {"year": year, "verdict": result["verdict"],
@@ -895,15 +897,19 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
         if result["image"] is not None:
             (era_dir / f"{year}.png").write_bytes(result["image"])
             entry["file"] = f"eras_{mode}/{year}.png"
-            panels.append((str(year), result["image"]))
         else:
             entry["note"] = result["note"]
-        manifest["eras"].append(entry)
+        entries[year] = entry
         print(f"{year}: {result['verdict']} "
               f"(attempts {result['attempts']}) {result.get('note', '')}"[:160])
-    if panels:
-        paint.contact_sheet(panels, str(era_dir / "contact.png"))
-    (out_dir / f"paint_{mode}.json").write_text(json.dumps(manifest, indent=1))
+    kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
+    if kept_files:
+        paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
+                            str(era_dir / "contact.png"))
+    manifest = {"slug": slug, "mode": mode, "object": name,
+                "paint_s": round(time.perf_counter() - started, 1),
+                "eras": [entries[y] for y in sorted(entries)]}
+    manifest_path.write_text(json.dumps(manifest, indent=1))
     kept = sum(1 for e in manifest["eras"] if e["verdict"] == "matches")
     print(f"painted {kept} of {len(eras)} eras in {manifest['paint_s']} s ({mode})")
     return 0

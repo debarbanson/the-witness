@@ -502,3 +502,46 @@ def test_cmd_paint_filters_scenes(tmp_path, monkeypatch):
     assert (out_dir / "eras_chain" / "1950.png").exists()
     assert not (out_dir / "eras_chain" / "1850.png").exists()
     assert len(seen) == 2  # anchor plus the one era
+
+
+def test_cmd_paint_merges_manifest_and_contact_across_runs(tmp_path, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, "PNG")
+    tiny = buf.getvalue()
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    out_dir.mkdir(parents=True)
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"},
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+            {"from_year": 1950, "date_label": "1950",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ]}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(tiny)
+
+    def fake_call(prompt, prev_id, photo_bytes=None):
+        return {"image": tiny, "response_id": "r1"}
+
+    for year in ("1850", "1950"):
+        code = cli_module.cmd_paint(
+            "q1-test", str(photo), "Test Town", mode="parallel",
+            scenes=year, paint_call=fake_call,
+            check_call=lambda image, prompt: "MATCHES whole.")
+        assert code == 0
+    manifest = json.loads((out_dir / "paint_parallel.json").read_text())
+    assert [e["year"] for e in manifest["eras"]] == [1850, 1950]
+    sheet = Image.open(out_dir / "eras_parallel" / "contact.png")
+    assert sheet.size[0] == 16  # both panels kept

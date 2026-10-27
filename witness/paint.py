@@ -118,18 +118,20 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
 
     year = scene.get("from_year")
     prompt = scene_prompt(scene, object_name, place)
-    softened = False
+    blocks = 0
     model_retried = False
     for attempt in range(1 + max_repaints):
         try:
             result = call(prompt, prev_id)
         except PaintSafetyError:
-            if softened:
+            blocks += 1
+            if blocks >= 1 + max_repaints:
                 return {"year": year, "image": None, "response_id": None,
                         "verdict": "dropped", "attempts": attempt + 1,
-                        "note": "safety block twice; era skipped"}
+                        "note": "safety block persists; era skipped"}
+            if blocks == 1:
+                continue  # flaky filter: same prompt once more
             prompt = f"{prompt} Keep the scene tasteful and non-graphic."
-            softened = True
             continue
         except PaintError as exc:
             if model_retried:

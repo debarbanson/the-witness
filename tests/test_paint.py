@@ -133,30 +133,18 @@ def test_paint_scene_drops_after_two_repaints():
     assert out["attempts"] == 3
 
 
-def test_paint_scene_softens_safety_block_once():
+def test_paint_scene_skips_era_when_blocks_persist():
     prompts = []
 
     def call(prompt, prev_id, photo_bytes=None):
         prompts.append(prompt)
-        if len(prompts) == 1:
-            raise paint.PaintSafetyError("content_policy_violation")
-        return {"image": b"img", "response_id": "r1"}
-
-    out = paint.paint_scene(call, lambda image, p: "MATCHES.",
-                            scene(1932, "burnt", "Burnt beams."), "De Adriaan",
-                            "Haarlem", "r0")
-    assert out["image"] == b"img"
-    assert "tasteful" in prompts[1].lower() or "non-graphic" in prompts[1].lower()
-
-
-def test_paint_scene_skips_era_on_second_safety_block():
-    def call(prompt, prev_id, photo_bytes=None):
         raise paint.PaintSafetyError("content_policy_violation")
 
     out = paint.paint_scene(call, lambda image, p: "MATCHES.",
                             scene(1850), "De Adriaan", "Haarlem", "r0")
     assert out["image"] is None
     assert out["verdict"] == "dropped"
+    assert len(prompts) == 3
 
 
 def test_contact_sheet_lays_images_side_by_side(tmp_path):
@@ -232,3 +220,46 @@ def test_describe_state_words_partial_scope_plainly():
         "Mill",
         {"condition": "standing", "degree": "total", "scope": "whole",
          "description": ""}) == "The Mill stands whole."
+
+
+def test_paint_scene_retries_safety_block_same_prompt_first():
+    prompts = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        prompts.append(prompt)
+        if len(prompts) < 2:
+            raise paint.PaintSafetyError("content management policy")
+        return {"image": b"img", "response_id": "r1"}
+
+    out = paint.paint_scene(call, lambda image, p: "MATCHES.",
+                            scene(1932, "burnt", "Base left."),
+                            "De Adriaan", "Haarlem", "r0")
+    assert out["image"] == b"img"
+    assert prompts[0] == prompts[1]
+
+
+def test_paint_scene_softens_only_after_second_block():
+    prompts = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        prompts.append(prompt)
+        if len(prompts) < 3:
+            raise paint.PaintSafetyError("content management policy")
+        return {"image": b"img", "response_id": "r1"}
+
+    out = paint.paint_scene(call, lambda image, p: "MATCHES.",
+                            scene(1932, "burnt", "Base left."),
+                            "De Adriaan", "Haarlem", "r0")
+    assert out["image"] == b"img"
+    assert prompts[0] == prompts[1]
+    assert "non-graphic" in prompts[2]
+
+
+def test_paint_scene_drops_after_third_block():
+    def call(prompt, prev_id, photo_bytes=None):
+        raise paint.PaintSafetyError("content management policy")
+
+    out = paint.paint_scene(call, lambda image, p: "MATCHES.",
+                            scene(1850), "De Adriaan", "Haarlem", "r0")
+    assert out["image"] is None
+    assert out["verdict"] == "dropped"

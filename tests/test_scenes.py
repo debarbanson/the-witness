@@ -89,3 +89,15 @@ def test_scenes_carry_date_label_and_flag():
     assert first["date_label"] == "about 800 to 1,200 years old"
     assert first["flag"] == "implausible span"
     assert today["date_label"] == "today"
+
+
+def test_same_claims_in_any_order_give_same_scenes():
+    import json
+
+    timeline = [seg(1900 + i * 10, 1910 + i * 10) for i in range(8)]
+    claims = [claim(1900 + i * 10) for i in range(8)]
+    claims.append(claim(1920, "zulu words stood here"))
+    claims.append(claim(1920, "alpha words stood here"))
+    first = scenes.choose_scenes(timeline, list(claims))
+    second = scenes.choose_scenes(timeline, list(reversed(claims)))
+    assert json.dumps(second, sort_keys=True) == json.dumps(first, sort_keys=True)

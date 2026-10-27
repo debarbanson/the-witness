@@ -172,6 +172,25 @@ def test_spare_needs_counts_lineless_scenes():
     assert spare_needs(full, pool) == 0
 
 
+def test_cached_film_reused_within_a_week(tmp_path, monkeypatch):
+    import json
+    from datetime import date, timedelta
+    from witness.cli import cached_film
+
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "out" / "q1-tower"
+    out.mkdir(parents=True)
+    fresh = {"outcome": {"outcome": "short_film"},
+             "saved_at": date.today().isoformat()}
+    (out / "research.json").write_text(json.dumps(fresh))
+    assert cached_film("q1-tower") == fresh
+    stale = {"outcome": {"outcome": "short_film"},
+             "saved_at": (date.today() - timedelta(days=8)).isoformat()}
+    (out / "research.json").write_text(json.dumps(stale))
+    assert cached_film("q1-tower") is None
+    assert cached_film("missing-slug") is None
+
+
 def test_compare_verdicts_tallies_agreement():
     from witness.cli import compare_verdicts
 

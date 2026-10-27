@@ -115,3 +115,39 @@ def test_not_identified_wins_over_claims():
 
 def test_empty_claims_is_too_little():
     assert outcome.decide([], identified=True)["outcome"] == "too_little"
+
+
+def film_with(outcome_name, segments, scene_years):
+    return {
+        "outcome": {"outcome": outcome_name},
+        "timeline": [
+            {"from_year": year, "to_year": None,
+             "state": {"condition": cond, "description": text}}
+            for year, cond, text in segments
+        ],
+        "scenes": [{"from_year": y} for y in scene_years],
+    }
+
+
+def test_film_signature_ignores_wording():
+    first = film_with("full_film",
+                      [(1779, "standing", "mill erected"), (1932, "ruin", "burnt")],
+                      [1779, 1932, "today"])
+    second = film_with("full_film",
+                       [(1779, "standing", "octagonal mill built"), (1932, "ruin", "destroyed")],
+                      [1779, 1932, "today"])
+    assert outcome.film_signature(first) == outcome.film_signature(second)
+
+
+def test_film_signature_catches_condition_and_year_changes():
+    base = film_with("full_film",
+                     [(1779, "standing", "mill erected"), (1932, "ruin", "burnt")],
+                     [1779, 1932, "today"])
+    assert outcome.film_signature(film_with(
+        "short_film", [(1779, "standing", "x")], [1779, "today"])) != outcome.film_signature(base)
+    assert outcome.film_signature(film_with(
+        "full_film", [(1779, "standing", "x"), (1932, "burnt", "y")],
+        [1779, 1932, "today"])) != outcome.film_signature(base)
+    assert outcome.film_signature(film_with(
+        "full_film", [(1779, "standing", "x"), (1932, "ruin", "y")],
+        [1779, 1930, "today"])) != outcome.film_signature(base)

@@ -9,6 +9,7 @@ import sys
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 
 from witness import identify, models, outcome, research, scenes, states, verify
@@ -128,15 +129,22 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
         phase = time.perf_counter()
         facts = facts_future.result() if facts_future else {"facts": []}
     if cache is not None and found.qid:
+        slug = slug_for(found.name, found.qid, found.articles, prefer=order)
         reviewed = cache.get_reviewed(found.qid, lang)
         if reviewed is not None:
-            slug = slug_for(found.name, found.qid, found.articles, prefer=order)
             out_path = Path("out") / slug / "research.json"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
             result = reviewed.get("outcome", {})
             print(f"outcome: {result.get('outcome')} (reviewed research reused; use --no-cache to redo)")
             print(f"saved: {out_path}")
+            return 0
+        film = cached_film(slug)
+        if film is not None:
+            result = film.get("outcome", {})
+            print(f"outcome: {result.get('outcome')} (cached film from {film.get('saved_at')}; "
+                  f"use --no-cache to check again)")
+            print(f"saved: {Path('out') / slug / 'research.json'}")
             return 0
 
     claims = []
@@ -279,6 +287,7 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     (out_dir / "research.json").write_text(
         json.dumps(
             {
+                "saved_at": date.today().isoformat(),
                 "object": {"name": found.name, "kind": found.kind, "qid": found.qid, "articles": found.articles,
                            "lang": lang},
                 "claims": kept,
@@ -387,6 +396,26 @@ def _votes_for(claim, detail, anchor_year=None) -> int:
     if states.classify(claim.get("event", "stood"), detail) is not None:
         return 3
     return 1
+
+
+FILM_CACHE_DAYS = 7
+
+
+def cached_film(slug, max_age_days=FILM_CACHE_DAYS):
+    """A second visit shows the same film: reuse this object's saved
+    research when it is fresh. Refreshed after a week, or any time
+    with --no-cache ("check again")."""
+    path = Path("out") / slug / "research.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        saved = date.fromisoformat(data.get("saved_at", ""))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+    if (date.today() - saved).days > max_age_days:
+        return None
+    return data
 
 
 def compare_verdicts(jobs, primary, alt) -> dict:

@@ -28,7 +28,8 @@ def choose_scenes(timeline, claims, limit=LIMIT):
     covered = {s["from_year"] for s in scenes}
     counts: dict = {}
     first_claim: dict = {}
-    for claim in claims:
+    ordered = sorted(claims, key=lambda c: (c["year"], c.get("claim", "")))
+    for claim in ordered:
         year = claim["year"]
         if year in covered:
             continue

@@ -41,6 +41,20 @@ def _domain(url: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else url
 
 
+def film_signature(film: dict) -> dict:
+    """Stability metric: outcome, eras with conditions, scene years.
+
+    Wording may differ run to run; these must not. Two films with the
+    same signature are the same film for the same object.
+    """
+    return {
+        "outcome": (film.get("outcome") or {}).get("outcome"),
+        "eras": sorted(
+            (seg["from_year"], seg["state"]["condition"]) for seg in film.get("timeline", [])),
+        "scenes": [s["from_year"] for s in film.get("scenes", [])],
+    }
+
+
 def _result(outcome, verified, eras, good_sources, build_year, reason) -> dict:
     return {
         "outcome": outcome,

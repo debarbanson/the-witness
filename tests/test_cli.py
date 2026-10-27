@@ -545,3 +545,79 @@ def test_cmd_paint_merges_manifest_and_contact_across_runs(tmp_path, monkeypatch
     assert [e["year"] for e in manifest["eras"]] == [1850, 1950]
     sheet = Image.open(out_dir / "eras_parallel" / "contact.png")
     assert sheet.size[0] == 16  # both panels kept
+
+
+def test_film_anchor_scene_paints_object_as_built():
+    from witness import cli as cli_module
+
+    scene = cli_module.film_anchor_scene("De Adriaan", 1779)
+    assert scene["from_year"] == 1779
+    assert scene["state"]["condition"] == "standing"
+    assert "1779" in scene["state"]["description"]
+    assert scene["caption_lines"] == []
+
+
+def test_cmd_children_rewrites_lines_next_to_adult_ones(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    out_dir.mkdir(parents=True)
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [
+            {"year": 1802, "url": "https://example.com/x",
+             "quote": "The mill was sold in 1802.",
+             "verdict": "supported"},
+            {"year": 1779, "url": "https://example.com/x",
+             "quote": "The mill opened in 1779.",
+             "verdict": "supported"},
+        ],
+        "scenes": [
+            {"from_year": 1779, "date_label": "1779",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "opened in 1779"},
+             "caption_lines": [
+                 {"year": 1802, "line": "in 1802 sold",
+                  "url": "https://example.com/x"},
+                 {"year": 1900, "line": "no claim for this",
+                  "url": "https://example.com/missing"},
+             ]},
+        ]}))
+
+    code = cli_module.cmd_children(
+        "q1-test",
+        rewrite_call=lambda adult, source, plain: f"Little: {adult}",
+        support_call=lambda line, source: "supported")
+    assert code == 0
+    data = json.loads((out_dir / "research.json").read_text())
+    lines = data["scenes"][0]["caption_lines"]
+    assert lines[0]["child"] == "Little: in 1802 sold"
+    assert lines[0]["child_verified"] is True
+    assert lines[1]["child"] is None
+    assert data["scenes"][0]["child_state"] == "Little: opened in 1779"
+
+
+def test_cmd_layers_saves_figure_layers(tmp_path, monkeypatch):
+    import io
+    import json
+    from pathlib import Path
+    from PIL import Image
+    from witness import cli as cli_module
+
+    raw = (Path(__file__).parent / "fixtures" / "sam_persons.txt").read_text()
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
+    (era_dir / "1850.png").write_bytes(buf.getvalue())
+
+    code = cli_module.cmd_layers("q1-test", mode="parallel",
+                                 call_sam=lambda text, jpg: raw)
+    assert code == 0
+    saved = sorted((out_dir / "layers_parallel" / "1850").glob("*.png"))
+    assert len(saved) == 2

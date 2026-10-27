@@ -145,3 +145,9 @@ def test_paint_uses_muse_image_on_meta():
     assert models.PAINT.key_name == "MODEL_API_KEY"
     assert models.PAINT.effort is None
     assert models.PAINT.temperature is None
+
+
+def test_sam_uses_segmentation_model_on_meta():
+    assert models.SAM.provider == "meta"
+    assert models.SAM.model == "sam-3.1"
+    assert models.SAM.key_name == "MODEL_API_KEY"

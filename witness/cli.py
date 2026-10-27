@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from witness import check, identify, models, outcome, paint, research, scenes, states, stream, verify
+from witness import check, children, identify, layers, models, outcome, paint, research, scenes, states, stream, verify
 from witness.cache import Cache
 
 
@@ -32,8 +32,14 @@ def main(argv=None):
         if name == "film":
             cmd.add_argument("--verify-with", default="baseten",
                              choices=("meta", "baseten"))
+            cmd.add_argument("--paint", action="store_true")
     keep = sub.add_parser("keep")
     keep.add_argument("slug")
+    child_cmd = sub.add_parser("children")
+    child_cmd.add_argument("slug")
+    layers_cmd = sub.add_parser("layers")
+    layers_cmd.add_argument("slug")
+    layers_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel", "stream"))
     paint_cmd = sub.add_parser("paint")
     paint_cmd.add_argument("slug")
     paint_cmd.add_argument("--photo", required=True)
@@ -46,13 +52,17 @@ def main(argv=None):
                             yes=args.yes, no_cache=args.no_cache)
     if args.command == "keep":
         return cmd_keep(args.slug)
+    if args.command == "children":
+        return cmd_children(args.slug)
+    if args.command == "layers":
+        return cmd_layers(args.slug, mode=args.mode)
     if args.command == "paint":
         return cmd_paint(args.slug, args.photo, place=args.place,
                          mode=args.mode, scenes=args.scenes)
     if args.command == "film":
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
-                        verify_with=args.verify_with)
+                        verify_with=args.verify_with, paint_eras=args.paint)
     return cmd_research(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
                         verify_with=args.verify_with)
@@ -113,9 +123,11 @@ SPARES = 4  # extra claims verified outside the draft scenes
 
 
 def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
-             progress=None):
+             progress=None, paint_eras=False, paint_call=None, check_call=None):
     """The film as a stream: opening card within seconds, then one ready
-    scene after another. Research starts while the user still confirms."""
+    scene after another. Research starts while the user still confirms.
+    With paint_eras, scene 1 paints from the anchor while research runs
+    and later scenes paint as they verify."""
     filmed = stream.FilmStream()
     cache = None if no_cache else Cache("out/cache")
     models.reset_usage()
@@ -210,9 +222,75 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             print(card["text"])
         print("---", flush=True)
 
+    paint_pool = None
+    paint_futures = {}
+    anchor_future = None
+    paint_fn = paint_call or paint_respond
+    check_fn = check_call or check_respond
+    photo_bytes = Path(photo).read_bytes() if paint_eras else None
+    era_dir = None
+    if paint_eras:
+        paint_pool = ThreadPoolExecutor(max_workers=6)
+        era_dir = Path("out") / slug_for(found.name, found.qid, found.articles,
+                                         prefer=order) / "eras_stream"
+        era_dir.mkdir(parents=True, exist_ok=True)
+
+    def verify_anchor_early(card_claims):
+        """The build anchor checked against article text, before research."""
+        anchor_claim = next((c for c in card_claims if c.get("anchor") == "build"), None)
+        if anchor_claim is None:
+            return None
+        fetched.fetch([anchor_claim], article_urls, verify_with)
+        job = build_jobs([anchor_claim], fetched.texts, [], anchor_claim["year"])[0]
+        if job["anchor"] == "build" and job["passages"] and verify.anchor_hit(
+                job["passages"], job["year"]):
+            return anchor_claim["year"]
+        return None
+
+    def paint_scene_worker(scene, scene_no, with_photo):
+        prev_id = anchor_future.result() if not with_photo else None
+        result = paint.paint_scene(paint_fn, check_fn, scene, found.name, place or "",
+                                   prev_id,
+                                   photo_bytes=photo_bytes if with_photo else None)
+        filmed.emit("scene_painted", {"scene": scene_no, "year": scene["from_year"],
+                                      "verdict": result["verdict"],
+                                      "attempts": result["attempts"]})
+        if result["image"] is not None:
+            (era_dir / f"{scene['from_year']}.png").write_bytes(result["image"])
+            print(f"Scene {scene_no} ({scene.get('date_label', scene['from_year'])}) painted",
+                  flush=True)
+        else:
+            print(f"Scene {scene_no} ({scene.get('date_label', scene['from_year'])}) "
+                  f"dropped ({result['note']})", flush=True)
+        return result
+
+    def start_scene1(card_claims):
+        """Scene 1 paints from the anchor while research runs; later
+        scenes branch from its response id, or a plain anchor turn."""
+        nonlocal anchor_future
+        scene1_future = None
+        anchor_year = verify_anchor_early(card_claims)
+        if anchor_year is not None:
+            print(f"scene 1 ({anchor_year}) verified from the anchor; "
+                  f"painting while research runs", flush=True)
+            scene1_future = paint_pool.submit(
+                paint_scene_worker, film_anchor_scene(found.name, anchor_year),
+                1, True)
+            paint_futures[anchor_year] = scene1_future
+        if scene1_future is not None:
+            anchor_future = paint_pool.submit(
+                lambda: (scene1_future.result()["response_id"]
+                         or paint.paint_anchor(paint_fn, photo_bytes, found.name,
+                                               place or "")["response_id"]))
+        else:
+            anchor_future = paint_pool.submit(
+                paint.paint_anchor, paint_fn, photo_bytes, found.name, place or "")
+
     if yes:
         first = film_facts(found, lang, cache, timings)
         show_card(first["claims"])
+        if paint_eras:
+            start_scene1(first["claims"])
         gathered = gather_rest(first)
     else:
         before = models.usage_totals()
@@ -227,8 +305,12 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             spent = sum(v.get("total_tokens", 0) for v in after.values()) - sum(
                 v.get("total_tokens", 0) for v in before.values())
             print(f"not confirmed; speculative work discarded (cost: {spent} tokens)")
+            if paint_pool is not None:
+                paint_pool.shutdown(wait=False)
             return 2
         show_card(gathered["kept"])
+        if paint_eras:
+            start_scene1(gathered["kept"])
 
     def emit_scene(scene_no, scene):
         filmed.emit("scene_verified", {"scene": scene_no, "year": scene["from_year"],
@@ -253,6 +335,10 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years, emitted):
             emitted.add(scene["from_year"])
             emit_scene(numbers[scene["from_year"]], scene)
+            if (paint_eras and isinstance(scene["from_year"], int)
+                    and scene["from_year"] not in paint_futures):
+                paint_futures[scene["from_year"]] = paint_pool.submit(
+                    paint_scene_worker, scene, numbers[scene["from_year"]], False)
     fast = sum(1 for c in to_check if c.get("fast_path"))
     if fast:
         print(f"fast paths: {fast} of {len(to_check)} decided without a vote")
@@ -285,13 +371,46 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
         verified, timeline, chosen = refresh_film()
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
+    if paint_eras:
+        entries = {}
+        for year, future in paint_futures.items():
+            outcome_result = future.result()
+            entry = {"year": year, "verdict": outcome_result["verdict"],
+                     "attempts": outcome_result["attempts"]}
+            if outcome_result["image"] is not None:
+                entry["file"] = f"eras_stream/{year}.png"
+            else:
+                entry["note"] = outcome_result["note"]
+            entries[year] = entry
+        paint_pool.shutdown()
+        kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
+        if kept_files:
+            paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
+                                str(era_dir / "contact.png"))
+        (era_dir.parent / "paint_stream.json").write_text(json.dumps(
+            {"mode": "stream", "object": found.name,
+             "eras": [entries[y] for y in sorted(entries)]}, indent=1))
     timings["total_s"] = round(time.perf_counter() - start, 1)
     report_and_save(found, lang, order, gathered["kept"], timeline, chosen, result,
                     timings, verify_with, fetched.failures, None,
                     stream_events=filmed.events)
     first_scene = filmed.metric("scene_verified")
-    print(f"stream: opening card at {filmed.metric('opening_card')} s, "
-          f"first scene verified at {first_scene} s, film ready at {timings['total_s']} s")
+    line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
+            f"first scene verified at {first_scene} s, "
+            f"film ready at {timings['total_s']} s")
+    if paint_eras:
+        painted_times = {e["year"]: e["t"] for e in filmed.events
+                         if e["event"] == "scene_painted" and e["verdict"] == "matches"}
+        ready = [(s["from_year"], painted_times[s["from_year"]])
+                 for s in chosen if s["from_year"] in painted_times]
+        ready.append(("today", 0.0))  # the user's photo needs no build
+        playback = stream.simulate_playback(ready)
+        pauses = ", ".join(str(y) for y in playback["pauses"]) or "none"
+        line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
+                f"first scene verified at {first_scene} s, "
+                f"first scene painted at {filmed.metric('scene_painted')} s, "
+                f"film ready at {timings['total_s']} s, playback pauses: {pauses}")
+    print(line)
     return 0
 
 
@@ -545,6 +664,17 @@ def film_facts(found, lang, cache, timings) -> dict:
     if build_anchor_year is not None:
         print(f"build anchor: {build_anchor_year} fixed by Wikidata")
     return {"facts": facts, "claims": claims, "build_anchor_year": build_anchor_year}
+
+
+def film_anchor_scene(object_name, anchor_year) -> dict:
+    """Scene 1 from the anchor alone: the object as built, painted
+    while research still runs."""
+    return {"from_year": anchor_year, "date_label": str(anchor_year),
+            "state": {"condition": "standing", "degree": "total",
+                      "scope": "whole",
+                      "description": f"newly completed in {anchor_year}, "
+                                     f"standing whole and new"},
+            "caption_lines": []}
 
 
 def keep_quality(claims) -> list:
@@ -912,6 +1042,109 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
     manifest_path.write_text(json.dumps(manifest, indent=1))
     kept = sum(1 for e in manifest["eras"] if e["verdict"] == "matches")
     print(f"painted {kept} of {len(eras)} eras in {manifest['paint_s']} s ({mode})")
+    return 0
+
+
+def child_rewrite_respond(adult, source, plain):
+    """One children rewrite on Muse Spark, steady temperature."""
+    prompt = children.rewrite_prompt(adult, source)
+    if plain:
+        prompt += " Use even plainer words."
+    resp = models.respond(_respond_for(models.VERIFY), models.VERIFY, input=prompt)
+    data = json.loads(resp.model_dump_json())
+    texts = []
+    for item in data.get("output", []):
+        for block in item.get("content", []) or []:
+            if block.get("type") == "output_text":
+                texts.append(block.get("text", ""))
+    return "\n".join(texts).strip()
+
+
+def child_support_respond(line, source):
+    """Re-verify a rewrite against its own source sentence."""
+    job = {"claim": line, "event": "stood", "detail": line, "year": 0,
+           "keywords": [], "passages": [source], "urls": [], "votes": 1}
+    return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
+
+
+def cmd_children(slug, rewrite_call=None, support_call=None):
+    """Children's captions next to the adult ones, re-verified or dropped."""
+    out_dir = Path("out") / slug
+    path = out_dir / "research.json"
+    if not path.exists():
+        print(f"no research at {path}")
+        return 2
+    data = json.loads(path.read_text())
+    rewrite = rewrite_call or child_rewrite_respond
+    support = support_call or child_support_respond
+    verified = [c for c in data.get("claims", [])
+                if c.get("verdict") in ("supported", "partly") and c.get("quote")]
+    kept, dropped = 0, 0
+    for scene in data.get("scenes", []):
+        for entry in scene.get("caption_lines", []):
+            claim = children.claim_for_line(verified, entry["year"], entry.get("url"))
+            if claim is None:
+                entry["child"], entry["child_verified"] = None, False
+                dropped += 1
+                continue
+            out = children.child_caption(rewrite, support, entry["line"], claim["quote"])
+            entry["child"], entry["child_verified"] = out["line"], out["verified"]
+            kept, dropped = kept + out["verified"], dropped + (not out["verified"])
+            print(f"{entry['year']}: {out['line'] or 'dropped'}"[:140])
+        state_claim = next((c for c in verified if c["year"] == scene["from_year"]), None)
+        description = (scene.get("state") or {}).get("description", "")
+        if state_claim is not None and description:
+            out = children.child_caption(rewrite, support, description,
+                                         state_claim["quote"])
+            scene["child_state"] = out["line"]
+            print(f"{scene['from_year']} state: {out['line'] or 'dropped'}"[:140])
+        else:
+            scene["child_state"] = None
+    path.write_text(json.dumps(data, indent=1))
+    print(f"children captions: {kept} kept, {dropped} dropped")
+    return 0
+
+
+def sam_respond(text, jpeg_bytes):
+    """One SAM request; returns the output text for the parser."""
+    import base64
+
+    uri = "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode("ascii")
+    client = _respond_for(models.SAM)
+    resp = client.responses.create(
+        model=models.SAM.model,
+        input=[{"role": "user", "content": [
+            {"type": "input_text", "text": text},
+            {"type": "input_image", "image_url": uri},
+        ]}],
+    )
+    data = json.loads(resp.model_dump_json())
+    texts = []
+    for item in data.get("output", []):
+        for block in item.get("content", []) or []:
+            if block.get("type") == "output_text":
+                texts.append(block.get("text", ""))
+    return "\n".join(texts)
+
+
+def cmd_layers(slug, mode="parallel", call_sam=None):
+    """Figure layers for an object's painted eras (step 6)."""
+    out_dir = Path("out") / slug
+    era_dir = out_dir / f"eras_{mode}"
+    if not era_dir.exists():
+        print(f"no painted eras at {era_dir}")
+        return 2
+    call = call_sam or sam_respond
+    total = 0
+    for path in sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem):
+        found = layers.figures(call, str(path))
+        layer_dir = out_dir / f"layers_{mode}" / path.stem
+        layer_dir.mkdir(parents=True, exist_ok=True)
+        for i, layer in enumerate(found):
+            layer["image"].save(layer_dir / f"figure_{i}.png")
+        total += len(found)
+        print(f"{path.stem}: {len(found)} figures")
+    print(f"saved {total} figure layers under layers_{mode}/")
     return 0
 
 

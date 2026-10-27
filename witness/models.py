@@ -62,6 +62,14 @@ PAINT = ModelSpec(
     key_name="MODEL_API_KEY",
 )
 
+# Steps 1 and 6: segmentation, same key as everything Meta.
+SAM = ModelSpec(
+    provider="meta",
+    base_url="https://api.meta.ai/v1",
+    model="sam-3.1",
+    key_name="MODEL_API_KEY",
+)
+
 # Open-weights support checks on Baseten (credits granted 27 Oct). The
 # hackathon key only works with the -1026 model name, not the name in
 # Baseten's own docs. Chat Completions path; Meta stays on Responses.

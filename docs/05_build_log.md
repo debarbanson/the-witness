@@ -107,3 +107,23 @@ Test set: 10 Commons photos (CC0, PD or CC BY, file pages and licences in docs/0
 Time budget: identify misses 15 s everywhere (31-98 s); the 60 s story holds for eiffel and the tower only, with source fetching (90 s timeout, P12) the budget killer; 7 of 12 met 2-3 min research. Full timings and 15 open problems in docs/07_test_set.md.
 
 Children's fit (no build): `research.json` scenes plus caption lines, quotes and verdicts already carry what child captions need; the audience setting will run research, captions, paint, check and renderer per docs/08_children.md.
+
+## 27 October
+
+Baseten credits granted ($100). Docs read (hackathon model name is meta-models/muse-spark-open-1026, not the muse-spark-open in their docs):
+- https://docs.baseten.co/quickstart
+- https://docs.baseten.co/reference/inference-api/chat-completions
+- https://docs.baseten.co/inference/model-apis/reasoning
+- https://docs.baseten.co/inference/model-apis/vision
+- https://www.baseten.co/pricing ($1.25 per M input and output tokens for Muse Spark Open)
+- https://dev.meta.ai/docs/pricing-rate-limits ($1.25 in, $4.25 out for Muse Spark standard; web search $2.50 per 1000 queries)
+
+Probes: the -1026 name works with the hackathon key; reasoning arrives in `reasoning_content`, the answer in `content`; usage is reported (reasoning counts as output tokens). First call took about 10 min (cold start), later about 2 s. Meta Responses accepts `temperature=0` (used for verify calls) but the SDK has no `seed` parameter.
+
+Comparison (identical jobs, `--verify-with both`): 6/6 regressions agree; 127/133 over the 12 objects (95.5%). False negatives symmetric (Open missed Eiffel 1887, Meta missed Biosphere 1967, both quoting the evidence). Verify time 750 s meta vs 797 s open. Support checks now default to Baseten with per-call Meta fallback (180 s timeout); research, vision, search fallback and completion stay on Meta. Details in docs/07_test_set.md.
+
+Block 5 (P14 plus re-run): war/politics-only claims become caption lines, never scenes (test first). All 12 re-ran cache-off on the Baseten default: 10 full, 2 short (Eiffel, tower), zero failures. Local languages read everywhere (da, ja, fr, pt, nl, ca, es, it across the set). Fetch fixed (1 to 129 s, was 300 s); identify misses 15 s on all 12 because Overpass is dead from this network (60 to 90 s of timeouts, zero candidates); verify now dominates (best-of-three over a reasoning model). Ruin 1932-1999 and no 1963 held; tulips verify via nl; no designation/filename/architect states anywhere.
+
+Stability: de-adriaan 4/4 full, tower 3/3 short after a Wikidata window failed the first three tower attempts, but details are not identical (reworded claims, supported/partly flips, 1865 standing/rebuilt 2-2). New problems: P16 partly-blank-event misclassifies conditions (2002 burnt, 1674 ruin, 1899-1953 and 1514-1845 under_construction); P17 Overpass dead; P18 identify has no redundancy; P19 distance-only top-5 cuts the true object (Heidelberg honest NONE, Colosseum confidently films the metro station); P20 vision NONE despite correct candidates (Vasa 3/3).
+
+6 new objects: 3 full (Sagrada Familia with Catalan first, Atomium trilingual, Colosseum about the wrong object), 1 short (Belem), 2 not identified (Vasa, Heidelberg). Full report in docs/07_test_set.md. 198 tests green. Painting starts tomorrow; P16 must be fixed first.

@@ -18,6 +18,12 @@ live in `samples/` (git-ignored); each is reproducible from its file page.
 | djenne-mosque | [file](https://commons.wikimedia.org/wiki/File:Djenne_Mosque_Dubois_1911.jpg) | Public domain |
 | sydney-opera | [file](https://commons.wikimedia.org/wiki/File:MC_Sydney_Opera_House.jpg) | CC BY 2.5 |
 | raffles-hotel | [file](https://commons.wikimedia.org/wiki/File:Singapore_Raffles_Hotel_1.JPG) | CC0 |
+| sagrada-familia | [file](https://commons.wikimedia.org/wiki/File:Sagrada_Familia_0110.JPG) | Public domain |
+| vasa-ship | [file](https://commons.wikimedia.org/wiki/File:%22Vasa%22,_a_fully_intact_64_gun_warship_from_the_17th_century_that_was_salvaged_(24490197659).jpg) | CC BY 2.0 |
+| colosseum | [file](https://commons.wikimedia.org/wiki/File:Colosseum_of_Rome_and_Roman_forum.jpg) | CC0 |
+| heidelberg-castle | [file](https://commons.wikimedia.org/wiki/File:Heidelberg_castle_from_vine_growing_area.jpg) | CC BY 4.0 |
+| belem-tower | [file](https://commons.wikimedia.org/wiki/File:Lisbon_Bel%C3%A9m_Tower_(470009179).jpg) | CC BY 2.0 |
+| atomium | [file](https://commons.wikimedia.org/wiki/File:The_Atomium,_Brussels_-_54578545913.jpg) | CC0 |
 
 CC BY photos are credited here by licence and link; the author credit travels
 with the film's `sources.md` when a photo is used. The Djenné photo (Dubois,
@@ -180,6 +186,161 @@ Timeline: standing 1932-now. Scenes: 1 plus today.
   `biosph-re`). C11 `--lang en`: labels now English, but nl
   articles are still fetched everywhere (P8).
 
+## Results (Block 5 re-run, 27 October)
+
+All 12 re-ran with the cache off after blocks 1 to 4, verifying on
+Muse Spark Open with Meta fallback: 10 full films, 2 short films
+(Eiffel Tower, water tower), zero failures. Per-object logs
+`out/testset/*-r3.log` (git-ignored).
+
+| Object | Outcome | Ident | Facts | Resrch | Fetch | Verify | Total | Story | Budget |
+|---|---|---|---|---|---|---|---|---|---|
+| rubjerg-knude | full (8v, 6e, 6g) | 66.3 | 0.5 | 35.2 | 32.1 | 101.5 | 235.5 | 169 | miss, miss |
+| kintai-bridge | full (9v, 5e, 5g) | 71.5 | 0.6 | 35.8 | 19.4 | 53.9 | 181.3 | 110 | miss, miss |
+| major-oak | full (6v, 6e, 3g) | 65.9 | 0.4 | 26.1 | 5.3 | 43.3 | 141.0 | 75 | miss, miss |
+| brooklyn-bridge | full (9v, 9e, 5g) | 65.6 | 0.7 | 30.2 | 5.5 | 56.6 | 158.7 | 93 | miss, miss |
+| christ-redeemer | full (12v, 8e, 7g) | 66.3 | 0.8 | 40.0 | 16.4 | 131.5 | 255.1 | 189 | miss, miss |
+| biosphere | full (8v, 8e, 4g) | 65.4 | 0.6 | 21.6 | 5.8 | 87.3 | 180.8 | 115 | miss, miss |
+| eiffel-tower | short (7v, 6e, 5g) | 94.7 | 0.9 | 34.7 | 2.1 | 110.9 | 243.3 | 149 | miss, miss |
+| djenne-mosque | full (8v, 8e, 6g) | 96.9 | 0.6 | 39.3 | 6.1 | 104.8 | 247.7 | 151 | miss, miss |
+| sydney-opera | full (9v, 7e, 8g) | 65.6 | 0.7 | 27.0 | 11.8 | 73.6 | 178.7 | 113 | miss, miss |
+| raffles-hotel | full (8v, 7e, 3g) | 64.9 | 0.7 | 31.6 | 5.4 | 77.5 | 180.1 | 115 | miss, miss |
+| de-adriaan | full (11v, 9e, 3g) | 66.9 | 0.5 | 27.9 | 15.8 | 82.1 | 193.3 | 126 | miss, miss |
+| water-tower | short (4v, 4e, 2g) | 99.4 | 0.5 | 33.2 | 5.2 | 52.3 | 190.6 | 91 | miss, miss |
+
+Story is facts plus research plus fetch plus verify. Identify
+misses 15 s on every object: Overpass burns 60 s (two 30 s POST
+timeouts) or 90 s (timeouts plus the 30 s 429/502 sleep) and
+returns nothing, so every candidate comes from Wikidata nearby;
+without Overpass, identify would be about 6 s. Verify now
+dominates the story (43 to 132 s): best-of-three over a reasoning
+model. Fetch is fixed (1 to 32 s, was up to 300 s). Research as a
+whole met 2 to 3 minutes for 7 of 12 (biosphere, brooklyn,
+kintai, oak, raffles, sydney, tower); de-adriaan near at 193 s;
+christ, djenne, eiffel and rubjerg missed on verify plus
+identify.
+
+### Per object
+
+**rubjerg-knude** (Q2206180). Langs read: da, en. Claims: 1899
+built, 2019 relocation, 1953 foghorn removal, 1968 end of service,
+2002 abandonment, 2016 refit, 2019 move; all supported or partly.
+Timeline: under_construction 1899-1953 (wrong: 54 years, P16);
+demolished 1953-1968 (foghorn, part scope); standing to 2002;
+ruin to 2016; standing to 2019; moved since. Scenes: 6 plus
+today. Three plain pages skipped on the 5 s read timeout.
+
+**kintai-bridge** (Q1196460). Langs read: ja, en. Claims: 1673
+built, 1674 flood and rebuild, 1950 typhoon washout, 1953
+rebuild, 2004 re-timbering; 1674 damage and 2005 typhoon
+unsupported. Timeline: standing 1673-1674; ruin to 1950 with
+description "bridge re-erected" (condition contradicts the
+description, P16); ruin 1950-1953; rebuilt to 2004; rebuilt
+since. Scenes: 5 plus today.
+
+**major-oak** (Q388443). Langs read: en. Claims: 1026 age
+estimate still too precise (P10, from research wording, not
+Wikidata); 1908 chains, 1970s scaffolding, 1974 fences, 1982
+fire partly or better; 1960s concrete and 2001 props
+unsupported. No Robin Hood legend verified. Timeline: standing
+1026-1908; standing with supports to 1982; burnt (partial)
+since (P6 fixed). Scenes: 6 plus today.
+
+**brooklyn-bridge** (Q125006). Langs read: en. Claims: 1883
+built partly, so the build anchor holds and the film is full
+(P7 fixed); five designations supported but caption-only (P4
+fixed); 1901 and 1981 cable snaps, 1986 cable replacement,
+2021 bike path verified; nine spares unverified. Timeline:
+standing 1883-1901; damaged (partial) to 1986;
+under_construction to 2021; standing since. Scenes: 6 plus
+today.
+
+**christ-redeemer** (Q79961). Langs read: pt, en. Claims: 1926
+start, 1931 completion, 1980 and 1990 restorations, 2006
+sanctuary, 2008 and 2014 lightning damage and repairs; 1920
+inception unsupported, so no more standing-before-construction
+(P15 fixed). Timeline: six clean standing segments 1931 to
+today. Scenes: 6 plus today.
+
+**biosphere** (Q864789). Langs read: en, fr. Claims: 1967 built
+partly, 1968 donation, 1973 conversion, 1976 fire, 1990 funding,
+1995 museum, 2007 and 2021 renamings; 1967 inception and 1998
+ice storm unsupported. Timeline: standing 1967-1976; burnt
+(partial) 1976-1990 (P6 fixed); standing since. Scenes: 6 plus
+today.
+
+**eiffel-tower** (Q243). Langs read: en, fr. Claims: 1887 built
+unsupported on Open (the known miss; Meta called it partly),
+so 7 verified and short_film; 1889 built partly, 1900 lifts,
+1918 shell damage, 1940 occupation damage, 1957 mast, 1999
+lights, 2024 rings; fifteen spares unverified. The 1909
+dismantling plan never a state; no designation or filename
+states (P4 fixed). Timeline: standing with a damaged (partial)
+1918-1940 segment. Scenes: 6 plus today.
+
+**djenne-mosque** (Q683632). Langs read: en, fr. Claims: 1238
+first mosque, 1350 towers, 1819 ruins, 1835 second mosque,
+1896 restitution, 1907 rebuild, 2006 roof works; four spares
+unverified. No conflict claims; the war rule had nothing to
+filter. Timeline: standing 1238-1819; demolished 1819-1835;
+standing to 1896; rebuilt to 1906; under_construction twice
+(1906-1907 and 1907-2006 did not merge: different
+descriptions); standing since. Scenes: 6 plus today.
+
+**sydney-opera** (Q45178). Langs read: en. Claims: 1959 start,
+1973 opening, three designations (caption-only), 2004 Utzon
+room, 2017 theatre works; no architect-as-state (P4 fixed);
+2003 paint vandalism unverified, so P14 untested here.
+Timeline: under_construction 1959-1973 (one state for the
+decade-plus build); standing since. Scenes: 6 plus today.
+Eleven plain pages unreadable (timeouts, 403/404), all via
+Wikipedia instead.
+
+**raffles-hotel** (Q1538837). Langs read: en. Claims: 1832
+beach house, 1887 hotel, 1890-1899 wings and main building,
+2019 renovation; 1904-1923 extensions unsupported; the 1942
+wartime rename unverified, so P14 untested here. Timeline:
+six clean standing segments. Scenes: 6 plus today.
+
+**de-adriaan** (Q2763574). Langs read: nl, en. Claims: 1779
+built, 1802 sale, 1865 steam conversion, 1930 storm, 1932
+fire, 1999 rebuild start, 2002 reopening, 2003 museum, 2004
+weddings; 1920 electrification unsupported. No 1963 restored
+state: ruin 1932-1999 (P3 fixed). Timeline: standing
+1779-1930 with 1865 steam; damaged (partial) 1930-1932;
+ruin 1932-1999; under_construction 1999-2002; rebuilt since.
+Scenes: 6 plus today. See Stability for run-to-run
+differences.
+
+**water-tower** (Q2487636). Langs read: nl. Claims: 1932 built,
+1986 tulips, 1987 conversion, 1991 new tulips all partly;
+1990 storm unsupported (weak sources only, as designed). The
+1986 tulips verify via nl.wikipedia (P2 fixed) and the film
+is short, not too little (P1 outcome fixed). Timeline:
+standing 1932-1986; tulips 1986-1987; converted 1987-1991;
+new tulips since. Scenes: 4 plus today.
+
+### Stability
+
+De Adriaan ran four times clean (r3 plus s1-s3): full_film
+every time (11 to 12 verified, 9 to 10 eras). The tower ran
+three times clean (t1-t3) after a Wikidata outage window
+failed s1-s3 (see P18): short_film every time (r3/t1 4
+verified/4 eras, t2/t3 3/3). Era years match except s2, which
+found a 1925 demolition-threat claim instead of 1920
+electrification, and t2, which found 2013 reuse instead of
+1987. Nothing else is identical: research rewords every claim
+each run; verdicts flip supported/partly (de-adriaan 1779,
+1802, 1865, 1920, 2002, 2003, 2004; tower 1991 partly in
+r3/t1, unsupported in t2/t3 on near-identical wording); the
+1865 scene flips standing/rebuilt 2-2; the 1930 storm is a
+scene in r3/s1/s2 and a caption line in s3. Runs with 2002
+partly (s1, s2) show it burnt (partial); runs with 2002
+supported (r3, s3) show it rebuilt (P16). Ruin 1932-1999 and
+no 1963 state held in all four De Adriaan runs. So P1 is
+fixed at outcome level only; identical results need research
+determinism plus P16.
+
 ## Problems found (not fixed yet)
 
 - P1. Run-to-run flapping: the tower gave short_film then
@@ -226,6 +387,116 @@ Timeline: standing 1932-now. Scenes: 1 plus today.
   on them.
 - P15. Partly claims seed states: christ "standing" 1920-1926 comes
   from a partly inception claim predating construction.
+
+### Found 27 October (Block 5, not fixed yet)
+
+- P16. Partly claims blank their event before classification
+  (`timeline_events`), so context words in the rewrite set a wrong
+  condition while the description stays right: de-adriaan s1/s2
+  show 2002 burnt (partial) "full windmill back on skyline" for
+  the reopening ("70 years after fire"); kintai shows 1674 ruin
+  "bridge re-erected"; rubjerg shows under_construction
+  1899-1953; belem shows under_construction 1514-1845 and
+  demolished 1845-1940 for a removed barracks. The completion
+  flag already filters uncompleted claims, so completed partly
+  claims should keep their event. Must fix before painting: the
+  painter would paint fire in 2002.
+- P19. Distance-only top-5 ranking cuts the true object when the
+  geocoded point lands nearer something else: heidelberg keeps
+  four castle parts and cuts the castle (11th) so vision
+  honestly answers NONE; the colosseum run keeps the metro
+  station (36 m) and cuts the amphitheatre, so vision picks the
+  only "Colosseo" it is offered and the pipeline films the
+  wrong object with full confidence. Rank needs quality
+  signals (sitelinks, instance-of, name match), not distance
+  alone.
+- P20. Vision answers NONE though the right candidates are
+  listed: vasa 3/3 with "Vasa Museum" and "Vasa" present for a
+  photo of the ship. Diagnose against the photo; the pick prompt
+  may need kinds or descriptions, not bare names.
+- P17. Overpass is dead from this network: every identify burns
+  60 to 90 s on timeouts and gets zero candidates, so Wikidata
+  nearby is a single point of failure and the 15 s identify
+  target misses everywhere. Shorten the Overpass timeout,
+  stop blocking identify on it, or drop it while it is down.
+- P18. Identify has no redundancy: one Wikidata error (HTTP 429
+  or 5xx, no retry on transport errors in `mediawiki_get`)
+  plus dead Overpass means "no named candidates" and
+  not_identified. A 3-minute Wikidata window failed all three
+  tower stability runs; de-adriaan and the re-runs around them
+  were fine. Retry transport errors, and keep a failed source
+  from emptying the candidate list when the other source
+  already answered.
+- P10 still open: the oak's 1026 comes from research wording
+  ("800-1200 years old"), not Wikidata, so the precision rule
+  does not catch it. Either the research prompt must refuse
+  midpoint years for age ranges, or round claims must carry
+  their range.
+- P1 partly open: outcomes no longer flap (tower short, never
+  too little), but research rewords claims every run and
+  verdicts flip supported/partly, so scenes and states differ
+  run to run (see Stability). Identical results need
+  determinism at research level, or scene choice that is
+  robust to rewording.
+
+## New objects (27 October, nobody tuned for)
+
+Six new objects, different countries, languages and types, no
+war or politics subjects. Photos in `samples/` (table above),
+logs `out/testset/*-new.log`. Result: 3 full films, 1 short
+film, 2 not identified.
+
+| Object | Outcome | Ident | Facts | Resrch | Fetch | Verify | Total |
+|---|---|---|---|---|---|---|---|
+| sagrada-familia | full (6v, 5e, 3g) | 73.3 | 0.2 | 35.3 | 128.6 | 79.6 | 317.1 |
+| vasa-ship | not identified (vision NONE x3) | - | - | - | - | - | - |
+| colosseum | full, wrong object (7v, 6e, 2g) | 95.4 | 0.3 | 36.0 | 100.3 | 56.1 | 288.1 |
+| heidelberg-castle | not identified (true object cut) | - | - | - | - | - | - |
+| belem-tower | short (4v, 4e, 4g) | 67.8 | 0.7 | 37.7 | 6.5 | 45.7 | 158.4 |
+| atomium | full (8v, 5e, 5g) | 66.8 | 0.6 | 23.0 | 6.7 | 128.1 | 225.2 |
+
+**sagrada-familia.** Langs read: ca, es, en (Catalan first).
+Claims: 1882 start, 1883 Gaudi takeover, 1936 crypt fire and
+vandalism, 1954 Passion facade, 2002 Glory facade and schools
+move, 2026 Jesus tower; six spares unverified. Scenes: 1882
+under_construction, 1883 rebuilt (an architect handover as a
+physical state is generous), 1936 burnt (partial) crypt
+interior (an interior as a scene; "crypt" escapes the
+interior veto), 1954 standing, 2002 moved (the schools
+pavilion, part scope). Fetch took 129 s: full Wikipedia
+articles in three languages, read serially under the
+one-at-a-time rule.
+
+**vasa-ship.** Not identified, three attempts: candidates
+included the Vasa Museum (8 m) and the ship Vasa (41 m) but
+vision answered NONE every time (P20).
+
+**colosseum.** Identified Q1229235 ("Colosseo", the metro
+station) instead of Q10285 (the amphitheatre): the geocoded
+point sits 36 m from the station item while the amphitheatre
+falls outside the distance-only top 5, so vision was never
+offered the right object (P19). The pipeline then produced a
+confident full_film about metro Line B (1955 opening) and
+Line C works: the worst failure mode, wrong but certain.
+
+**heidelberg-castle.** Not identified, honestly: the geocoded
+point lands amid castle parts (Ruprechtsbau, courtyard,
+fountain hall, library), the castle itself ranks 11th and is
+cut from the top 5, and vision correctly answers NONE (P19).
+
+**belem-tower.** Langs read: pt, en. Claims: 1514 built
+partly, 1580 surrender, 1655 plaque, 1845 barracks demolition,
+1940 and 1997 restorations; short_film honestly earned.
+Timeline shows P16 twice: under_construction 1514-1845 (331
+years, from "construction started" in a blanked-event
+rewrite) and demolished 1845-1940 for a removed barracks.
+
+**atomium.** Langs read: nl, fr, en (Brussels trilingual,
+correct). Claims: 1956 build, 1958 Expo, 2004-2006
+renovation, 2005 lighting, 2006 pavilion. Timeline is five
+clean standing segments; two descriptions leak Dutch
+("De bouw van het Atomium begon", "renovatie in 2004"),
+cosmetic only.
 
 ## Provider comparison: Meta vs Muse Spark Open (27 October)
 

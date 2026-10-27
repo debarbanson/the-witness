@@ -84,7 +84,7 @@ def test_fetch_wikipedia_article_fails_fast():
         verify.fetch_source_text("https://nl.wikipedia.org/wiki/Testtoren", get=get,
                                  sleep=lambda s: None)
     assert len(get.calls) == 2
-    assert get.calls[0]["timeout"] == 30
+    assert get.calls[0]["timeout"] == 15
 
 
 def test_reference_tail_cut_in_english_and_german():

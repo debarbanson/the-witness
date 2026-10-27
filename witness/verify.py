@@ -533,7 +533,7 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
                     "format": "json",
                 },
                 sleep=sleep,
-                timeout=30,
+                timeout=15,
                 tries=2,
             )
         except WebError as exc:

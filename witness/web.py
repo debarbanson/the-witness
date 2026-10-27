@@ -21,7 +21,7 @@ def _retryable(exc: Exception) -> bool:
     return status is None or status in RETRY_STATUS
 
 
-def mediawiki_get(get, url, params, sleep=time.sleep, timeout=90, cache=None, tries=3):
+def mediawiki_get(get, url, params, sleep=time.sleep, timeout=15, cache=None, tries=3):
     """GET a MediaWiki API, retrying transport errors and 429/5xx with
     backoff, and backing off once on ratelimited/maxlag."""
     key = cache_key(url, params)

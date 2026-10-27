@@ -129,3 +129,15 @@ def test_mediawiki_get_still_raises_other_api_errors_at_once():
         mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"},
                       sleep=lambda s: None)
     assert len(get.calls) == 1
+
+
+def test_mediawiki_get_bounds_default_timeout():
+    get = FakeTransport([(200, {"query": {"ok": True}})])
+    mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"})
+    assert get.calls[0]["timeout"] == 15
+
+
+def test_mediawiki_get_honours_explicit_timeout():
+    get = FakeTransport([(200, {"query": {"ok": True}})])
+    mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"}, timeout=4)
+    assert get.calls[0]["timeout"] == 4

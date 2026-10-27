@@ -23,7 +23,6 @@ from witness.web import USER_AGENT, WebError, mediawiki_get
 
 RADIUS_M = 250
 TOP_N = 10
-ENRICH_N = 12
 OVERPASS_BUDGET = 5
 OVERPASS_TIMEOUT = 5
 WIKIDATA_BUDGET = 8
@@ -94,6 +93,7 @@ class Identification:
     candidates: tuple
     country_code: str | None = None
     description: str = ""
+    rejected: tuple = ()
 
 
 def clear_cache() -> None:
@@ -190,10 +190,9 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
     if not merged:
         raise NotIdentifiedError("no named candidates near the photo")
     enriched = guarded("enrich", {}, enrich_candidates, get,
-                       [c.qid for c in merged[:ENRICH_N] if c.qid],
-                       order, sleep, cache)
+                       _enrich_qids(merged), order, sleep, cache)
     ranked = rank_candidates(
-        fold_parts(attach_enrich(merged, enriched),
+        fold_parts(dedupe_names(attach_enrich(merged, enriched)),
                    {qid: e["part_of"] for qid, e in enriched.items() if e["part_of"]}),
         place or "", location.direction)
     if not ranked:
@@ -242,7 +241,7 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
         articles = articles_future.result() if articles_future else {}
     if chosen is None:
         raise NotIdentifiedError("second look rejected every pick")
-    emit("pick", {"name": chosen.name})
+    emit("pick", {"name": chosen.name, "rejected": rejected})
     return Identification(
         name=chosen.name,
         kind=chosen.kind,
@@ -253,6 +252,7 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
         candidates=tuple(ranked),
         country_code=country_code,
         description=chosen.description,
+        rejected=tuple(rejected),
     )
 
 
@@ -354,7 +354,7 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None) -> l
                 "gscoord": f"{lat:.6f}|{lon:.6f}",
                 "gsradius": RADIUS_M,
                 "gsnamespace": 0,
-                "gslimit": 50,
+                "gslimit": 100,
                 "format": "json",
             },
             sleep=sleep,
@@ -385,7 +385,7 @@ def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None) -> l
                 "generator": "geosearch",
                 "ggscoord": f"{lat:.6f}|{lon:.6f}",
                 "ggsradius": RADIUS_M,
-                "ggslimit": 50,
+                "ggslimit": 100,
                 "prop": "coordinates|pageprops",
                 "format": "json",
             },
@@ -556,35 +556,74 @@ def merge_and_rank(osm, wiki, lat, lon, direction, radius=RADIUS_M, extra=()) ->
 
 
 def attach_enrich(merged, enriched: dict) -> list:
-    """Enriched names, descriptions and sitelink counts onto candidates."""
+    """Enriched names, descriptions and sitelink counts onto candidates.
+
+    OSM's local name always wins; other candidates take the enriched
+    label, falling back to the merged name."""
     out = []
     for c in merged:
         info = enriched.get(c.qid or "", {})
         name = c.name
-        if c.qid and (c.source == "wikidata" or name == c.qid):
-            name = info.get("label", c.qid)
+        if c.qid and not c.source.startswith("osm"):
+            name = info.get("label") or (c.name if c.name != c.qid else c.qid)
         out.append(replace(
             c, name=name, description=info.get("description", ""),
             sitelinks=info.get("sitelinks", 0)))
     return out
 
 
+def dedupe_names(cands) -> list:
+    """Same name at the same spot from two sources is one candidate."""
+    out = []
+    for c in cands:
+        if c.name.strip().lower() in ("(unnamed)", ""):
+            out.append(c)
+            continue
+        twin = next(
+            (o for o in out
+             if o.name.strip().lower() == c.name.strip().lower()
+             and o.distance_m == c.distance_m and o.bearing_deg == c.bearing_deg),
+            None,
+        )
+        if twin is None:
+            out.append(c)
+            continue
+        winner, loser = (c, twin) if _richer(c, twin) else (twin, c)
+        source = winner.source
+        for key in ("wikipedia", "wikidata", "osm"):
+            if key in loser.source and key not in source:
+                source += f"+{key}"
+        out[out.index(twin)] = replace(
+            winner, source=source, qid=winner.qid or loser.qid,
+            description=winner.description or loser.description,
+            sitelinks=max(winner.sitelinks, loser.sitelinks))
+    return out
+
+
+def _richer(first: Candidate, second: Candidate) -> bool:
+    """Qid beats no qid; OSM detail beats plain entries; else first wins."""
+    if bool(first.qid) != bool(second.qid):
+        return bool(first.qid)
+    if ("osm" in first.source) != ("osm" in second.source):
+        return "osm" in first.source
+    return True
+
+
 def fold_parts(cands, parts: dict) -> list:
-    """Parts merge into their whole where Wikidata says part-of (P361)."""
+    """A part-of link (P361) annotates the parent and boosts it, but the
+    part stays listed: the photo may show exactly the part."""
     by_qid = {c.qid: c for c in cands if c.qid}
-    folded_qids = set()
     for c in cands:
         parent = parts.get(c.qid or "")
         if parent and parent in by_qid and parent != c.qid:
             by_qid[parent] = replace(
                 by_qid[parent], includes=by_qid[parent].includes + (c.name,))
-            folded_qids.add(c.qid)
-    out = []
-    for c in cands:
-        if c.qid and c.qid in folded_qids:
-            continue
-        out.append(by_qid.get(c.qid, c) if c.qid else c)
-    return out
+    return [by_qid.get(c.qid, c) if c.qid else c for c in cands]
+
+
+def _enrich_qids(merged) -> list:
+    """Every merged qid, up to the API's 50-per-call cap."""
+    return [c.qid for c in merged if c.qid][:50]
 
 
 def _notability_tier(sitelinks: int) -> int:

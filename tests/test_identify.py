@@ -345,14 +345,34 @@ def test_enrich_reads_labels_descriptions_sitelinks_and_part_of():
     assert get.calls[0]["params"]["props"] == "labels|descriptions|sitelinks|claims"
 
 
-def test_fold_parts_merges_into_present_parent():
+def test_fold_parts_annotates_parent_and_keeps_part():
     castle = identify.Candidate("Test Castle", "wikidata item", "wikidata", "Q9001",
                                 distance_m=100, bearing_deg=0)
     keep = identify.Candidate("Test Keep", "wikidata item", "wikidata", "Q9002",
                               distance_m=15, bearing_deg=0)
     folded = identify.fold_parts([keep, castle], {"Q9002": "Q9001"})
-    assert [c.name for c in folded] == ["Test Castle"]
-    assert folded[0].includes == ("Test Keep",)
+    assert [c.name for c in folded] == ["Test Keep", "Test Castle"]
+    assert folded[1].includes == ("Test Keep",)
+
+
+def test_enrich_covers_all_merged_qids():
+    cands = [cand(f"Place {i}", f"Q{i}", distance=10 + i) for i in range(15)]
+    assert identify._enrich_qids(cands) == [f"Q{i}" for i in range(15)]
+    many = [cand(f"Place {i}", f"Q{i}", distance=10 + i) for i in range(60)]
+    assert len(identify._enrich_qids(many)) == 50
+
+
+def test_dedupe_names_merges_same_spot_twins():
+    wiki = identify.Candidate("Test Tower", "wikidata item", "wikidata", "Q999",
+                              distance_m=22, bearing_deg=10, sitelinks=2)
+    wp = identify.Candidate("test tower", "wikipedia article", "wikipedia", None,
+                            distance_m=22, bearing_deg=10)
+    far = identify.Candidate("Test Tower", "wikipedia article", "wikipedia", None,
+                             distance_m=215, bearing_deg=40)
+    (merged, other) = identify.dedupe_names([wiki, wp, far])
+    assert (merged.name, merged.qid, merged.source) == (
+        "Test Tower", "Q999", "wikidata+wikipedia")
+    assert other.distance_m == 215
 
 
 def test_fold_parts_keeps_orphans():
@@ -452,6 +472,7 @@ def test_second_look_no_retries_next_candidate(tmp_path):
 
     found = identify.identify(photo, post=post, get=routed(), respond=respond)
     assert found.name == "Test Tower"
+    assert found.rejected == ("Test Memorial",)
     assert script == []
 
 
@@ -567,6 +588,12 @@ def test_failed_source_never_empties_other_sources(tmp_path):
             raise TimeoutError("wikidata down")
         return real(url, **kwargs)
 
+    def respond(prompt, image_bytes):
+        assert "Test" in prompt
+        text = "YES\nFine." if "YES or NO" in prompt else "1 Test\nFine."
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
     found = identify.identify(photo, post=failing_post, get=failing_wiki,
-                              respond=vision_pick(), sleep=lambda s: None)
-    assert found.name in ("Test Tower", "Testplein")
+                              respond=respond, sleep=lambda s: None)
+    assert found.name in ("Testtoren", "Test Tower", "Testplein")

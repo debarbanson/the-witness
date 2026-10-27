@@ -73,6 +73,8 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
         return 2
     kind = getattr(found, "description", "") or found.kind
     print(f"object: {found.name} ({kind})")
+    for name in getattr(found, "rejected", ()):
+        print(f"note: second look rejected {name}; retried")
     print(f"distance: about {found.distance_m} m")
     if found.qid:
         print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")

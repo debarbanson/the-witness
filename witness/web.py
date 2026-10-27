@@ -11,6 +11,8 @@ class WebError(Exception):
 
 RETRY_STATUS = (429, 500, 502, 503, 504)
 RETRY_BACKOFF = (2, 4)
+BUSY_BACKOFF = 5
+RETRY_CODES = frozenset({"ratelimited", "maxlag", "cirrussearch-too-busy-error"})
 
 
 def _retryable(exc: Exception) -> bool:
@@ -40,8 +42,8 @@ def mediawiki_get(get, url, params, sleep=time.sleep, timeout=90, cache=None, tr
         data = resp.json()
         error = data.get("error") or {}
         last = error
-        if error.get("code") in ("ratelimited", "maxlag") and attempt < tries - 1:
-            sleep(5)
+        if error.get("code") in RETRY_CODES and attempt < tries - 1:
+            sleep(BUSY_BACKOFF)
             continue
         if error:
             raise WebError(f"{url}: {error.get('info', error)}")

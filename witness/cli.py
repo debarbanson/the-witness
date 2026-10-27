@@ -65,12 +65,18 @@ def cmd_keep(slug):
     return 0
 
 
+def cli_progress(event, data):
+    """Default CLI progress sink: source failures print as notes."""
+    if event == "source_error":
+        print(f"note: {data.get('source')} failed: {data.get('error')}")
+
+
 def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
     cache = None if no_cache else Cache("out/cache")
     try:
         steps = {}
         found = identify.identify(photo, place=place, respond=vision_respond, cache=cache,
-                                  lang=lang, timings=steps)
+                                  lang=lang, timings=steps, progress=cli_progress)
         print(f"identify steps (s): {json.dumps(steps)}")
     except identify.NotIdentifiedError as exc:
         print(f"identify steps (s): {json.dumps(steps)}")
@@ -106,6 +112,8 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     models.reset_usage()
     timings = {}
     start = time.perf_counter()
+    if progress is None:
+        progress = cli_progress
     try:
         phase = time.perf_counter()
         identify_steps = {}
@@ -284,6 +292,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     models.reset_usage()
     timings = {}
     start = time.perf_counter()
+    if progress is None:
+        progress = cli_progress
     try:
         phase = time.perf_counter()
         identify_steps = {}
@@ -513,11 +523,23 @@ def _show_state(state: dict) -> str:
 
 
 def keep_quality(claims) -> list:
-    """Claims with at least one good source; weak-only claims are dropped."""
-    kept = [c for c in claims if research.claim_quality_ok(c["sources"])]
+    """Claims with at least one good source; weak-only claims are dropped.
+
+    The same claim twice is one claim: exact duplicates are dropped, so
+    every kept claim lands in exactly one of the check lists downstream.
+    """
+    kept = []
+    seen = set()
     for c in claims:
         if not research.claim_quality_ok(c["sources"]):
             print(f"dropped (weak sources only): {c['year']} {c['claim'][:80]}")
+            continue
+        key = json.dumps(c, sort_keys=True, default=str)
+        if key in seen:
+            print(f"dropped (duplicate claim): {c['year']} {c['claim'][:80]}")
+            continue
+        seen.add(key)
+        kept.append(c)
     return kept
 
 

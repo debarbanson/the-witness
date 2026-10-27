@@ -28,7 +28,7 @@ OVERPASS_BUDGET = 5
 OVERPASS_TIMEOUT = 5
 WIKIDATA_BUDGET = 15
 WIKIDATA_TIMEOUT = 6
-WP_BUDGET = 10
+WP_BUDGET = 15
 WP_TIMEOUT = 4
 OVERPASS_INSTANCES = [
     "https://overpass.private.coffee/api/interpreter",
@@ -112,7 +112,7 @@ def _budgeted(key, budget, func, *args, progress=None, **kwargs):
         started = time.perf_counter()
         try:
             box["value"] = func(*args, **kwargs)
-        except SourceError as exc:
+        except Exception as exc:  # noqa: BLE001 - reported, never silent
             box["value"] = []
             if progress is not None:
                 progress("source_error", {"source": key, "error": str(exc)[:160]})
@@ -409,7 +409,7 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None,
             sleep=sleep,
             timeout=WIKIDATA_TIMEOUT,
             cache=cache,
-            tries=2,
+            tries=3,
         )
     except WebError as exc:
         raise SourceError(str(exc))
@@ -444,7 +444,7 @@ def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None,
             sleep=sleep,
             timeout=WP_TIMEOUT,
             cache=cache,
-            tries=2,
+            tries=3,
         )
     except WebError as exc:
         raise SourceError(str(exc))

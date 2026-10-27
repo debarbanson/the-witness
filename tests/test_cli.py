@@ -169,6 +169,33 @@ def test_keep_quality_drops_weak_only_claims(capsys):
     assert "weak sources only" in capsys.readouterr().out
 
 
+def test_keep_quality_drops_exact_duplicate_claims(capsys):
+    from witness.cli import keep_quality
+
+    first = kept_claim(1905, "extended", "Extended with a wing.")
+    first["sources"] = ["https://en.wikipedia.org/wiki/X"]
+    kept = keep_quality([first, dict(first)])
+    assert kept == [first]
+    assert "duplicate" in capsys.readouterr().out
+
+
+def test_plan_checks_covers_every_kept_claim_once_duplicates_dropped():
+    from witness.cli import keep_quality, plan_checks
+
+    kept = [kept_claim(1800 + i, "repainted", f"Repainted shade {i}.")
+            for i in range(12)]
+    for claim in kept:
+        claim["sources"] = ["https://en.wikipedia.org/wiki/X"]
+    dupe = kept_claim(1805, "extended", "Extended with a wing.")
+    dupe["sources"] = ["https://en.wikipedia.org/wiki/X"]
+    kept += [dupe, dict(dupe)]
+    deduped = keep_quality(kept)
+    assert len(deduped) == len(kept) - 1
+    to_check, pool = plan_checks(deduped)
+    assert len(to_check) + len(pool) == len(deduped)
+    assert {id(c) for c in to_check + pool} == {id(c) for c in deduped}
+
+
 def test_draft_scenes_match_plan_scene_years():
     from witness.cli import draft_scenes, plan_checks
 
@@ -347,3 +374,13 @@ def test_keep_stores_reviewed_research(tmp_path, monkeypatch):
     from witness.cache import Cache
     assert Cache("out/cache").get_reviewed("Q1", "en")["outcome"]["outcome"] == "short_film"
     assert cli_module.cmd_keep("missing") == 2
+
+
+def test_cli_progress_prints_source_errors_as_notes(capsys):
+    from witness.cli import cli_progress
+
+    cli_progress("source_error", {"source": "wikidata", "error": "busy backend"})
+    cli_progress("verifying", {"claim": "x"})
+    out = capsys.readouterr().out
+    assert "note: wikidata failed: busy backend" in out
+    assert "verifying" not in out

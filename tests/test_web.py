@@ -98,3 +98,34 @@ def test_mediawiki_get_still_backs_off_on_maxlag():
                          sleep=sleeps.append)
     assert data == {"query": {"ok": True}}
     assert sleeps == [5]
+
+
+def test_mediawiki_get_retries_search_busy_then_succeeds():
+    get = FakeTransport(
+        [(200, {"error": {"code": "cirrussearch-too-busy-error",
+                          "info": "Search is currently too busy. Please try again later."}}),
+         (200, {"query": {"ok": True}})])
+    sleeps = []
+    data = mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"},
+                         sleep=sleeps.append)
+    assert data == {"query": {"ok": True}}
+    assert sleeps == [5]
+
+
+def test_mediawiki_get_busy_on_every_try_raises():
+    busy = (200, {"error": {"code": "cirrussearch-too-busy-error", "info": "busy"}})
+    get = FakeTransport([busy, busy, busy])
+    with pytest.raises(WebError):
+        mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"},
+                      sleep=lambda s: None)
+    assert len(get.calls) == 3
+
+
+def test_mediawiki_get_still_raises_other_api_errors_at_once():
+    get = FakeTransport(
+        [(200, {"error": {"code": "badparam", "info": "bad"}}),
+         (200, {"query": {"ok": True}})])
+    with pytest.raises(WebError):
+        mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"},
+                      sleep=lambda s: None)
+    assert len(get.calls) == 1

@@ -172,12 +172,9 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     ]
     all_urls = sorted({u for c in to_check + spares for u in c["sources"]} | set(article_urls))
     phase = time.perf_counter()
-    texts = {}
-    for url in all_urls:
-        try:
-            texts[url] = verify.fetch_source_text(url, cache=cache)
-        except Exception as exc:  # noqa: BLE001 - one bad source must not kill the run
-            print(f"note: could not read {url} ({str(exc)[:100]})")
+    texts, fetch_errors = verify.fetch_many(all_urls, cache=cache)
+    for url in sorted(fetch_errors):
+        print(f"note: could not read {url} ({str(fetch_errors[url])[:100]})")
     timings["fetch_s"] = round(time.perf_counter() - phase, 1)
 
     jobs = []

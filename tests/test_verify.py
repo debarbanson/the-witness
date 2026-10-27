@@ -113,6 +113,89 @@ def test_fetch_source_text_uses_disk_cache(tmp_path):
     assert "Tweede alinea" in text
 
 
+def test_fetch_plain_uses_short_timeout():
+    get = FakeGet([(200, "<html><body><p>Enough words in this paragraph to keep it.</p></body></html>")])
+    verify.fetch_source_text("https://example.com/page", get=get)
+    assert get.calls[0]["timeout"] == (5, 10)
+
+
+def test_fetch_plain_skips_non_html_and_huge_pages():
+    def get(url, **kwargs):
+        if "pdf" in url:
+            return FakeResponse("x", {"Content-Type": "application/pdf"})
+        return FakeResponse("z" * (2_000_001), {"Content-Type": "text/html"})
+
+    with pytest.raises(verify.VerifyError, match="not HTML"):
+        verify.fetch_source_text("https://example.com/file.pdf", get=get)
+    with pytest.raises(verify.VerifyError, match="over 2 MB"):
+        verify.fetch_source_text("https://example.com/huge", get=get)
+
+
+def test_fetch_many_runs_hosts_in_parallel_but_serialises_one_host():
+    import threading
+
+    barrier = threading.Barrier(2, timeout=10)
+    entered, left = {}, {}
+    lock = threading.Lock()
+
+    def get(url, **kwargs):
+        host = url.split("/")[2]
+        with lock:
+            entered.setdefault(host, []).append(threading.get_ident())
+        if "slow" in url:
+            barrier.wait()  # the two hosts must overlap here
+        with lock:
+            left.setdefault(host, []).append(threading.get_ident())
+        return FakeResponse("<html><body><p>Enough words in this paragraph to keep it.</p></body></html>")
+
+    texts, errors = verify.fetch_many(
+        ["https://a-slow.test/x", "https://b-slow.test/y",
+         "https://c.test/1", "https://c.test/2"], get=get)
+    assert errors == {} and len(texts) == 4  # barrier passed: hosts overlapped
+
+    import time as _time
+
+    live, peak = 0, 0
+    peak_lock = threading.Lock()
+
+    def counted(url, **kwargs):
+        nonlocal live, peak
+        with peak_lock:
+            live += 1
+            peak = max(peak, live)
+        try:
+            _time.sleep(0.05)  # overlapping window: parallel calls would meet here
+            return FakeResponse("<html><body><p>Enough words in this paragraph to keep.</p></body></html>")
+        finally:
+            with peak_lock:
+                live -= 1
+
+    verify.clear_cache()
+    texts, errors = verify.fetch_many([f"https://d.test/{i}" for i in range(4)], get=counted)
+    assert errors == {} and len(texts) == 4
+    assert peak == 1  # one request per host at a time
+
+
+def test_fetch_many_keeps_wikimedia_serial_and_reports_errors():
+    import threading
+
+    main = threading.get_ident()
+    idents = {}
+
+    def get(url, **kwargs):
+        idents[url] = threading.get_ident()
+        if "Broken" in str(kwargs.get("params", "")):
+            raise verify.VerifyError("boom")
+        return FakeResponse(fixture("wiki_extract_full.json"))
+
+    verify.clear_cache()
+    texts, errors = verify.fetch_many(
+        ["https://nl.wikipedia.org/wiki/Ok", "https://nl.wikipedia.org/wiki/Broken"], get=get)
+    assert set(texts) == {"https://nl.wikipedia.org/wiki/Ok"}
+    assert set(errors) == {"https://nl.wikipedia.org/wiki/Broken"}
+    assert all(i == main for i in idents.values())
+
+
 def test_select_paragraphs_prefers_year_then_keywords():
     text = (
         "An unrelated opening line with enough words to count.\n\n"
@@ -153,15 +236,21 @@ class FakeGet:
 class FakeResponse:
     status_code = 200
 
-    def __init__(self, payload):
+    def __init__(self, payload, headers=None):
         self._payload = payload
         self.text = payload if isinstance(payload, str) else ""
+        self.headers = headers if headers is not None else {"Content-Type": "text/html"}
 
     def json(self):
         return self._payload
 
     def raise_for_status(self):
         pass
+
+    def iter_content(self, chunk_size=65536):
+        data = self.text.encode("utf-8", "replace")
+        for at in range(0, len(data), chunk_size):
+            yield data[at:at + chunk_size]
 
 
 @pytest.fixture(autouse=True)

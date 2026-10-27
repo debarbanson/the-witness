@@ -8,6 +8,7 @@ are flagged so the film can summarise or skip them.
 
 import json
 import re
+import threading
 import time
 from html.parser import HTMLParser
 from urllib.parse import unquote, urlparse
@@ -367,13 +368,65 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
             for page in data.get("query", {}).get("pages", {}).values()
         )
     else:
-        resp = get(url, headers={"User-Agent": USER_AGENT}, timeout=90)
+        resp = get(url, headers={"User-Agent": USER_AGENT}, timeout=(5, 10), stream=True)
         resp.raise_for_status()
-        text = extract_main_text(resp.text)
+        content_type = resp.headers.get("Content-Type", "") if hasattr(resp, "headers") else ""
+        if content_type and "html" not in content_type.lower():
+            raise VerifyError(f"not HTML ({content_type.split(';')[0]}), skipped")
+        chunks, size = [], 0
+        for chunk in resp.iter_content(65536):
+            size += len(chunk)
+            if size > 2_000_000:
+                raise VerifyError("page over 2 MB, skipped")
+            chunks.append(chunk)
+        text = extract_main_text(b"".join(chunks).decode("utf-8", "replace"))
     _cache[url] = text
     if cache is not None:
         cache.put(url, text)
     return text
+
+
+def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=6):
+    """Fetch many source pages: Wikimedia URLs one at a time in this
+    thread (their rule), plain pages in parallel with at most one
+    request per host at a time. Returns (texts, errors); a failure is
+    logged by the caller and skipped, never retried."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    get = get or requests.get
+    texts: dict = {}
+    errors: dict = {}
+    wiki = [u for u in urls if urlparse(u).netloc.lower().endswith(
+        ("wikipedia.org", "wikidata.org", "wikimedia.org"))]
+    for url in wiki:
+        try:
+            texts[url] = fetch_source_text(url, get=get, sleep=sleep, cache=cache)
+        except (VerifyError, WebError, OSError) as exc:
+            errors[url] = str(exc)
+    plain = [u for u in urls if u not in texts and u not in errors]
+    locks: dict = {}
+    locks_guard = threading.Lock()
+
+    def host_lock(url):
+        host = urlparse(url).netloc.lower()
+        with locks_guard:
+            return locks.setdefault(host, threading.Lock())
+
+    def run(url):
+        with host_lock(url):
+            try:
+                return url, fetch_source_text(url, get=get, sleep=sleep, cache=cache), None
+            except (VerifyError, WebError, OSError) as exc:
+                return url, None, str(exc)
+
+    if plain:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for url, text, error in pool.map(run, plain):
+                if error is None:
+                    texts[url] = text
+                else:
+                    errors[url] = error
+    return texts, errors
 
 
 def extract_main_text(html: str, min_words=6) -> str:

@@ -147,3 +147,19 @@ Block 2 (streaming): opening card from the anchor only (printed before research:
 What the b1 batch exposed (fixed, test-first): cirrussearch-too-busy-error (HTTP 200, ~60% of geosearch calls that evening) returned empty candidate lists; now a retried code with 5 s backoff, nearby tries 2 to 3, WP budget 10 to 15 s, source failures print as notes, _budgeted reports everything. Duplicate claims crashed Eiffel (KeyError verdict); keep_quality drops exact dupes. 333 tests green.
 
 Batch (cache off): 11 full plus tower short, zero failures after re-runs, wrong-object count 0. Identify meets 15 s on 5 of 12. Stability: De Adriaan 3 for 3 identical on current code; tower unstable (short/short/full/too_little, Dutch scene labels under --lang en, "1931 to 1932" range build). Few-claim objects flap hardest. 60 s batch story missed everywhere (79 to 188 s); streaming measures are the answer.
+
+Evening (Blocks 3 to 5 plus stretch, all test-first, 389 tests green).
+
+Docs: Meta image docs checked before painting (https://dev.meta.ai/docs/image-generation plus the anchored-series cookbook): previous_response_id chaining, size sets aspect only, no seed (named as an unknown top-level field), $0.01 per image. Matches the day-1 probes.
+
+Block 3: witness/paint.py (anchor plus chain or parallel branching, per-scene check loop, safety soften, contact sheets) and witness/check.py (matches or differs, unparseable counts as differs). De Adriaan paint-off on kept research: parallel wins (6/6 in 79 s, 0.3% drift) over chain (5/6 in 195 s, 3.6% drift, one expired-id death).
+
+Block 4: tower 2/3 (1932 rightly dropped: tulips 54 years early), oak 6/6, Rubjerg 6/6, all contact sheets reviewed. Anchor contamination noted (tulips, snow, paragliders inherited; only the object is checked). Safety filter proven flaky on fire and harm (1932 2/9, 1870 0/9): remains framing, harm lines cut from prompts only (1982 recovered live), block retry before drop. Baseten vision check agrees 6/6; check stays on Meta.
+
+Additions 1 and 2: film --paint verifies the anchor early and paints scene 1 during research (De Adriaan first painted 54.4 s, target met); final-choice scenes paint late (Brooklyn proof); playback sim per object (no pauses simulated; one live pause at De Adriaan 1932 from filter retries). Wikimedia timeouts bounded (15 s per try). Brooklyn stream film: 4/6 chosen painted.
+
+Block 5: Parliament swapped for the Chain Bridge (CC0, full film, war rule clean); Hallgrimskirkja CC BY 4.0 confirmed; cost per film about $0.30 story-only, $0.47 painted, plus Baseten tokens.
+
+Stretch: children captions 5/5 lines plus 3/6 states for De Adriaan (drops honest); 22 figure layers across 4/6 eras, one viewed clean.
+
+Noted for Monday: research from the local article plus Wikidata first (few-claim flap), Dutch scene labels, the "1931 to 1932" range build, range-year scenes that never paint, fire-state filter hostility.

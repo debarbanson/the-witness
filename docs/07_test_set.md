@@ -29,7 +29,7 @@ live in `samples/` (git-ignored); each is reproducible from its file page.
 | sultan-ahmed-mosque | [file](https://commons.wikimedia.org/wiki/File:2017-09-01_Turkey,_Istanbul_DSC_3669_DxO.jpg) | CC BY 4.0 |
 | borobudur | [file](https://commons.wikimedia.org/wiki/File:DSC00096_Java_Centre_Borobudur_Stupas_and_Temple_(6219572675).jpg) | CC BY 2.0 |
 | hallgrimskirkja | [file](https://commons.wikimedia.org/wiki/File:Shadows_and_windows_at_Hallgrimskirkja_Reykjavik_Iceland_2026-02-07_21-21-01_1.jpg) | CC BY 4.0 |
-| hungarian-parliament | file page to confirm (EXIF credits Pierre Blache) | to confirm |
+| chain-bridge | [file](https://commons.wikimedia.org/wiki/File:Sz%C3%A9chenyi_Chain_Bridge,_Budapest,_Hungary_(Unsplash).jpg) | CC0 |
 
 CC BY photos are credited here by licence and link; the author credit travels
 with the film's `sources.md` when a photo is used. The Djenné photo (Dubois,
@@ -816,3 +816,94 @@ on research at 79.1 s before the reorder), first scene verified at
 card time is identify-bound (vision twice plus busy retries on bad
 runs); speculative confirm overlaps research with the user's
 hesitation only in interactive mode.
+
+## Blocks 3 and 4: painting and the painting check (28 October)
+
+De Adriaan painted from one kept reviewed research run, both modes.
+Chain: 5 of 6 in 195 s (1932 safety-blocked). Parallel (every era
+branched from the anchor turn): 6 of 6 in 79 s plus 92 s for the
+retried 1932. Windmill centre drift by SAM box: 3.6% chain, 0.3%
+parallel (1999 scaffolded, excluded both sides). Chain once died on
+expired response ids; parallel eras stand alone. Decision, by result:
+parallel for everything.
+
+| Object | Mode | Kept | Time | Dropped |
+|---|---|---|---|---|
+| de-adriaan | parallel | 6/6 | 79 s + 92 s retry | none (1932 passed on block retry) |
+| tower | parallel | 2/3 | 121 s | 1932 differs x3 (painter kept the 1986 tulips) |
+| major-oak | parallel | 6/6 | 85 s | none (1982 burnt passed after 2 repaints) |
+| rubjerg-knude | parallel | 6/6 | 78 s | none |
+| brooklyn-bridge | stream | 4/6 chosen | in film | 1870 filter 0/9, 2017 differs x3 |
+
+The check catches real mistakes: tower 1932 dropped 3 times showing
+tulips 54 years early (anchor contamination: the anchor photo has
+tulips, so eras inherit them; Rubjerg likewise inherits snow and
+paragliders in every era). Surroundings anachronisms pass: only the
+object is checked. Contact sheets reviewed for all four objects.
+
+The safety filter is flaky on fire and harm, not absolute: De Adriaan
+1932 passed 2 of 9 identical attempts, Brooklyn 1870 0 of 9 (its
+"Great Blowout" state narrates fire). Mitigations landed: remains
+framing for destroyed states, casualty and injury lines cut from the
+painting prompt only (1982 recovered live after the cut), block retry
+(same, same, softened) before drop. Drops stay drops, never mistates.
+
+Check on Baseten vision agrees with Meta 6 for 6 on De Adriaan (6 to
+13 s a check); the check stays on Meta, Baseten stays an option.
+
+## Additions 1 and 2: scene 1 from the anchor; pause metric (28 Oct)
+
+Scene 1 paints from the anchor the moment the anchor verifies
+against article text (photo on the first turn, no separate anchor),
+while research runs; later scenes paint as they verify, branching
+from scene 1. Final-choice scenes missed as drafts paint late
+(Brooklyn proved it: 3 late submissions). One live painted film per
+object is too slow for 12 objects, so 11 ran verify-only and paint
+shop plus playback are simulated from measured times (33 s mean
+paint plus check, 6 workers, 7 s scenes); De Adriaan and Brooklyn
+ran fully painted as proof.
+
+| Object | Card | First painted | Film ready | Pauses |
+|---|---|---|---|---|
+| de-adriaan (live) | 21.5 s | 54.4 s | 172.9 s | 1932 (filter retries) |
+| brooklyn (live) | 13.5 s | 61.8 s | 185.3 s | none |
+| kintai (sim) | 13.5 s | 48.5 s | 303.9 s | none |
+| brooklyn (sim) | 20.6 s | 103.5 s | 129.6 s | none |
+| raffles (sim) | 27.0 s | 62.0 s | 150.5 s | none |
+| rubjerg (sim) | 16.0 s | 51.0 s | 141.1 s | none |
+| eiffel (sim) | 18.5 s | 53.5 s | 155.9 s | none |
+| tower (sim) | 21.5 s | 56.5 s | 118.5 s | none |
+| major-oak (sim) | 22.5 s | 57.5 s | 117.0 s | none |
+| sydney (sim) | 24.3 s | 59.3 s | 114.4 s | none |
+| djenne (sim) | 15.3 s | 50.3 s | 181.4 s | none |
+| christ (sim) | 26.1 s | 110.7 s | 133.9 s | none |
+| biosphere (sim) | 15.5 s | 50.5 s | 98.1 s | none |
+
+First painted scene meets 60 s on 9 of 12 (live 54.4 and 61.8 s);
+the 30 s aim needs a faster identify plus paint. No simulated
+pauses, but starts are late (buffer waits for slow scenes); the one
+live pause (De Adriaan 1932) came from filter retries, not the
+verify tail. No checks were cut.
+
+## Block 5: swap, licence, cost (28 October)
+
+Parliament swapped for the Szechenyi Chain Bridge (CC0 portrait,
+keeps Budapest and Hungarian coverage): full film, 5 verified, 5
+eras, 5 good sources, 131 s. Its 1945 damage is stated as object
+state only, no war narrative. Hallgrimskirkja file page confirmed:
+CC BY 4.0, G. Edward Johnson (size and author match the sample).
+
+Cost per film at Meta list ($1.25/M in, $4.25/M out, $0.01/image):
+story-only mean $0.30 (range $0.14 to $0.66) plus about 106k
+Baseten tokens; painted De Adriaan $0.39 plus about $0.08 images
+plus 128k Baseten tokens. Baseten credit conversion unknown;
+web-search query counts unmeasured.
+
+## Stretch: children captions and figure layers (De Adriaan)
+
+Children captions: 5 of 5 caption lines rewritten and re-verified
+against their source sentences, 3 of 6 scene states (drops honest:
+state detail spanning sentences cannot re-verify against one).
+Figure layers: 22 SAM person cut-outs across 4 of 6 eras (1932
+ruins and 2002 small figures found none), saved per era for
+parallax. One layer viewed: clean cut-out.

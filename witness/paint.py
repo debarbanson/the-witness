@@ -5,6 +5,7 @@ parallel (every era branches from the anchor turn alone). The model
 call is injected, so tests run without live calls.
 """
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 SIZE = "1024x1536"  # closest accepted portrait; returns 1280x1920, cropped later
@@ -36,6 +37,14 @@ def image_tools() -> list:
 
 REMAINS_CONDITIONS = ("burnt", "ruin", "demolished")
 
+# Casualties and injuries are neither visible nor paintable, and they trip
+# the safety filter; the painter never sees them (film captions keep them).
+HARM_WORDS = frozenset({
+    "dead", "death", "deaths", "died", "dies", "dode", "doden", "dood",
+    "død", "døde", "kill", "killed", "killing", "kills", "mort", "morte",
+    "morts", "tot", "tote", "todes"})
+HARM_STARTS = ("injur", "gewond", "bless", "victim", "casualt", "slachtoffer")
+
 
 def describe_state(object_name, state) -> str:
     """The object's verified state as one paintable sentence.
@@ -64,8 +73,9 @@ def scene_prompt(scene, object_name, place) -> str:
     """One era prompt: verified state plus verified surroundings."""
     year = scene.get("date_label", scene.get("from_year"))
     state_text = describe_state(object_name, scene.get("state", {}))
-    surroundings = " ".join(line.get("line", "")
-                            for line in scene.get("caption_lines", []))
+    surroundings = " ".join(
+        line.get("line", "") for line in scene.get("caption_lines", [])
+        if not _describes_harm(line.get("line", "")))
     if not surroundings.strip():
         surroundings = f"everyday life around the {place} {object_name}."
     return (
@@ -76,6 +86,13 @@ def scene_prompt(scene, object_name, place) -> str:
         f"Style: {STYLE} "
         f"Show the object exactly as described, not as it looks today."
     )
+
+
+def _describes_harm(line) -> bool:
+    for token in re.findall(r"[a-zà-ÿ]+", str(line).lower()):
+        if token in HARM_WORDS or token.startswith(HARM_STARTS):
+            return True
+    return False
 
 
 def anchor_instruction(object_name, place) -> str:

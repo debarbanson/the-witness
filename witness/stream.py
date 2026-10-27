@@ -90,13 +90,15 @@ def buffer_ready(scenes_total, scenes_ready, elapsed, scene_seconds=7):
 def simulate_playback(ready, scene_seconds=7):
     """Would playback ever pause? Scenes play in film order from the
     moment the buffer rule first holds; any scene not ready when its
-    slot starts is a pause. `ready` is (year, seconds) in film order.
+    slot starts is a pause. `ready` is (year, seconds) in film order;
+    the closing "today" slot needs no build and never pauses.
     """
     total = len(ready)
     if not total:
         return {"start": None, "pauses": []}
-    start = ready[-1][1]
-    for done, (_, when) in enumerate(ready, 1):
+    build = sorted((when for year, when in ready if year != "today"))
+    start = build[-1] if build else 0.0
+    for done, when in enumerate(build, 1):
         if buffer_ready(total, done, when, scene_seconds):
             start = when
             break

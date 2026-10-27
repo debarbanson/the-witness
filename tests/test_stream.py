@@ -125,3 +125,16 @@ def test_paint_shop_single_worker_serialises():
     verified = [("a", 0.0), ("b", 5.0)]
     out = stream.simulate_paint_shop(verified, paint_seconds=10, workers=1)
     assert out == {"a": 10.0, "b": 20.0}
+
+
+def test_simulate_playback_ignores_today_in_buffer_scan():
+    ready = [("a", 100.0), ("b", 101.0), ("today", 0.0)]
+    out = stream.simulate_playback(ready)
+    assert out["pauses"] == []
+    assert out["start"] == 101.0
+
+
+def test_simulate_playback_scans_completion_order_not_film_order():
+    ready = [("a", 10.0), ("b", 200.0), ("c", 12.0)]
+    out = stream.simulate_playback(ready)
+    assert out == {"start": 10.0, "pauses": ["b"]}

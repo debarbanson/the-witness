@@ -276,3 +276,31 @@ def test_paint_scene_sends_photo_only_on_first_attempt():
     paint.paint_scene(call, lambda image, p: next(answers),
                       scene(1850), "Mill", "Town", None, photo_bytes=b"ph")
     assert photos == [b"ph", None]
+
+
+def test_scene_prompt_drops_harm_lines_keeps_visible_ones():
+    prompt = paint.scene_prompt(
+        scene(1982, "standing", "floodlights added.",
+              ["June 1981 damaged: cables snapped, injuring a pedestrian who later died.",
+               "1986 restored: cables replaced by Bethlehem Steel."]),
+        "Brooklyn Bridge", "New York")
+    assert "later died" not in prompt
+    assert "injuring" not in prompt
+    assert "cables replaced" in prompt
+
+
+def test_scene_prompt_falls_back_when_all_lines_harmful():
+    prompt = paint.scene_prompt(
+        scene(1982, "standing", "floodlights added.",
+              ["1981 damaged: a pedestrian died."]),
+        "Brooklyn Bridge", "New York")
+    assert "died" not in prompt
+    assert "everyday life" in prompt
+
+
+def test_harm_filter_keeps_mortar_skilled_and_mortal():
+    prompt = paint.scene_prompt(
+        scene(1870, "standing", "masonry finished.",
+              ["1870 note: skilled masons laid brick and mortar."]),
+        "Bridge", "Town")
+    assert "mortar" in prompt

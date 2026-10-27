@@ -370,6 +370,21 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         apply_judged(spares, spare_jobs, judged)
         timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
         verified, timeline, chosen = refresh_film()
+    if paint_eras:
+        # The final choice can differ from the draft (failed claims move
+        # scenes); chosen scenes never painted as drafts paint now, late
+        # but complete, numbered in final film order.
+        final_numbers = stream.scene_numbers(chosen)
+        for scene in chosen:
+            year = scene["from_year"]
+            if isinstance(year, int) and year not in paint_futures:
+                filmed.emit("scene_verified", {"scene": final_numbers[year],
+                                               "year": year,
+                                               "date_label": scene.get("date_label")})
+                print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
+                      f"verified (final choice)", flush=True)
+                paint_futures[year] = paint_pool.submit(
+                    paint_scene_worker, scene, final_numbers[year], False)
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
     if paint_eras:
         entries = {}

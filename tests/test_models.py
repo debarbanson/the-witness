@@ -35,6 +35,11 @@ def test_verify_and_vision_run_low_effort_research_default():
     assert models.RESEARCH.effort is None
 
 
+def test_verify_runs_temperature_zero():
+    assert models.VERIFY.temperature == 0
+    assert models.RESEARCH.temperature is None
+
+
 def test_respond_injects_model_and_effort():
     calls = []
 
@@ -49,9 +54,11 @@ def test_respond_injects_model_and_effort():
     assert models.respond(FakeClient(), models.VERIFY, input="hi") == "ok"
     assert calls[0]["model"] == "muse-spark-1.3"
     assert calls[0]["reasoning"] == {"effort": "low"}
+    assert calls[0]["temperature"] == 0
     calls.clear()
     models.respond(FakeClient(), models.RESEARCH, input="hi")
     assert "reasoning" not in calls[0]
+    assert "temperature" not in calls[0]
 
 
 def test_switching_to_baseten_is_configuration():

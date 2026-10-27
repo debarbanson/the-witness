@@ -11,6 +11,12 @@ import pytest
 from witness import states
 
 
+def test_looks_incomplete_flags_doubt():
+    assert states.looks_incomplete("restored", "Promise fell into oblivion.") is True
+    assert states.looks_incomplete("rebuilt", "Rebuild planned; first pole in.") is False
+    assert states.looks_incomplete("built", "Built in 1932.") is False
+
+
 def test_fixed_conditions():
     assert states.CONDITIONS == (
         "under_construction",
@@ -199,6 +205,7 @@ def test_unseen_cases_sails_pollard_raised_statue():
         ("demolition-planned", "Slated for dismantling in 1909."),
         ("moved-proposed", "Secret agreement to dismantle and relocate."),
         ("restored", "Tried to restore it; that failed for lack of funds."),
+        ("restored", "Took an obligation to rebuild; the promise fell into oblivion."),
         ("inception", "First mentioned in the chronicle."),
     ],
 )

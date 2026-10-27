@@ -14,10 +14,15 @@ from urllib.parse import unquote, urlparse
 
 import requests
 
+from witness import states
 from witness.research import is_weak_source
 from witness.web import USER_AGENT, WebError, mediawiki_get
 
 VERDICTS = ("supported", "unsupported", "partly")
+
+# Quote preference among supporting sources: encyclopedias first, then
+# heritage and public bodies, then the rest, weak sites never.
+GOOD_HOST_HINTS = ("heritage", "museum", "archive", "register")
 
 WAR_WORDS = frozenset(
     {"war", "bombed", "bombing", "battle", "combat", "soldier", "military", "oorlog", "bezetting", "bombardement", "leger", "militair"}
@@ -43,29 +48,79 @@ class VerifyError(Exception):
 
 
 def verify_claim(respond, claim, snippets) -> dict:
-    """Check one claim. `respond(prompt)` returns a parsed response dict."""
+    """Support check: does a passage state this fact? Passages only, no
+    web search and no completion question; those are separate calls."""
     numbered = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(snippets))
     prompt = (
         "Claim to check:\n"
         f"{claim}\n\n"
-        "Source passages (each starts with its page URL):\n"
+        "Source passages (each starts with its page URL). Judge the claim "
+        "against these passages only:\n"
         f"{numbered}\n\n"
-        "Judge the claim against these passages. When they do not settle it, "
-        "use web search to check the claim against its cited sources or other "
-        "pages. For every page you used, say whether its text supports the "
-        "claim, with the supporting sentence. Be strict about completion: a "
-        "planned, promised, proposed or attempted change that never happened "
-        "is not an event, even when the claim states it as one. "
+        "For every passage say whether its text states the claim, with the "
+        "sentence that states it. "
         "Answer with a JSON object only: {\"verdict\": \"supported\" | "
-        "\"unsupported\" | \"partly\", \"quote\": the sentence that supports "
+        "\"unsupported\" | \"partly\", \"quote\": the sentence that states "
         "it (empty when unsupported), \"url\": the page the quote comes from, "
         "\"support\": [{\"url\", \"supports\": true|false, \"quote\"}] for "
-        "each page used, \"completed\": true unless the change was only "
-        "planned, promised or attempted, \"rewritten\": the claim rewritten "
-        "to what the sources say (only when partly), \"war_politics_only\": "
-        "true when the claim is only about war, armed conflict or politics}."
+        "each passage, \"rewritten\": the claim rewritten to what the "
+        "passages state (only when partly), \"war_politics_only\": true "
+        "when the claim is only about war, armed conflict or politics}."
+    )
+    return _judge_support(respond(prompt))
+
+
+def verify_with_search(respond, claim, urls) -> dict:
+    """Support fallback when no passage was fetched: check the claim with
+    web search against its cited sources. Same answer contract."""
+    listed = "\n".join(f"- {u}" for u in urls)
+    prompt = (
+        "Claim to check:\n"
+        f"{claim}\n\n"
+        f"Cited sources:\n{listed}\n\n"
+        "No passage text is available, so use web search to check the claim "
+        "against its cited sources or other pages. For every page you used, "
+        "say whether its text states the claim, with the sentence that "
+        "states it. "
+        "Answer with a JSON object only: {\"verdict\": \"supported\" | "
+        "\"unsupported\" | \"partly\", \"quote\": the sentence that states "
+        "it (empty when unsupported), \"url\": the page the quote comes from, "
+        "\"support\": [{\"url\", \"supports\": true|false, \"quote\"}] for "
+        "each page used, \"rewritten\": the claim rewritten to what the "
+        "sources state (only when partly), \"war_politics_only\": true "
+        "when the claim is only about war, armed conflict or politics}."
+    )
+    return _judge_support(respond(prompt))
+
+
+def check_completion(respond, claim, evidence="") -> dict:
+    """Completion check, asked separately and narrowly: did this change
+    actually happen, or was it only planned, promised, proposed or
+    attempted? Only for claims that would set a state."""
+    prompt = (
+        "Claim:\n"
+        f"{claim}\n\n"
+        f"Supporting evidence:\n{evidence}\n\n"
+        "Did this change actually happen, or was it only planned, promised, "
+        "proposed or attempted? A change that never happened is not an "
+        "event, even when the claim states it as one. "
+        "Answer with a JSON object only: {\"completed\": true|false}."
     )
     response = respond(prompt)
+    messages = [o for o in response.get("output", []) if o.get("type") == "message"]
+    if not messages:
+        raise VerifyError("answer has no messages")
+    try:
+        parsed = json.loads(messages[-1]["content"][0]["text"])
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise VerifyError(f"completion is not JSON: {exc}")
+    if not isinstance(parsed.get("completed"), bool):
+        raise VerifyError(f"bad completed flag: {parsed.get('completed')!r}")
+    return {"completed": parsed["completed"]}
+
+
+def _judge_support(response) -> dict:
+    """One support answer parsed: verdict, quality override, best quote."""
     messages = [o for o in response.get("output", []) if o.get("type") == "message"]
     if not messages:
         raise VerifyError("answer has no messages")
@@ -92,18 +147,178 @@ def verify_claim(respond, claim, snippets) -> dict:
     elif not good:
         verdict, note = "unsupported", "weak sources only"
     quote, url = parsed.get("quote", ""), parsed.get("url")
-    if good and (is_weak_source(url or "") or not quote):
-        quote, url = good[0].get("quote", ""), good[0].get("url")
+    if good:
+        best = min(good, key=lambda s: _source_rank(s.get("url", "")))
+        if _source_rank(best.get("url", "")) < _source_rank(url or "") or not quote:
+            quote, url = best.get("quote", ""), best.get("url")
     return {
         "verdict": verdict,
         "quote": quote,
         "url": url,
         "support": support,
         "note": note,
-        "completed": bool(parsed.get("completed", True)),
         "rewritten": parsed.get("rewritten"),
         "war_politics_only": bool(parsed.get("war_politics_only", False)),
     }
+
+
+def _source_rank(url: str) -> int:
+    """Lower is a better source to quote."""
+    host = urlparse(url or "").netloc.lower().removeprefix("www.")
+    if is_weak_source(url or ""):
+        return 3
+    if host.endswith(("wikipedia.org", "wikidata.org", "wikimedia.org")):
+        return 0
+    parts = host.split(".")
+    if "gov" in parts or "edu" in parts:
+        return 1
+    if any(hint in host for hint in GOOD_HOST_HINTS):
+        return 1
+    return 2
+
+
+def precheck_hit(year, keywords, passages) -> bool:
+    """Deterministic evidence signal: one passage holds the claim's year
+    and at least one of its key words."""
+    if year is None:
+        return False
+    for passage in passages:
+        lowered = passage.lower()
+        if str(year) in lowered and any(k.lower() in lowered for k in keywords):
+            return True
+    return False
+
+
+def judge_claim(support_respond, job, search_respond=None, completion_respond=None) -> dict:
+    """One claim judged end to end: support vote, second judgement when
+    the precheck says evidence is present, completion for state-setting
+    claims. Every round is kept in the answer."""
+    passages, urls = job.get("passages") or [], job.get("urls") or []
+    votes = max(1, job.get("votes", 1))
+    if passages:
+        rounds = [_support_round(support_respond, job["claim"], passages) for _ in range(votes)]
+        decided_first = [r for r in rounds if r["verdict"] != "error"]
+        if (
+            decided_first
+            and all(r["verdict"] == "unsupported" for r in decided_first)
+            and precheck_hit(job.get("year"), job.get("keywords") or [], passages)
+        ):
+            rounds.append(_second_judgement(support_respond, job, passages))
+    elif search_respond is not None:
+        rounds = [_search_round(search_respond, job["claim"], urls) for _ in range(votes)]
+    else:
+        return {
+            "verdict": "unsupported", "quote": "", "url": None, "support": [],
+            "note": "no evidence", "completed": True, "completion_note": None,
+            "rewritten": None, "war_politics_only": False, "rounds": [], "votes": 0,
+        }
+    decided = [r for r in rounds if r["verdict"] != "error"]
+    if not decided:
+        note = rounds[0].get("note", "verify failed") if rounds else "verify failed"
+        return {
+            "verdict": "unsupported", "quote": "", "url": None, "support": [],
+            "note": note, "completed": True, "completion_note": None,
+            "rewritten": None, "war_politics_only": False,
+            "rounds": _slim(rounds), "votes": len(rounds),
+        }
+    counts: dict = {}
+    for found in decided:
+        counts[found["verdict"]] = counts.get(found["verdict"], 0) + 1
+    top = max(counts.values())
+    winners = [v for v, n in counts.items() if n == top]
+    verdict = decided[-1]["verdict"] if len(winners) > 1 else winners[0]
+    winner = next(r for r in reversed(decided) if r["verdict"] == verdict)
+    completed, completion_note = True, None
+    event, detail = job.get("event", ""), job.get("detail", "")
+    needs_completion = states.classify(event, detail) is not None or states.looks_incomplete(event, detail)
+    if verdict != "unsupported" and needs_completion:
+        try:
+            completed = check_completion(
+                completion_respond or support_respond, job["claim"], winner.get("quote", "")
+            )["completed"]
+        except VerifyError as exc:
+            completion_note = f"completion check failed: {exc}"
+    return {
+        "verdict": winner["verdict"],
+        "quote": winner.get("quote", ""),
+        "url": winner.get("url"),
+        "support": winner.get("support", []),
+        "note": winner.get("note"),
+        "completed": completed,
+        "completion_note": completion_note,
+        "rewritten": winner.get("rewritten"),
+        "war_politics_only": winner.get("war_politics_only", False),
+        "rounds": _slim(rounds),
+        "votes": len(rounds),
+    }
+
+
+def _support_round(respond, claim, passages) -> dict:
+    try:
+        return verify_claim(respond, claim, passages)
+    except VerifyError as exc:
+        return {"verdict": "error", "note": f"verify failed: {exc}"}
+
+
+def _search_round(respond, claim, urls) -> dict:
+    try:
+        return verify_with_search(respond, claim, urls)
+    except VerifyError as exc:
+        return {"verdict": "error", "note": f"verify failed: {exc}"}
+
+
+def _second_judgement(respond, job, passages) -> dict:
+    """The precheck found the year and key words in a passage, so an
+    unsupported verdict is not accepted outright: one confrontation
+    round that must quote what decides it either way."""
+    numbered = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(passages))
+    prompt = (
+        "Claim to check:\n"
+        f"{job['claim']}\n\n"
+        "Source passages (each starts with its page URL):\n"
+        f"{numbered}\n\n"
+        f"Another judge marked this claim unsupported, but a passage contains "
+        f"the year {job.get('year')} and words from the claim. Reconsider: "
+        "quote the sentence that decides it either way and give your final "
+        "verdict. "
+        "Answer with a JSON object only: {\"verdict\": \"supported\" | "
+        "\"unsupported\" | \"partly\", \"quote\": the deciding sentence "
+        "(empty when unsupported), \"url\": the page the quote comes from, "
+        "\"support\": [{\"url\", \"supports\": true|false, \"quote\"}] for "
+        "each passage, \"rewritten\": the claim rewritten to what the "
+        "passages state (only when partly), \"war_politics_only\": true "
+        "when the claim is only about war, armed conflict or politics}."
+    )
+    try:
+        return _judge_support(respond(prompt))
+    except VerifyError as exc:
+        return {"verdict": "error", "note": f"verify failed: {exc}"}
+
+
+def _slim(rounds) -> list:
+    return [{"verdict": r.get("verdict"), "quote": r.get("quote", ""),
+             "url": r.get("url")} for r in rounds]
+
+
+def judge_all(support_respond, jobs, search_respond=None, completion_respond=None,
+              max_workers=6) -> list:
+    """Judge several claims at once (a failing job becomes unsupported
+    with a note instead of killing the run)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def run(job):
+        try:
+            return judge_claim(support_respond, job, search_respond, completion_respond)
+        except VerifyError as exc:
+            return {
+                "verdict": "unsupported", "quote": "", "url": None, "support": [],
+                "note": f"verify failed: {exc}", "completed": True,
+                "completion_note": None, "rewritten": None,
+                "war_politics_only": False, "rounds": [], "votes": 0,
+            }
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(run, jobs))
 
 
 def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:

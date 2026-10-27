@@ -10,7 +10,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-from witness import identify, models, outcome, research, scenes, verify
+from witness import identify, models, outcome, research, scenes, states, verify
 from witness.cache import Cache
 
 
@@ -23,15 +23,39 @@ def main(argv=None):
         cmd.add_argument("--place", default=None)
         cmd.add_argument("--lang", default="en")
         cmd.add_argument("--yes", action="store_true")
+        cmd.add_argument("--no-cache", action="store_true")
+    keep = sub.add_parser("keep")
+    keep.add_argument("slug")
     args = parser.parse_args(argv)
     if args.command == "identify":
-        return cmd_identify(args.photo, place=args.place, lang=args.lang, yes=args.yes)
-    return cmd_research(args.photo, place=args.place, lang=args.lang, yes=args.yes)
+        return cmd_identify(args.photo, place=args.place, lang=args.lang,
+                            yes=args.yes, no_cache=args.no_cache)
+    if args.command == "keep":
+        return cmd_keep(args.slug)
+    return cmd_research(args.photo, place=args.place, lang=args.lang,
+                        yes=args.yes, no_cache=args.no_cache)
 
 
-def cmd_identify(photo, place=None, lang="en", yes=False):
+def cmd_keep(slug):
+    """Owner-reviewed research for an object: kept, so demo films never flap."""
+    path = Path("out") / slug / "research.json"
+    if not path.exists():
+        print(f"no research at {path}")
+        return 2
+    data = json.loads(path.read_text())
+    qid, lang = data["object"].get("qid"), data["object"].get("lang", "en")
+    if not qid:
+        print("research has no Wikidata id; nothing kept")
+        return 2
+    Cache("out/cache").put_reviewed(qid, lang, data)
+    print(f"kept reviewed research for {qid} ({lang})")
+    return 0
+
+
+def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
+    cache = None if no_cache else Cache("out/cache")
     try:
-        found = identify.identify(photo, place=place, respond=vision_respond, cache=Cache("out/cache"), lang=lang)
+        found = identify.identify(photo, place=place, respond=vision_respond, cache=cache, lang=lang)
     except identify.NotIdentifiedError as exc:
         print(f"not identified: {exc}")
         return 2
@@ -56,8 +80,8 @@ def cmd_identify(photo, place=None, lang="en", yes=False):
 SPARES = 4  # extra claims verified outside the draft scenes
 
 
-def cmd_research(photo, place=None, lang="en", yes=False):
-    cache = Cache("out/cache")
+def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False):
+    cache = None if no_cache else Cache("out/cache")
     timings = {}
     start = time.perf_counter()
     try:
@@ -79,6 +103,17 @@ def cmd_research(photo, place=None, lang="en", yes=False):
         if answer not in ("", "y", "yes"):
             print("not confirmed; stopping")
             return 2
+    if cache is not None and found.qid:
+        reviewed = cache.get_reviewed(found.qid, lang)
+        if reviewed is not None:
+            slug = slug_for(found.name, found.qid, found.articles)
+            out_path = Path("out") / slug / "research.json"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
+            result = reviewed.get("outcome", {})
+            print(f"outcome: {result.get('outcome')} (reviewed research reused; use --no-cache to redo)")
+            print(f"saved: {out_path}")
+            return 0
 
     claims = []
     if found.qid:
@@ -113,6 +148,12 @@ def cmd_research(photo, place=None, lang="en", yes=False):
     scene_years = {s["from_year"] for s in draft if isinstance(s["from_year"], int)}
     to_check = [c for c in kept if c["year"] in scene_years]
     spares = [c for c in kept if c["year"] not in scene_years][:SPARES]
+    if kept:  # the build and anchor claims are always verified, spares or not
+        anchor_year = min(c["year"] for c in kept)
+        for c in kept:
+            if (c.get("event") or "").lower() in outcome.BUILD_WORDS or c["year"] == anchor_year:
+                if c not in to_check and c not in spares:
+                    to_check.append(c)
     for c in kept:
         if c not in to_check and c not in spares:
             c.update({"verdict": "unverified", "quote": "", "url": None, "support": [],
@@ -135,27 +176,29 @@ def cmd_research(photo, place=None, lang="en", yes=False):
     timings["fetch_s"] = round(time.perf_counter() - phase, 1)
 
     jobs = []
+    anchor_year = min([c["year"] for c in kept], default=None)
     for claim in to_check + spares:
         keywords = verify.keywords_for_claim(claim["claim"], claim.get("event", ""))
         evidence = list(answer["snippets"])
         for url, text in texts.items():
             for para in verify.select_paragraphs(text, claim["year"], keywords, max_paras=3):
                 evidence.append(f"{url}\n{para}")
-        jobs.append((claim["claim"], evidence[:13]))
+        detail = claim.get("quote_span") or claim["claim"]
+        jobs.append({
+            "claim": claim["claim"], "event": claim.get("event", "stood"), "detail": detail,
+            "year": claim["year"], "keywords": keywords, "passages": evidence[:13],
+            "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
+        })
     phase = time.perf_counter()
-    for claim, result in zip(to_check + spares, verify.verify_all(verify_respond, jobs)):
+    judged = verify.judge_all(support_respond, jobs, search_respond=verify_respond,
+                              completion_respond=support_respond)
+    for claim, result in zip(to_check + spares, judged):
         claim.update(result)
         claim["war_politics_only"] = claim["war_politics_only"] or bool(verify.flag_content(claim["claim"]))
     timings["verify_s"] = round(time.perf_counter() - phase, 1)
 
     verified = [c for c in kept if c["verdict"] == "supported" or (c["verdict"] == "partly" and c["rewritten"])]
-    events = [
-        {"year": c["year"], "event": c.get("event", "stood"), "detail": c.get("rewritten") or c.get("quote_span") or c["claim"],
-         "completed": c.get("completed", True), "verdict": c.get("verdict", "supported"),
-         "visible_change": c.get("visible_change", "")}
-        for c in verified
-    ]
-    timeline = research.build_timeline(events)
+    timeline = research.build_timeline(timeline_events(verified))
     chosen = scenes.choose_scenes(timeline, verified)
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
 
@@ -191,7 +234,8 @@ def cmd_research(photo, place=None, lang="en", yes=False):
     (out_dir / "research.json").write_text(
         json.dumps(
             {
-                "object": {"name": found.name, "kind": found.kind, "qid": found.qid, "articles": found.articles},
+                "object": {"name": found.name, "kind": found.kind, "qid": found.qid, "articles": found.articles,
+                           "lang": lang},
                 "claims": kept,
                 "timeline": timeline,
                 "scenes": chosen,
@@ -215,6 +259,33 @@ def _show_state(state: dict) -> str:
     if state.get("description"):
         shown += f": {state['description'][:80]}"
     return shown
+
+
+def timeline_events(verified) -> list:
+    """Verified claims become timeline events. Partly claims count only
+    through their rewrite, classified on the rewrite's own words."""
+    events = []
+    for c in verified:
+        if c["verdict"] == "partly" and c.get("rewritten"):
+            event, detail = "", c["rewritten"]
+        else:
+            event, detail = c.get("event", "stood"), c.get("quote_span") or c["claim"]
+        events.append({"year": c["year"], "event": event, "detail": detail,
+                       "completed": c.get("completed", True), "verdict": "supported",
+                       "visible_change": c.get("visible_change", "")})
+    return events
+
+
+def _votes_for(claim, detail, anchor_year=None) -> int:
+    """Best of three for the claims that matter: the build year, the
+    anchor claim and every claim that would set a state."""
+    if (claim.get("event") or "").lower() in outcome.BUILD_WORDS:
+        return 3
+    if anchor_year is not None and claim.get("year") == anchor_year:
+        return 3
+    if states.classify(claim.get("event", "stood"), detail) is not None:
+        return 3
+    return 1
 
 
 def slug_for(name, qid, articles) -> str:
@@ -259,6 +330,15 @@ def lifespan_respond(question):
         text={"format": {"type": "json_schema", "name": "object_life",
                          "schema": research.LIFESPAN_SCHEMA, "strict": True}},
         input=question,
+    )
+    return json.loads(resp.model_dump_json())
+
+
+def support_respond(prompt):
+    resp = models.respond(
+        _respond_for(models.VERIFY),
+        models.VERIFY,
+        input=prompt,
     )
     return json.loads(resp.model_dump_json())
 

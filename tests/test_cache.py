@@ -30,6 +30,14 @@ def test_params_join_the_key(tmp_path):
     assert cache.get("https://example.com/x?a=1") == {"a": 1}
 
 
+def test_reviewed_research_roundtrip(tmp_path):
+    cache = Cache(tmp_path)
+    assert cache.get_reviewed("Q2487636", "en") is None
+    cache.put_reviewed("Q2487636", "en", {"outcome": {"outcome": "short_film"}})
+    assert cache.get_reviewed("Q2487636", "en") == {"outcome": {"outcome": "short_film"}}
+    assert cache.get_reviewed("Q2487636", "nl") is None
+
+
 def test_mediawiki_get_reads_and_writes_cache(tmp_path):
     from witness.web import mediawiki_get
 

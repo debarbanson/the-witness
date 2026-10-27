@@ -181,7 +181,7 @@ def test_verdict_records_supporting_url():
     assert missing["url"] is None
 
 
-def test_verify_prompt_invites_search_when_evidence_is_short():
+def test_support_prompt_is_passage_only():
     seen = {}
 
     def respond(prompt):
@@ -189,7 +189,23 @@ def test_verify_prompt_invites_search_when_evidence_is_short():
         return fixture("verify_supported.json")
 
     verify.verify_claim(respond, "claim", ["snippet"])
+    assert "search" not in seen["prompt"].lower()
+    assert '"completed"' not in seen["prompt"]
+
+
+def test_search_fallback_prompt_invites_search():
+    seen = {}
+
+    def respond(prompt):
+        seen["prompt"] = prompt
+        return answered_with({"verdict": "supported", "quote": "q",
+                              "url": "https://nl.wikipedia.org/wiki/X",
+                              "support": [{"url": "https://nl.wikipedia.org/wiki/X",
+                                           "supports": True, "quote": "q"}]})
+
+    result = verify.verify_with_search(respond, "claim", ["https://example.com/x"])
     assert "search" in seen["prompt"].lower()
+    assert result["verdict"] == "supported"
 
 
 def answered_with(obj):
@@ -285,30 +301,21 @@ def test_no_supporting_source_is_unsupported():
     assert result["verdict"] == "unsupported"
 
 
-def test_completed_flag_parses_and_defaults_true():
-    done = verify.verify_claim(
-        lambda prompt: answered_with({"verdict": "supported", "quote": "q"}),
-        "claim",
-        ["snippet"],
-    )
-    assert done["completed"] is True
-    planned = verify.verify_claim(
-        lambda prompt: answered_with({"verdict": "supported", "quote": "q", "completed": False}),
-        "claim",
-        ["snippet"],
-    )
-    assert planned["completed"] is False
-
-
-def test_verify_prompt_is_strict_about_plans():
+def test_completion_check_is_strict_about_plans():
     seen = {}
 
     def respond(prompt):
         seen["prompt"] = prompt
-        return fixture("verify_supported.json")
+        return answered_with({"completed": True})
 
-    verify.verify_claim(respond, "claim", ["snippet"])
+    assert verify.check_completion(respond, "claim", "quote")["completed"] is True
     assert "planned" in seen["prompt"] and "attempted" in seen["prompt"]
+    failed = verify.check_completion(
+        lambda prompt: answered_with({"completed": False}), "claim", "quote")
+    assert failed["completed"] is False
+    with pytest.raises(verify.VerifyError):
+        verify.check_completion(
+            lambda prompt: answered_with({"completed": "maybe"}), "claim", "quote")
 
 
 def test_verify_all_runs_jobs_and_keeps_order():
@@ -340,3 +347,217 @@ def test_war_politics_only_flag_defaults_and_parses():
     flagged = {"output": [{"type": "message", "content": [{"type": "output_text", "text": '{"verdict": "supported", "quote": "q", "war_politics_only": true}', "annotations": []}]}]}
     result = verify.verify_claim(lambda prompt: flagged, "claim", ["snippet"])
     assert result["war_politics_only"] is True
+
+
+def test_precheck_needs_year_and_keyword_in_one_passage():
+    passage = "De watertoren is sinds 1986 opgesierd met een metershoge tulp."
+    assert verify.precheck_hit(1986, ["tulip", "meters", "decorated"], [passage]) is True
+    assert verify.precheck_hit(1986, ["tulip", "meters"], ["unrelated line here"]) is False
+    assert verify.precheck_hit(1990, ["tulip", "meters"], [passage]) is False
+    assert verify.precheck_hit(None, ["tulip"], [passage]) is False
+
+
+def test_quote_prefers_best_source_rank():
+    result = verify.verify_claim(
+        lambda prompt: answered_with(
+            {
+                "verdict": "supported",
+                "quote": "aggregator words",
+                "url": "https://secretgb.co.uk/major-oak",
+                "support": [
+                    {"url": "https://secretgb.co.uk/major-oak", "supports": True,
+                     "quote": "aggregator words"},
+                    {"url": "https://en.wikipedia.org/wiki/Major_Oak", "supports": True,
+                     "quote": "encyclopedia words"},
+                ],
+            }
+        ),
+        "claim",
+        ["snippet"],
+    )
+    assert result["quote"] == "encyclopedia words"
+    assert result["url"] == "https://en.wikipedia.org/wiki/Major_Oak"
+
+
+def scripted_support(*verdicts):
+    calls = []
+
+    def respond(prompt):
+        calls.append(prompt)
+        verdict = verdicts[min(len(calls) - 1, len(verdicts) - 1)]
+        return answered_with(
+            {"verdict": verdict, "quote": f"{verdict} quote",
+             "url": "https://en.wikipedia.org/wiki/X",
+             "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                          "supports": verdict != "unsupported",
+                          "quote": f"{verdict} quote"}]}
+        )
+
+    respond.calls = calls
+    return respond
+
+
+def job(**overrides):
+    base = {"claim": "Built in 1932.", "event": "built", "detail": "Built in 1932.",
+            "year": 1932, "keywords": ["built"], "passages": ["Built in 1932 here."],
+            "urls": ["https://en.wikipedia.org/wiki/X"], "votes": 1}
+    base.update(overrides)
+    return base
+
+
+def test_judge_single_vote_supported():
+    result = verify.judge_claim(scripted_support("supported"), job())
+    assert result["verdict"] == "supported"
+    assert result["completed"] is True
+    assert len(result["rounds"]) == 1
+
+
+def test_judge_majority_of_three_wins():
+    respond = scripted_support("supported", "unsupported", "supported")
+    result = verify.judge_claim(
+        respond, job(votes=3),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 3
+    assert len(result["rounds"]) == 3
+
+
+def test_judge_tie_goes_to_last_round():
+    respond = scripted_support("unsupported", "supported", "partly")
+    result = verify.judge_claim(
+        respond, job(votes=3, keywords=["zzz"], passages=["Built here."]))
+    assert result["verdict"] == "partly"
+    assert len(result["rounds"]) == 3
+
+
+def test_judge_unsupported_with_evidence_gets_second_judgement():
+    passages = ["De watertoren is sinds 1986 opgesierd met een metershoge tulp."]
+    respond = scripted_support("unsupported", "supported")
+    result = verify.judge_claim(
+        respond, job(year=1986, keywords=["meters", "tulip"], passages=passages),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(respond.calls) == 2
+    assert "1986" in respond.calls[1]
+
+
+def test_judge_unsupported_without_evidence_stands():
+    respond = scripted_support("unsupported", "supported")
+    result = verify.judge_claim(respond, job(keywords=["zzz"], passages=["Built here."]))
+    assert result["verdict"] == "unsupported"
+    assert len(respond.calls) == 1
+
+
+def test_judge_search_fallback_without_passages():
+    search = scripted_support("supported")
+    support = scripted_support("supported")
+    result = verify.judge_claim(support, job(passages=[]), search_respond=search,
+                                completion_respond=search)
+    assert result["verdict"] == "supported"
+    assert len(support.calls) == 0
+    assert len(search.calls) == 2  # one vote plus the completion check
+
+
+def test_judge_completion_only_for_state_setting_claims():
+    asked = []
+
+    def completion(prompt):
+        asked.append(prompt)
+        return answered_with({"completed": True})
+
+    verify.judge_claim(scripted_support("supported"),
+                       job(event="burnt", detail="Burnt down."),
+                       completion_respond=completion)
+    assert len(asked) == 1
+    verify.judge_claim(scripted_support("supported"),
+                       job(event="renamed", detail="Renamed after a major."),
+                       completion_respond=completion)
+    assert len(asked) == 1
+
+
+def test_judge_completion_failure_keeps_claim_with_note():
+    def completion(prompt):
+        raise verify.VerifyError("bad json")
+
+    result = verify.judge_claim(scripted_support("supported"),
+                                job(event="burnt", detail="Burnt down."),
+                                completion_respond=completion)
+    assert result["verdict"] == "supported"
+    assert result["completed"] is True
+    assert result["completion_note"] is not None
+
+
+def test_judge_all_runs_jobs_and_keeps_order():
+    results = verify.judge_all(
+        lambda prompt: fixture("verify_supported.json"),
+        [job(), job()], max_workers=2,
+    )
+    assert [r["verdict"] for r in results] == ["supported"] * 2
+
+
+def test_judge_all_captures_job_errors():
+    def respond(prompt):
+        if "bad" in prompt:
+            raise verify.VerifyError("no messages")
+        return fixture("verify_supported.json")
+
+    results = verify.judge_all(respond, [job(), job(claim="bad claim")], max_workers=2)
+    assert results[0]["verdict"] == "supported"
+    assert results[1]["verdict"] == "unsupported"
+
+
+def test_regression_tower_1986_supported_1990_weak_only():
+    tulips = verify.judge_claim(
+        lambda prompt: answered_with(
+            {"verdict": "supported",
+             "quote": "De watertoren is sinds 1986 opgesierd met een metershoge tulp.",
+             "url": "https://nl.wikipedia.org/wiki/Watertoren_(Roelofarendsveen)",
+             "support": [
+                 {"url": "https://nl.wikipedia.org/wiki/Watertoren_(Roelofarendsveen)",
+                  "supports": True,
+                  "quote": "De watertoren is sinds 1986 opgesierd met een metershoge tulp."}]}),
+        job(claim="decorated: tower decorated with tulips since 1986.", event="decorated",
+            detail="Decorated with tulips.", year=1986, keywords=["tulip", "meters"],
+            passages=["De watertoren is sinds 1986 opgesierd met een metershoge tulp."]),
+    )
+    assert tulips["verdict"] == "supported"
+    storm = verify.judge_claim(
+        lambda prompt: answered_with(
+            {"verdict": "supported",
+             "quote": "The tulips were blown off by a heavy storm.",
+             "url": "https://www.tripadvisor.in/x",
+             "support": [
+                 {"url": "https://www.tripadvisor.in/x", "supports": True,
+                  "quote": "The tulips were blown off by a heavy storm."},
+                 {"url": "https://nl.wikipedia.org/wiki/Watertoren_(Roelofarendsveen)",
+                  "supports": False, "quote": ""}]}),
+        job(claim="damaged: tulips blown off in 1990.", event="damaged",
+            year=1990, keywords=["storm"]),
+    )
+    assert storm["verdict"] == "unsupported"
+    assert storm["note"] == "weak sources only"
+
+
+def test_regression_de_adriaan_states_and_1963_not_completed():
+    assert verify.judge_claim(
+        scripted_support("supported"), job(year=1779))["verdict"] == "supported"
+    assert verify.judge_claim(
+        scripted_support("supported"),
+        job(event="burnt", detail="Completely burnt down.", year=1932))["verdict"] == "supported"
+    opened = verify.judge_claim(
+        scripted_support("supported"),
+        job(event="rebuilt", detail="Reopened in 2002.", year=2002))
+    assert opened["verdict"] == "supported"
+    promise = verify.judge_claim(
+        scripted_support("supported"),
+        job(event="restored", year=1963,
+            detail="Took an obligation to rebuild; the promise fell into oblivion."),
+        completion_respond=lambda prompt: answered_with({"completed": False}),
+    )
+    assert promise["completed"] is False
+
+
+def test_regression_eiffel_1967_proposal_is_caption_only():
+    from witness import states
+
+    assert states.classify("moved-proposed", "Secret agreement to dismantle and relocate.") is None

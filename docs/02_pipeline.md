@@ -63,9 +63,13 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 
 ## Step 3: Verify (agentic check)
 
-- For each claim, a second call gets the claim and the source snippets from `web_search_call.results` and must answer `supported | unsupported | partly`, quoting the sentence that supports it.
-- Only `supported` claims reach the film; `partly` claims are rewritten to what the source says.
+- For each claim, a support call gets the claim and the fetched source passages (never snippets alone) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. Web search runs only when no passage was fetched.
+- A deterministic precheck (the claim's year and key words in one passage) sends an `unsupported` answer to a second confrontation judgement instead of accepting it.
+- The build claim, the anchor claim and every claim that would set a state get best of three, with every round kept in `research.json`; temperature 0 steadies the calls (probed 27 Oct; `seed` is not in the SDK surface).
+- Completion ("did it really happen?") is asked separately, only for state-setting claims and claims whose own text raises doubt.
+- Only `supported` claims reach the film; `partly` claims are rewritten to what the source says and count only through the rewrite.
 - The same pass applies the content rules from [03_accuracy.md](03_accuracy.md): war, political events and living private persons are filtered out.
+- Owner-reviewed research is kept per object and language, so a demo film never changes between runs; stability itself is measured with the cache off.
 - Model: `muse-spark-1.3`; **TEST** whether `muse-wonder-1.0` (agentic, text out) gives better judgements for the extra cost.
 - **Open-weights option (planned).** Baseten credits were requested on 26 Oct to run this verification step, and the visual check in step 5, on Meta's open-weights model Muse Spark Open (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; Baseten's OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`). Build `verify.py` and `check.py` with the model behind one small setting (provider, base URL, model id, key name), so switching is configuration, not code. Default: the Meta Model API. This targets the "Best Build on Meta Open Weight Models" prize.
 

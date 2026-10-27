@@ -180,6 +180,14 @@ def _constructing(text: str) -> bool:
     return "construction" in text and bool(re.search(r"\bbeg[au]n\b|\bstarted\b", text))
 
 
+def looks_incomplete(event: str, detail: str = "", visible_change: str = "") -> bool:
+    """The text raises doubt: planned, promised or failed change without
+    completion words. Completion is asked exactly then."""
+    text = f"{event} {detail} {visible_change}".lower()
+    incomplete = _has(text, INCOMPLETE_WORDS)
+    return bool(incomplete) and not _negated(text, incomplete) and not _has(text, COMPLETION_WORDS)
+
+
 def scope_of(event: str, detail: str = "") -> str:
     """Whole (the object itself) or part (an outbuilding, a wing)."""
     text = f"{event} {detail}".lower()
@@ -206,8 +214,7 @@ def classify(event: str, detail: str = "", visible_change: str = "",
     words = set(re.findall(r"[a-z]+", event.lower()))
     if _has(" ".join(sorted(words)), DEPICT_WORDS):
         return None
-    incomplete = _has(text, INCOMPLETE_WORDS)
-    if incomplete and not _negated(text, incomplete) and not _has(text, COMPLETION_WORDS):
+    if looks_incomplete(event, detail, visible_change):
         return None
     if _has(f"{detail} {visible_change}".lower(), FOUNDATION_WORDS) and not _has(text, FINAL_WORDS):
         return None

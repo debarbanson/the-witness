@@ -22,6 +22,7 @@ class ModelSpec:
     model: str
     key_name: str
     effort: str | None = None  # reasoning effort; None keeps the default
+    temperature: float | None = None  # None keeps the default; 0 steadies checks
 
 
 RESEARCH = ModelSpec(
@@ -45,6 +46,7 @@ VERIFY = ModelSpec(
     model="muse-spark-1.3",
     key_name="MODEL_API_KEY",
     effort="low",
+    temperature=0,  # probed 27 Oct: accepted; seed is not in the SDK surface
 )
 
 # Step 5 shares the verify setting until it needs its own.
@@ -63,7 +65,9 @@ def client_for(spec, environ=None):
 
 
 def respond(client, spec, **kwargs):
-    """One Responses call on a spec: model id and reasoning effort injected."""
+    """One Responses call: model id, reasoning effort and temperature injected."""
     if spec.effort is not None:
         kwargs["reasoning"] = {"effort": spec.effort}
+    if spec.temperature is not None:
+        kwargs["temperature"] = spec.temperature
     return client.responses.create(model=spec.model, **kwargs)

@@ -94,3 +94,34 @@ def test_declined_speculation_discards_the_result():
 def test_scene_numbers_follow_film_order_not_completion():
     draft = [{"from_year": 1779}, {"from_year": 1920}, {"from_year": "today"}]
     assert stream.scene_numbers(draft) == {1779: 1, 1920: 2, "today": 3}
+
+
+def test_simulate_playback_no_pause_when_buffer_covers():
+    ready = [("a", 10.0), ("b", 12.0), ("c", 14.0)]
+    assert stream.simulate_playback(ready) == {"start": 10.0, "pauses": []}
+
+
+def test_simulate_playback_names_stalled_scenes():
+    ready = [("a", 10.0), ("b", 60.0), ("c", 61.0)]
+    assert stream.simulate_playback(ready) == {"start": 10.0, "pauses": ["b", "c"]}
+
+
+def test_simulate_playback_waits_when_nothing_ready_early():
+    ready = [("a", 100.0), ("b", 101.0)]
+    assert stream.simulate_playback(ready) == {"start": 101.0, "pauses": []}
+
+
+def test_simulate_playback_empty_is_no_start():
+    assert stream.simulate_playback([]) == {"start": None, "pauses": []}
+
+
+def test_paint_shop_models_parallel_workers():
+    verified = [("a", 0.0), ("b", 1.0), ("c", 2.0)]
+    out = stream.simulate_paint_shop(verified, paint_seconds=10, workers=2)
+    assert out == {"a": 10.0, "b": 11.0, "c": 20.0}
+
+
+def test_paint_shop_single_worker_serialises():
+    verified = [("a", 0.0), ("b", 5.0)]
+    out = stream.simulate_paint_shop(verified, paint_seconds=10, workers=1)
+    assert out == {"a": 10.0, "b": 20.0}

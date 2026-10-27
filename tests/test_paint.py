@@ -263,3 +263,16 @@ def test_paint_scene_drops_after_third_block():
                             scene(1850), "De Adriaan", "Haarlem", "r0")
     assert out["image"] is None
     assert out["verdict"] == "dropped"
+
+
+def test_paint_scene_sends_photo_only_on_first_attempt():
+    photos = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        photos.append(photo_bytes)
+        return {"image": b"img", "response_id": "r1"}
+
+    answers = iter(["DIFFERS sails wrong.", "MATCHES base only."])
+    paint.paint_scene(call, lambda image, p: next(answers),
+                      scene(1850), "Mill", "Town", None, photo_bytes=b"ph")
+    assert photos == [b"ph", None]

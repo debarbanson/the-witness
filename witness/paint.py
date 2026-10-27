@@ -112,8 +112,12 @@ def paint_anchor(call, photo_bytes, object_name, place) -> dict:
 
 
 def paint_scene(call, check_call, scene, object_name, place, prev_id,
-               max_repaints=MAX_REPAINTS) -> dict:
-    """Paint one scene and check it: repaint at most twice, else drop."""
+               max_repaints=MAX_REPAINTS, photo_bytes=None) -> dict:
+    """Paint one scene and check it: repaint at most twice, else drop.
+
+    `photo_bytes` rides the first attempt only, so scene 1 needs no
+    separate anchor turn.
+    """
     from witness import check as check_module
 
     year = scene.get("from_year")
@@ -122,7 +126,8 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
     model_retried = False
     for attempt in range(1 + max_repaints):
         try:
-            result = call(prompt, prev_id)
+            result = call(prompt, prev_id,
+                          photo_bytes if attempt == 0 else None)
         except PaintSafetyError:
             blocks += 1
             if blocks >= 1 + max_repaints:

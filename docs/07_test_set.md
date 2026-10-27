@@ -28,7 +28,7 @@ live in `samples/` (git-ignored); each is reproducible from its file page.
 | neuschwanstein | [file](https://commons.wikimedia.org/wiki/File:Neuschwanstein_Castle_2024-02.jpg) | CC0 |
 | sultan-ahmed-mosque | [file](https://commons.wikimedia.org/wiki/File:2017-09-01_Turkey,_Istanbul_DSC_3669_DxO.jpg) | CC BY 4.0 |
 | borobudur | [file](https://commons.wikimedia.org/wiki/File:DSC00096_Java_Centre_Borobudur_Stupas_and_Temple_(6219572675).jpg) | CC BY 2.0 |
-| hallgrimskirkja | file page to confirm (EXIF credits G. Edward Johnson, CC-BY) | CC BY (page unverified) |
+| hallgrimskirkja | [file](https://commons.wikimedia.org/wiki/File:Shadows_and_windows_at_Hallgrimskirkja_Reykjavik_Iceland_2026-02-07_21-21-01_1.jpg) | CC BY 4.0 |
 | hungarian-parliament | file page to confirm (EXIF credits Pierre Blache) | to confirm |
 
 CC BY photos are credited here by licence and link; the author credit travels

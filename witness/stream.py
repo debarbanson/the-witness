@@ -87,6 +87,41 @@ def buffer_ready(scenes_total, scenes_ready, elapsed, scene_seconds=7):
     return (scenes_total - scenes_ready) * per_scene <= scenes_total * scene_seconds
 
 
+def simulate_playback(ready, scene_seconds=7):
+    """Would playback ever pause? Scenes play in film order from the
+    moment the buffer rule first holds; any scene not ready when its
+    slot starts is a pause. `ready` is (year, seconds) in film order.
+    """
+    total = len(ready)
+    if not total:
+        return {"start": None, "pauses": []}
+    start = ready[-1][1]
+    for done, (_, when) in enumerate(ready, 1):
+        if buffer_ready(total, done, when, scene_seconds):
+            start = when
+            break
+    pauses = [year for i, (year, when) in enumerate(ready)
+              if when > start + i * scene_seconds]
+    return {"start": start, "pauses": pauses}
+
+
+def simulate_paint_shop(verified, paint_seconds=33, workers=6):
+    """Painted-ready times from verified times in completion order.
+
+    Each scene takes one worker for `paint_seconds` (measured mean
+    paint plus check); a scene starts when verified and a worker is
+    free. Returns {year: ready seconds}.
+    """
+    free_at = [0.0] * max(workers, 1)
+    ready = {}
+    for year, when in verified:
+        slot = min(range(len(free_at)), key=lambda i: free_at[i])
+        start = max(when, free_at[slot])
+        free_at[slot] = round(start + paint_seconds, 1)
+        ready[year] = free_at[slot]
+    return ready
+
+
 def confirm_speculative(prompt, begin, decide):
     """Start `begin` in the background, then ask `decide`.
 

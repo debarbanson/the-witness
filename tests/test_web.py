@@ -81,6 +81,14 @@ def test_mediawiki_get_gives_up_after_three_tries():
     assert len(get.calls) == 3
 
 
+def test_mediawiki_get_honours_fewer_tries():
+    get = FakeTransport([TimeoutError("t1"), TimeoutError("t2"), TimeoutError("t3")])
+    with pytest.raises(WebError):
+        mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"},
+                      sleep=lambda s: None, tries=2)
+    assert len(get.calls) == 2
+
+
 def test_mediawiki_get_still_backs_off_on_maxlag():
     get = FakeTransport(
         [(200, {"error": {"code": "maxlag", "info": "lagged"}},),

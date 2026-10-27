@@ -24,6 +24,12 @@ live in `samples/` (git-ignored); each is reproducible from its file page.
 | heidelberg-castle | [file](https://commons.wikimedia.org/wiki/File:Heidelberg_castle_from_vine_growing_area.jpg) | CC BY 4.0 |
 | belem-tower | [file](https://commons.wikimedia.org/wiki/File:Lisbon_Bel%C3%A9m_Tower_(470009179).jpg) | CC BY 2.0 |
 | atomium | [file](https://commons.wikimedia.org/wiki/File:The_Atomium,_Brussels_-_54578545913.jpg) | CC0 |
+| mont-saint-michel | [file](https://commons.wikimedia.org/wiki/File:Mont_St._Michel_Spire.JPG) | Public domain |
+| neuschwanstein | [file](https://commons.wikimedia.org/wiki/File:Neuschwanstein_Castle_2024-02.jpg) | CC0 |
+| sultan-ahmed-mosque | [file](https://commons.wikimedia.org/wiki/File:2017-09-01_Turkey,_Istanbul_DSC_3669_DxO.jpg) | CC BY 4.0 |
+| borobudur | [file](https://commons.wikimedia.org/wiki/File:DSC00096_Java_Centre_Borobudur_Stupas_and_Temple_(6219572675).jpg) | CC BY 2.0 |
+| hallgrimskirkja | file page to confirm (EXIF credits G. Edward Johnson, CC-BY) | CC BY (page unverified) |
+| hungarian-parliament | file page to confirm (EXIF credits Pierre Blache) | to confirm |
 
 CC BY photos are credited here by licence and link; the author credit travels
 with the film's `sources.md` when a photo is used. The Djenné photo (Dubois,
@@ -541,3 +547,196 @@ re-verified against that quote per docs/08_children.md; the
 audience setting (`adult` or `child`) will run from research
 through captions, painting, the check and the renderer, with both
 versions cached together.
+
+## Block E: afternoon fixes and re-run (27 October)
+
+Blocks A to D plus post-batch fixes, all test-first (288 tests
+green). Re-runs with the cache off: r5 targeted eight, r6 final
+code six, christ r7, stability u1 to u3 for the tower and
+De Adriaan, fresh f1 for six new untuned objects plus f2
+retries, loc2 GPS-spot identifies for all 23 located photos.
+Logs `out/testset/*.log` (git-ignored). Research and story
+runs verify on Muse Spark Open with Meta fallback.
+
+Wrong-object count: 0 filmed. Every research run either named
+the depicted object or honestly answered not identified. One
+label-level mismatch: hungarian f1 named the National
+Assembly (the institution) while its sources answered thin;
+the film content was still building history, and the f2 retry
+named the Hungarian Parliament Building.
+
+### Targeted re-runs (r6, final code)
+
+| Object | Outcome | Ident | Facts | Resrch | Fetch | Verify | Total | Story | Budget |
+|---|---|---|---|---|---|---|---|---|---|
+| major-oak | full (7v, 7e, 4g) | 13.5 | 0.5 | 25.5 | 5.3 | 90.8 | 135.6 | 122 | met, miss |
+| rubjerg-knude | full (11v, 9e, 5g) | 19.6 | 0.5 | 42.2 | 5.6 | 64.1 | 132.1 | 112 | miss, miss |
+| heidelberg-castle | full (24v, 24e, 2g) | 25.3 | 0.6 | 67.4 | 3.8 | 100.7 | 197.9 | 172 | miss, miss |
+| atomium | full (8v, 5e, 3g) | 14.1 | 0.5 | 30.9 | 3.5 | 64.3 | 113.2 | 99 | met, miss |
+| christ-redeemer | not identified (vision NONE) | - | - | - | - | - | - | - | - |
+| vasa-ship | not identified (honest NONE) | - | - | - | - | - | - | - | - |
+| christ-redeemer r7 | full (13v, 9e, 6g) | 15.1 | 0.8 | 43.7 | 11.6 | 79.2 | 150.4 | 135 | near, miss |
+
+Story is facts plus research plus fetch plus verify. Fetch is
+fixed for good: heidelberg 562 s in r4 is 3.8 s here
+(extracts fail fast at 30 s with 2 tries, no refetch across
+phases, reference tails trimmed, 8 plain workers). Verify now
+dominates every story (64 to 101 s): best of three over a
+reasoning model. Identify meets 15 s on atomium and the oak;
+heidelberg (25.3 s, two vision rounds) and rubjerg (19.6 s)
+miss on vision plus the second look, not on sources.
+
+**major-oak.** P10 closed: scenes read "about 800 to 1,200
+years old", including the surroundings scenes. No legend
+verified.
+
+**rubjerg-knude.** P23 closed: the only moved segment is the
+genuine 2019 relocation; the moved exhibition is a caption.
+
+**heidelberg-castle.** 24 verified claims, full film. The r5
+failure was a transient all-sources-empty window; r6
+identified first try.
+
+**atomium.** The r5 failure was a geocoding namesake: Nominatim
+top-1 flipped between the monument and a pharmacy called
+Atomium a kilometre away. Geocode now takes five hits and
+keeps the most important, and typed-place starts search
+1 km (GPS stays 250 m). Fixed and full film.
+
+**christ-redeemer.** The r5 film named the mountain: vision
+picked the statue correctly, then the second look vetoed it
+with a hallucinated "Cristo Rei in Almada". Fixes: candidates
+carry real instance-of kinds from P31 (not "wikidata item"),
+both vision prompts name where the photo was taken and the
+look is grounded with the distance, and a veto needs two NOs.
+r7 is a full statue film (13 verified, lightning damage and
+restorations). The look still flaps to honest NONE on some
+runs; never to the wrong object.
+
+**vasa-ship.** Honest NONE, correctly: the photo shows a diver
+diorama inside the museum, EXIF GPS is a North Pole
+placeholder, and no candidate is depicted. New rule: when the
+GPS run matches nothing and a place was given, one retry runs
+from the place, still gated by the vision pick. The retry
+prompt bars settling for containers.
+
+### Fresh six (f1, nobody tuned for)
+
+5 full films and 1 short on first runs; both retries full.
+
+| Object | Outcome | Ident | Facts | Resrch | Fetch | Verify | Total | Story | Budget |
+|---|---|---|---|---|---|---|---|---|---|
+| mont-saint-michel | full (29v, 28e, 7g) | 15.9 | 0.7 | 37.0 | 6.6 | 91.7 | 151.9 | 136 | near, miss |
+| neuschwanstein f2 | full (14v, 11e, 7g) | 17.0 | 0.6 | 36.9 | 11.9 | 77.6 | 144.0 | 127 | miss, miss |
+| sultan-ahmed-mosque | full (5v, 5e, 3g) | 14.7 | 0.5 | 30.8 | 6.2 | 39.3 | 91.5 | 76 | met, miss |
+| borobudur | full (17v, 15e, 3g) | 14.3 | 0.6 | 51.4 | 1.8 | 63.1 | 131.4 | 117 | met, miss |
+| hallgrimskirkja | full (6v, 5e, 7g) | 21.2 | 0.6 | 31.7 | 11.4 | 44.2 | 109.2 | 88 | miss, miss |
+| hungarian-parliament f2 | full (6v, 6e, 6g) | 16.8 | 0.5 | 41.5 | 5.6 | 52.7 | 117.1 | 100 | near, miss |
+
+Cited wiki languages: mont fr and en, neuschwanstein de and
+en, the rest en only. Neuschwanstein f1 hit a transient
+empty-candidate window; f2 full. Hungarian f1 named the
+institution on thin sources (short, content still building
+history); f2 named the building (full).
+
+**mont-saint-michel.** Photo is the abbey tower close up;
+abbey picked correctly. Timeline runs 708 to 2001 with
+sensible states (sacks, collapses, rebuilds, the 1834
+workshop fire as burnt partial). The implausible-span flag
+fired live on the 28-year burnt span: held for review, never
+painted silently.
+
+**neuschwanstein.** Langs de, en. Full film, no state
+surprises.
+
+**sultan-ahmed-mosque.** The 1912 outbuilding fire classified
+burnt for the whole mosque; fixed the same evening (P25):
+outlying, ancillary and surrounding structures are
+caption-only, like other surroundings.
+
+**borobudur.** Two same-evening fixes (P25): a ruler moving a
+capital ("King Mpu Sindok moved the Mataram capital") no
+longer moves the temple, and taken artefacts ("eight
+cartloads of sculptures") no longer move it either, while a
+statue moved to a museum square and Queen Mary keep genuine
+moves. The temple burial itself stays a caption until claim
+splitting exists; never a state either way.
+
+**hallgrimskirkja.** 1937 commission to the 1986 nave
+completion, clean standing and under_construction segments.
+
+**hungarian-parliament.** P24: occupants moving never move
+the building ("the National Assembly has met in the
+Building" is a caption). War claims (1945 bombings, 1956)
+stayed unsupported and unfilmed, as the rule requires.
+
+### Photographer-position identifies (loc2, final code)
+
+23 located photos (EXIF spots 50 to 250 m from the object,
+often nearer something else), identify with no typed place:
+20 correct, 3 honest failures, 0 wrong. Eiffel (was Rives de
+la Seine) and Djenné (was Old Towns) now pick correctly;
+colosseum picks the amphitheatre 3/3 with no rejections.
+Christ answers NONE from its GPS spot (no place grounding
+there); rubjerg hit a transient empty window; vasa rejects
+every pick for its diorama photo. The fresh six score 6/6
+from spots 53 to 228 m away, including a restaurant, a
+museum and an office closer to the spot than the object.
+
+### Stability on the new metric
+
+Metric: outcome, eras with conditions and scene years
+identical across three cache-off runs; wording may differ.
+Result: UNSTABLE on both objects, and honestly so.
+
+Tower u1 to u3: all short_film, all standing, but the eras
+differ (1932/1986/2023 vs 1932/1986/1991 vs 1986/1991):
+the 1932 build claim voted partly then unsupported on
+different wordings, the 1991 tulip claim flipped the other
+way, and research reported the conversion as 2023 once and
+2026 once. De Adriaan u1 to u3: all full_film with the same
+skeleton (1779 standing, 1930 damaged, 1932 ruin, 2002
+rebuilt) but middle scenes differ (1920 and 1802 come and
+go; 1999 reads under_construction only when its claim lands
+supported rather than partly).
+
+Two variance sources, both model-side: research reports
+different claim sets and wordings per run, and verify
+verdicts flap on reworded claims (a quoted partly minority
+loses 2-1 to unsupported). Scene choice given the claims is
+deterministic, and the per-object cache (7-day refresh)
+means a second visit shows the same film. Every run's film
+is correct; the flap is which true scenes, never false
+states. Follow-up, not tonight: weigh a quoting
+confrontation round above quoteless majority votes, and
+split compound claims into atomic ones.
+
+### Timings against the budget
+
+Identify within 15 s: met on 4 of 13 story runs (atomium,
+oak, borobudur, sultan), near (15 to 17 s) on 4 more;
+vision plus the second look dominate, Overpass sits inside
+its 5 s budget. Story within 60 s of confirming: missed on
+all 13 (76 to 172 s); verify 39 to 115 s plus research 26
+to 67 s. Block C's 9-of-12 story target is missed: the
+story needs fewer or cheaper verify rounds, not faster
+fetch. Fetch met its budget everywhere (0.5 to 12 s).
+
+### P-number status
+
+Fixed: P10 (ranges end to end, surroundings scenes read the
+range), P16 (partly keeps its event), P17 (Overpass
+optional on 5 s), P19 (quality ranking; heidelberg,
+colosseum, atomium live), P22 (fetch fail fast, no
+refetch, trimmed tails, 8 workers), P23 (moved contents),
+P24 (moved occupants and organisations, new), P25 (ruler
+moves, taken artefacts, outlying structures, new).
+Partly open: P18 (retries plus wpgeo redundancy landed,
+but transient all-empty windows persist, including a
+Wikidata geosearch outage returning zero for Rome), P20
+(kinds, descriptions, grounded looks, two-NO veto; christ
+still flaps to honest NONE), P1 (stability metric as
+above). Open: P11 (quote preference), P13, P14, plus the
+crown/regalia contents edge and claim splitting for
+burials. Painting blockers: none that silently mistates;
+the open items cost scenes or retries, not false eras.

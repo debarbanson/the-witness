@@ -70,6 +70,8 @@ def routed(reverse_payload=None):
             return FakeResponse(200, fixture("wikidata_geosearch.json"))
         if params.get("props") == "labels|descriptions|sitelinks|claims":
             return FakeResponse(200, fixture("wb_enrich.json"))
+        if params.get("props") == "labels":
+            return FakeResponse(200, fixture("wb_kind_labels.json"))
         if params.get("props") == "sitelinks":
             return FakeResponse(200, fixture("wb_sitelinks.json"))
         raise AssertionError(f"unexpected request {url} {params}")
@@ -298,12 +300,27 @@ def test_fetch_overpass_uses_short_timeout_and_disk_cache(tmp_path):
 def test_geocode_uses_nominatim_politely():
     get = FakeTransport([(200, fixture("nominatim.json"))])
     sleeps = []
-    lat, lon, country = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
+    lat, lon, country, _name = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
     assert (lat, lon) == (52.0002, 4.0001)
     assert country == "nl"
+    assert _name == "Test Tower, Test Town, Netherlands"
     assert get.calls[0]["headers"]["User-Agent"] == identify.USER_AGENT
     assert get.calls[0]["timeout"] == 20
     assert sleeps == [1.1]
+
+
+def test_geocode_prefers_most_important_namesake():
+    payload = [
+        {"display_name": "Atomium, Pharmacy, Laeken", "lat": "50.1", "lon": "4.1",
+         "importance": 0.31, "address": {"country_code": "be"}},
+        {"display_name": "Atomium, Heysel", "lat": "50.2", "lon": "4.2",
+         "importance": 0.85, "address": {"country_code": "be"}},
+    ]
+    get = FakeTransport([(200, payload)])
+    lat, lon, country, name = identify.geocode("Atomium", get=get, sleep=lambda s: None)
+    assert (lat, lon) == (50.2, 4.2)
+    assert name == "Atomium, Heysel"
+    assert get.calls[0]["params"]["limit"] == 5
 
 
 def test_geocode_retries_with_backoff_then_succeeds():
@@ -311,7 +328,7 @@ def test_geocode_retries_with_backoff_then_succeeds():
         [TimeoutError("t1"), TimeoutError("t2"), (200, fixture("nominatim.json"))]
     )
     sleeps = []
-    lat, lon, country = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
+    lat, lon, country, _name = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
     assert (lat, lon) == (52.0002, 4.0001)
     assert country == "nl"
     assert len(get.calls) == 3
@@ -333,7 +350,7 @@ def test_reverse_geocode_returns_country_code():
 
 
 def test_enrich_reads_labels_descriptions_sitelinks_and_part_of():
-    get = FakeTransport([(200, fixture("wb_enrich.json"))])
+    get = FakeTransport([(200, fixture("wb_enrich.json")), (200, fixture("wb_kind_labels.json"))])
     enriched = identify.enrich_candidates(
         get, ["Q9001", "Q9002", "Q9003", "Q9004"], ["en"])
     assert enriched["Q9001"]["label"] == "Test Castle"
@@ -343,6 +360,47 @@ def test_enrich_reads_labels_descriptions_sitelinks_and_part_of():
     assert enriched["Q9002"]["part_of"] == "Q9001"
     assert enriched["Q9004"]["sitelinks"] == 6
     assert get.calls[0]["params"]["props"] == "labels|descriptions|sitelinks|claims"
+
+
+def test_enrich_resolves_instance_of_kind():
+    get = FakeTransport([(200, fixture("wb_enrich.json")), (200, fixture("wb_kind_labels.json"))])
+    enriched = identify.enrich_candidates(get, ["Q9001", "Q9002"], ["en"])
+    assert enriched["Q9001"]["kind"] == "castle"
+    assert enriched["Q9002"]["kind"] == ""
+    assert get.calls[1]["params"]["props"] == "labels"
+
+
+def test_attach_enrich_prefers_instance_of_kind():
+    merged = [identify.Candidate(name="X", kind="wikidata item", source="wd", qid="Q1"),
+              identify.Candidate(name="Y", kind="wikidata item", source="wd", qid="Q2")]
+    attached = identify.attach_enrich(merged, {"Q1": {"kind": "statue"}, "Q2": {"kind": ""}})
+    assert [c.kind for c in attached] == ["statue", "wikidata item"]
+
+
+def test_retry_prompt_bars_settling_for_containers():
+    cand = identify.Candidate(name="X", kind="museum", source="wd", qid="Q1",
+                              description="a museum")
+    prompt = identify._pick_prompt([cand], None, ["Y"])
+    assert "Ruled out already: Y." in prompt
+    assert "not the building or place it was taken in" in prompt
+
+
+def test_vision_prompts_name_where_the_photo_was_taken():
+    cand = identify.Candidate(name="X", kind="statue", source="wd", qid="Q1",
+                              description="a statue", distance_m=1)
+    pick = identify._pick_prompt([cand], None, [], near="Cristo Redentor, Rio de Janeiro")
+    assert "taken near Cristo Redentor, Rio de Janeiro" in pick
+    look = identify._look_prompt(cand, near="Cristo Redentor, Rio de Janeiro")
+    assert "taken near Cristo Redentor, Rio de Janeiro" in look
+    assert "taken near" not in identify._pick_prompt([cand], None, [])
+    assert "taken near" not in identify._look_prompt(cand)
+
+
+def test_pick_prompt_hides_missing_direction():
+    cand = identify.Candidate(name="X", kind="statue", source="wd", qid="Q1",
+                              description="a statue")
+    assert "faced" not in identify._pick_prompt([cand], None, [])
+    assert "about 12 degrees" in identify._pick_prompt([cand], 12, [])
 
 
 def test_fold_parts_annotates_parent_and_keeps_part():
@@ -460,6 +518,7 @@ def test_second_look_no_retries_next_candidate(tmp_path):
     script = [
         "2 Test Memorial\nLooks memorial-ish.",
         "NO\nShows the tower, not the memorial.",
+        "NO\nStill not the memorial.",
         "1 Test Tower\nClearly the tower.",
         "YES\nThe photo shows the tower.",
     ]
@@ -480,8 +539,8 @@ def test_second_look_rejecting_everything_raises(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
-    script = ["1 Test Tower\nMaybe.", "NO\nNot the tower.", "2 Test Memorial\nMaybe.",
-              "NO\nNot the memorial."]
+    script = ["1 Test Tower\nMaybe.", "NO\nNot the tower.", "NO\nStill not the tower.",
+              "2 Test Memorial\nMaybe.", "NO\nNot the memorial.", "NO\nStill not the memorial."]
 
     def respond(prompt, image_bytes):
         text = script.pop(0)
@@ -570,6 +629,141 @@ def test_place_run_skips_reverse_geocode(tmp_path):
                               respond=vision_pick())
     assert found.country_code == "nl"
     assert sum("nominatim" in c["url"] for c in get.calls) == 1
+
+
+def test_typed_place_searches_wider_than_gps(tmp_path):
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8)).save(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    get = routed()
+    identify.identify(photo, place="Test Tower", post=post, get=get,
+                      respond=vision_pick(), sleep=lambda s: None)
+    geo = [c for c in get.calls if c.get("params", {}).get("list") == "geosearch"][0]
+    assert geo["params"]["gsradius"] == identify.PLACE_RADIUS_M == 1000
+    assert f"around:{identify.PLACE_RADIUS_M}," in post.calls[0]["data"]["data"]
+
+    gps = tmp_path / "g.jpg"
+    gps_photo(gps)
+    post2 = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    get2 = routed()
+    identify.identify(gps, post=post2, get=get2,
+                      respond=vision_pick(), sleep=lambda s: None)
+    geo2 = [c for c in get2.calls if c.get("params", {}).get("list") == "geosearch"][0]
+    assert geo2["params"]["gsradius"] == identify.RADIUS_M == 250
+
+
+def test_none_pick_keeps_fixed_message_and_emits_explanation(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    events = []
+
+    def respond(prompt, image_bytes):
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text",
+             "text": "NONE\nI am confident it shows a diver, not these.",
+             "annotations": []}]}]}
+
+    with pytest.raises(identify.NotIdentifiedError) as exc_info:
+        identify.identify(photo, post=post, get=routed(), respond=respond,
+                          sleep=lambda s: None,
+                          progress=lambda e, d: events.append((e, d)))
+    assert str(exc_info.value) == "none of the candidates matched"
+    assert ("no_match", {"explanation": "I am confident it shows a diver, not these."}) in events
+
+
+def test_exif_failure_falls_back_to_typed_place(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)  # bogus EXIF: nothing real near it
+    real = routed()
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        params = kwargs.get("params", {}) or {}
+        coord = params.get("gscoord") or params.get("ggscoord") or ""
+        if coord.startswith("52.000000|4.000000"):
+            if params.get("list") == "geosearch":
+                return FakeResponse(200, {"query": {"geosearch": []}})
+            if params.get("generator") == "geosearch":
+                return FakeResponse(200, {"query": {"pages": {}}})
+        return real(url, **kwargs)
+
+    post = FakeTransport([(200, {"elements": []}),
+                          (200, fixture("overpass_nearby.json"))])
+    found = identify.identify(photo, place="Test Tower", post=post, get=get,
+                              respond=vision_pick(), sleep=lambda s: None)
+    assert found.name == "Test Tower"
+    assert sum("nominatim" in u and "reverse" not in u for u in calls) == 1
+
+
+def test_second_look_names_kind_and_description():
+    cand = identify.Candidate(name="Cristo Redentor", kind="statue", source="wd",
+                              qid="Q79961", description="famous landmark in Rio")
+    prompt = identify._look_prompt(cand)
+    assert "statue" in prompt and "famous landmark in Rio" in prompt
+    assert prompt.startswith("Second look")
+
+
+def test_second_look_grounds_with_distance():
+    cand = identify.Candidate(name="Cristo Redentor", kind="statue", source="wd",
+                              qid="Q79961", description="famous landmark in Rio",
+                              distance_m=13)
+    prompt = identify._look_prompt(cand)
+    assert "about 13 m from the photo's location" in prompt
+
+
+def test_failed_place_run_raises_original_error_not_nogps(tmp_path):
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8)).save(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+
+    def respond(prompt, image_bytes):
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": "NONE\nNo match here.", "annotations": []}]}]}
+
+    with pytest.raises(identify.NotIdentifiedError) as exc_info:
+        identify.identify(photo, place="Test Tower", post=post, get=routed(),
+                          respond=respond, sleep=lambda s: None)
+    assert str(exc_info.value) == "none of the candidates matched"
+
+
+def _look_script(second_answers):
+    calls = []
+
+    def respond(prompt, image_bytes):
+        calls.append(prompt)
+        if prompt.startswith("Second look"):
+            n = sum(1 for c in calls if c.startswith("Second look"))
+            text = second_answers[min(n, len(second_answers)) - 1] + "\nWords."
+        else:
+            text = "1 Test Tower\nConfident."
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    return respond, calls
+
+
+def test_second_look_veto_needs_two_noes(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    respond, calls = _look_script(["NO", "YES"])
+    found = identify.identify(photo, post=post, get=routed(), respond=respond,
+                              sleep=lambda s: None)
+    assert found.name == "Test Tower"
+    assert sum(1 for c in calls if c.startswith("Second look")) == 2
+
+
+def test_two_noes_reject_and_move_on(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    respond, _ = _look_script(["NO", "NO", "NO", "NO"])
+    with pytest.raises(identify.NotIdentifiedError) as exc_info:
+        identify.identify(photo, post=post, get=routed(), respond=respond,
+                          sleep=lambda s: None)
+    assert "rejected every pick" in str(exc_info.value)
 
 
 def test_failed_source_never_empties_other_sources(tmp_path):

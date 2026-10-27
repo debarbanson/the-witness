@@ -360,6 +360,8 @@ def wikidata_claims(qid, facts) -> list:
         if dated is None:
             continue
         year, date_text = dated
+        if not sane_year(year):
+            continue
         sources = [fact["source"]]
         for ref in fact["references"]:
             for values in ref.values():
@@ -409,6 +411,17 @@ def _short_value(value) -> str:
     return str(value)
 
 
+OLDEST_YEAR = -10000  # older than any object a film can show
+
+
+def sane_year(year) -> bool:
+    """Model years stay inside history: no geology, no far future."""
+    from datetime import date
+
+    return (isinstance(year, int) and not isinstance(year, bool)
+            and OLDEST_YEAR <= year <= date.today().year + 1)
+
+
 def assemble_claims(events, citations, sources) -> list:
     """Life events become object claims; answer-level sources deduped."""
     urls = sorted({c["url"] for c in citations} | set(sources))
@@ -424,4 +437,5 @@ def assemble_claims(events, citations, sources) -> list:
             "sources": urls,
         }
         for e in events
+        if sane_year(e.get("year"))
     ]

@@ -91,6 +91,13 @@ def test_scenes_carry_date_label_and_flag():
     assert today["date_label"] == "today"
 
 
+def test_surroundings_scenes_use_date_labels():
+    timeline = [seg(1900, 1901), seg(1910, 1911)]
+    claims = [claim(1920, "stood: the old tree stood here.", "between 800 and 1,200 years old")]
+    (first, second, surroundings, today) = scenes.choose_scenes(timeline, claims)
+    assert surroundings["date_label"] == "about 800 to 1,200 years old"
+
+
 def test_same_claims_in_any_order_give_same_scenes():
     import json
 

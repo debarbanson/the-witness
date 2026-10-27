@@ -66,15 +66,13 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
                                   lang=lang, timings=steps)
         print(f"identify steps (s): {json.dumps(steps)}")
     except identify.NotIdentifiedError as exc:
+        print(f"identify steps (s): {json.dumps(steps)}")
         print(f"not identified: {exc}")
         return 2
     except identify.SourceError as exc:
         print(f"source failed: {exc}")
         return 2
-    kind = getattr(found, "description", "") or found.kind
-    print(f"object: {found.name} ({kind})")
-    for name in getattr(found, "rejected", ()):
-        print(f"note: second look rejected {name}; retried")
+    print(describe_found(found))
     print(f"distance: about {found.distance_m} m")
     if found.qid:
         print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")
@@ -107,13 +105,14 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
         timings["identify_steps"] = identify_steps
         print(f"identify steps (s): {json.dumps(identify_steps)}")
     except identify.NotIdentifiedError as exc:
+        print(f"identify steps (s): {json.dumps(identify_steps)}")
         print(f"object: not identified ({exc})")
         print("outcome: not_identified")
         return 2
     except identify.SourceError as exc:
         print(f"source failed: {exc}")
         return 2
-    print(f"object: {found.name} ({found.kind})")
+    print(describe_found(found))
     if found.qid:
         print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")
     order = research.read_langs(found.country_code, lang)
@@ -189,15 +188,19 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     workers = models.VERIFY_OPEN.workers if verify_with == "baseten" else models.VERIFY.workers
     comparison = None
 
+    attempted = set()
+    failures = []
+
     def fetch_texts(claims):
-        urls = sorted({u for c in claims for u in c["sources"] if u not in texts}
-                      | {u for u in article_urls if u not in texts})
+        urls = claim_urls(claims, article_urls, texts, attempted)
+        attempted.update(urls)
         if not urls:
             return
         fetched, errors = verify.fetch_many(urls, cache=cache, progress=progress)
         texts.update(fetched)
         for url in sorted(errors):
             print(f"note: could not read {url} ({str(errors[url])[:100]})")
+            failures.append({"url": url, "error": str(errors[url])[:200], "provider": verify_with})
 
     def judge(claims):
         jobs = build_jobs(claims, texts, answer["snippets"], anchor_year)
@@ -298,6 +301,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
                 "outcome": result,
                 "timings": timings,
                 "tokens": tokens,
+                "verify_with": verify_with,
+                "failures": failures,
                 "comparison": comparison,
             },
             indent=2,
@@ -420,14 +425,32 @@ def cached_film(slug, max_age_days=FILM_CACHE_DAYS):
     return data
 
 
-def compare_verdicts(jobs, primary, alt) -> dict:
+def describe_found(found) -> str:
+    kind = getattr(found, "description", "") or found.kind
+    lines = [f"object: {found.name} ({kind})"]
+    for name in getattr(found, "rejected", ()):
+        lines.append(f"note: second look rejected {name}; retried")
+    return "\n".join(lines)
+
+
+def claim_urls(claims, article_urls, fetched, attempted) -> list:
+    """URLs still worth fetching: new, not already read, never failed before."""
+    return sorted(
+        {u for c in claims for u in c["sources"] if u not in fetched and u not in attempted}
+        | {u for u in article_urls if u not in fetched and u not in attempted}
+    )
+
+
+def compare_verdicts(jobs, primary, alt, providers=("meta", "baseten")) -> dict:
     """Agreement between two providers judging identical jobs."""
+    mine_key, alt_key = providers
     disagree = [
-        {"claim": job["claim"][:120], "meta": mine["verdict"], "alt": other["verdict"]}
+        {"claim": job["claim"][:120], mine_key: mine["verdict"], alt_key: other["verdict"]}
         for job, mine, other in zip(jobs, primary, alt)
         if mine["verdict"] != other["verdict"]
     ]
-    return {"agree": len(jobs) - len(disagree), "total": len(jobs), "disagree": disagree}
+    return {"agree": len(jobs) - len(disagree), "total": len(jobs),
+            "providers": list(providers), "disagree": disagree}
 
 
 def slug_for(name, qid, articles, prefer=("en",)) -> str:

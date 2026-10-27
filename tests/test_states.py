@@ -254,6 +254,39 @@ def test_ancillary_buildings_are_parts():
     assert states.classify("demolished", "Pulled down in 1960.") is not None
 
 
+def test_moved_contents_do_not_move_the_object():
+    assert states.classify("repurposed", "The exhibition has now been moved to the museum.") is None
+    assert states.classify("moved", "Move 70 m inland decided, begun and completed.") is not None
+    assert states.classify("moved", "The outbuilding was moved to the farm.") is None
+
+
+def test_moved_occupants_do_not_move_the_building():
+    assert states.classify("moved", "Since 1902 the National Assembly has met in the Parliament Building.") is None
+    assert states.classify("moved", "The congregation moved to the new chapel.") is None
+    assert states.classify("extended", "The museum was extended with a new wing.") is not None
+    assert states.classify("moved", "The lighthouse was moved 70 m inland on rails.") is not None
+    assert states.classify("moved", "The statue was moved to the museum square.",
+                           "moved to museum square") is not None
+
+
+def test_ruler_moves_and_taken_artefacts_are_captions():
+    assert states.classify("damaged", "King Mpu Sindok moved the Mataram capital to East Java; "
+                                     "the temple was abandoned and buried under ash.") is None
+    assert states.classify("moved", "The court moved to Versailles in 1682.") is None
+    assert states.classify("moved", "Queen Mary was moved to Long Beach.") is not None
+    assert states.classify("moved", "The old courthouse was moved to the fairground.") is not None
+    assert states.classify(
+        "moved",
+        "The king was allowed to take home eight cartloads of sculptures taken from the temple.",
+        "reliefs and sculptures removed") is None
+
+
+def test_outlying_structures_burn_as_caption():
+    assert states.classify("damaged", "Major fire damaged several outlying structures of the complex.") is None
+    assert states.classify("burnt", "Fire gutted the ancillary buildings.") is None
+    assert states.classify("burnt", "The mill completely burnt down.") is not None
+
+
 @pytest.mark.parametrize(
     "condition,from_year,to_year,claim,next_condition,flagged",
     [

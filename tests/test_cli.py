@@ -191,6 +191,34 @@ def test_cached_film_reused_within_a_week(tmp_path, monkeypatch):
     assert cached_film("missing-slug") is None
 
 
+def test_describe_found_shows_kind_and_rejections():
+    from witness.cli import describe_found
+
+    class Found:
+        name = "Heidelberger Schloss"
+        kind = "wikidata item"
+        description = "Schloss in Deutschland"
+        rejected = ("Ruprechtsbau",)
+
+    lines = describe_found(Found()).split("\n")
+    assert lines[0] == "object: Heidelberger Schloss (Schloss in Deutschland)"
+    assert lines[1] == "note: second look rejected Ruprechtsbau; retried"
+
+    class Bare:
+        name = "X"
+        kind = "named place"
+
+    assert describe_found(Bare()) == "object: X (named place)"
+
+
+def test_claim_urls_skips_fetched_and_failed():
+    from witness.cli import claim_urls
+
+    claims = [{"sources": ["https://a.example/x", "https://b.example/y"]}]
+    urls = claim_urls(claims, ["https://c.example/z"], {"https://a.example/x"}, {"https://c.example/z"})
+    assert urls == ["https://b.example/y"]
+
+
 def test_compare_verdicts_tallies_agreement():
     from witness.cli import compare_verdicts
 
@@ -199,7 +227,8 @@ def test_compare_verdicts_tallies_agreement():
     alt = [{"verdict": "supported"}, {"verdict": "unsupported"}, {"verdict": "unsupported"}]
     compared = compare_verdicts(jobs, meta, alt)
     assert (compared["agree"], compared["total"]) == (2, 3)
-    assert compared["disagree"] == [{"claim": "b", "meta": "supported", "alt": "unsupported"}]
+    assert compared["providers"] == ["meta", "baseten"]
+    assert compared["disagree"] == [{"claim": "b", "meta": "supported", "baseten": "unsupported"}]
 
 
 def test_baseten_support_passes_timeout_and_falls_back_to_meta(monkeypatch):

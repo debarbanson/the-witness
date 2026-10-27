@@ -382,12 +382,16 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
                     "format": "json",
                 },
                 sleep=sleep,
+                timeout=30,
+                tries=2,
             )
         except WebError as exc:
             raise VerifyError(str(exc))
-        text = "\n\n".join(
-            page.get("extract", "")
-            for page in data.get("query", {}).get("pages", {}).values()
+        text = strip_reference_tail(
+            "\n\n".join(
+                page.get("extract", "")
+                for page in data.get("query", {}).get("pages", {}).values()
+            )
         )
     else:
         resp = get(url, headers={"User-Agent": USER_AGENT}, timeout=(5, 10), stream=True)
@@ -408,7 +412,31 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
     return text
 
 
-def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=6, progress=None):
+REFERENCE_SECTIONS = frozenset({
+    # Trailing sections that list sources, never evidence (en, de, fr, nl).
+    "references", "einzelnachweise", "referenzen", "références", "referenties",
+    "notes", "noten", "fußnoten", "notizen", "anmerkungen",
+    "see also", "siehe auch", "voir aussi", "zie ook",
+    "external links", "weblinks", "web links", "liens externes", "externe links",
+    "further reading", "literatur", "bibliographie", "bibliografie", "bronnen",
+    "sources", "quellen",
+})
+
+
+def strip_reference_tail(text: str) -> str:
+    """Cut a Wikipedia extract at its trailing reference sections.
+
+    Citations carry years and names but prove nothing; keeping them
+    bloats prompts and fakes year matches in paragraph selection.
+    """
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip("= ").lower() in REFERENCE_SECTIONS:
+            return "\n".join(lines[:i]).rstrip("\n")
+    return text
+
+
+def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=8, progress=None):
     """Fetch many source pages: Wikimedia URLs one at a time in this
     thread (their rule), plain pages in parallel with at most one
     request per host at a time. Returns (texts, errors); a failure is

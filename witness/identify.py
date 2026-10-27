@@ -22,6 +22,7 @@ from witness.research import read_langs
 from witness.web import USER_AGENT, WebError, mediawiki_get
 
 RADIUS_M = 250
+PLACE_RADIUS_M = 1000  # a typed place is a fuzzy start; ranking sorts it out
 TOP_N = 10
 OVERPASS_BUDGET = 5
 OVERPASS_TIMEOUT = 5
@@ -123,6 +124,32 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
              cache=None, lang="en", timings=None, progress=None):
     """Run step 0. Transports and the vision call are injectable for tests.
 
+    EXIF GPS can lie (a placeholder far from the object), so when the
+    GPS run matches nothing and a typed place was given, one retry runs
+    from the place. The vision pick still gates it: no match, no film.
+    """
+    try:
+        return _identify_once(photo, place=place, post=post, get=get, respond=respond,
+                              sleep=sleep, cache=cache, lang=lang, timings=timings,
+                              progress=progress)
+    except NotIdentifiedError as failed:
+        if not place:
+            raise
+        try:
+            read_location(photo)
+        except NoGpsError:
+            raise failed
+        if progress is not None:
+            progress("fallback", {"to": "typed place"})
+        return _identify_once(photo, place=place, post=post, get=get, respond=respond,
+                              sleep=sleep, cache=cache, lang=lang, timings=timings,
+                              progress=progress, _gps_ok=False)
+
+
+def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
+                   cache=None, lang="en", timings=None, progress=None, _gps_ok=True):
+    """One identify attempt, from EXIF GPS or from the typed place.
+
     Reverse geocoding runs first (labels and articles need the country);
     then Overpass and Wikidata nearby in parallel, then sitelinks and the
     vision pick in parallel. Per-step seconds go into `timings` when given;
@@ -148,24 +175,31 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
             steps[f"{key}_s"] = round(time.perf_counter() - started, 1)
 
     try:
+        if not _gps_ok:
+            raise NoGpsError("GPS ignored after the GPS run matched nothing")
         location = read_location(photo)
         from_place = False
     except NoGpsError:
         if not place:
             raise
         started = time.perf_counter()
-        lat, lon, country_code = geocode(place, get=get, sleep=sleep)
+        lat, lon, country_code, place_name = geocode(place, get=get, sleep=sleep)
         steps["geocode_s"] = round(time.perf_counter() - started, 1)
         location = PhotoLocation(lat=lat, lon=lon, direction=None, precision="typed place")
         from_place = True
+    else:
+        place_name = None
     lat, lon = location.lat, location.lon
-    emit("location", {"precision": location.precision})
+    radius = PLACE_RADIUS_M if from_place else RADIUS_M
+    near = place_name or place
+    emit("location", {"precision": location.precision,
+                      **({"place": place_name} if place_name else {})})
     osm_box: dict = {}
 
     def overpass_job():
         started = time.perf_counter()
         try:
-            osm_box["osm"] = fetch_overpass(lat, lon, post, sleep, cache)
+            osm_box["osm"] = fetch_overpass(lat, lon, post, sleep, cache, radius)
         except SourceError:
             osm_box["osm"] = []
         finally:
@@ -178,15 +212,15 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
     order = read_langs(country_code, lang)
     with ThreadPoolExecutor(max_workers=2) as pool:
         wiki_future = pool.submit(_budgeted, "wikidata", WIKIDATA_BUDGET,
-                                  fetch_wikidata_nearby, lat, lon, get, sleep, cache)
+                                  fetch_wikidata_nearby, lat, lon, get, sleep, cache, radius)
         wp_future = pool.submit(_budgeted, "wpgeo", WP_BUDGET,
-                                fetch_wp_nearby, lat, lon, order[0], get, sleep, cache)
+                                fetch_wp_nearby, lat, lon, order[0], get, sleep, cache, radius)
         (_, wiki, wiki_s), (_, wpedia, wp_s) = wiki_future.result(), wp_future.result()
     steps["wikidata_s"], steps["wpgeo_s"] = wiki_s, wp_s
     overpass_thread.join(OVERPASS_BUDGET)
     osm = osm_box.get("osm", [])
     steps["overpass_s"] = osm_box.get("overpass_s", OVERPASS_BUDGET)
-    merged = merge_and_rank(osm, wiki, lat, lon, location.direction, extra=wpedia)
+    merged = merge_and_rank(osm, wiki, lat, lon, location.direction, radius=radius, extra=wpedia)
     if not merged:
         raise NotIdentifiedError("no named candidates near the photo")
     enriched = guarded("enrich", {}, enrich_candidates, get,
@@ -216,17 +250,19 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
             for _ in range(2):
                 started = time.perf_counter()
                 pick = parse_pick(respond(_pick_prompt(pool_cands, location.direction,
-                                                       rejected), photo_bytes))
+                                                       rejected, near), photo_bytes))
                 vision_elapsed += time.perf_counter() - started
                 if pick["none"]:
-                    raise NotIdentifiedError(
-                        pick.get("confidence") or "none of the candidates matched")
+                    emit("no_match", {"explanation": pick.get("confidence", "")})
+                    raise NotIdentifiedError("none of the candidates matched")
                 number = pick.get("number")
                 if number is None or not 1 <= number <= len(pool_cands):
                     raise NotIdentifiedError(f"unparseable pick: {pick.get('name')}")
                 candidate = pool_cands[number - 1]
                 started = time.perf_counter()
-                confirmed = parse_second_look(respond(_look_prompt(candidate), photo_bytes))
+                confirmed = parse_second_look(respond(_look_prompt(candidate, near), photo_bytes))
+                if not confirmed:
+                    confirmed = parse_second_look(respond(_look_prompt(candidate, near), photo_bytes))
                 look_elapsed += time.perf_counter() - started
                 if confirmed:
                     chosen, confidence = candidate, pick.get("confidence", "")
@@ -301,19 +337,19 @@ def _reencoded(photo) -> bytes:
     return buf.getvalue()
 
 
-def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None) -> list:
+def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RADIUS_M) -> list:
     """Optional candidates: one fast try per instance, never a wait."""
-    key = ("overpass", round(lat, 5), round(lon, 5))
+    key = ("overpass", round(lat, 5), round(lon, 5), radius)
     if key in _cache:
         return _cache[key]
-    cache_key = f"overpass:{lat:.5f},{lon:.5f}"
+    cache_key = f"overpass:{lat:.5f},{lon:.5f},{radius}"
     if cache is not None:
         hit = cache.get(cache_key)
         if hit is not None:
             _cache[key] = hit
             return hit
     post = post or _post
-    body = QUERY.format(radius=RADIUS_M, lat=f"{lat:.6f}", lon=f"{lon:.6f}")
+    body = QUERY.format(radius=radius, lat=f"{lat:.6f}", lon=f"{lon:.6f}")
     last_error = ""
     for url in OVERPASS_INSTANCES:
         try:
@@ -334,13 +370,14 @@ def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None) -> list:
     raise SourceError(f"Overpass failed on all instances ({last_error})")
 
 
-def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None) -> list:
+def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None,
+                        radius=RADIUS_M) -> list:
     """Nearby items via geosearch on wikidata.org (WDQS avoided per pipeline).
 
     Labels come later from enrich_candidates, so one call failing never
     discards the coordinates.
     """
-    key = ("wd_nearby", round(lat, 5), round(lon, 5))
+    key = ("wd_nearby", round(lat, 5), round(lon, 5), radius)
     if key in _cache:
         return _cache[key]
     get = get or _get
@@ -352,7 +389,7 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None) -> l
                 "action": "query",
                 "list": "geosearch",
                 "gscoord": f"{lat:.6f}|{lon:.6f}",
-                "gsradius": RADIUS_M,
+                "gsradius": radius,
                 "gsnamespace": 0,
                 "gslimit": 100,
                 "format": "json",
@@ -370,9 +407,10 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None) -> l
     return items
 
 
-def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None) -> list:
+def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None,
+                  radius=RADIUS_M) -> list:
     """Nearby articles via Wikipedia geosearch, independent of Overpass."""
-    key = ("wp_nearby", lang, round(lat, 5), round(lon, 5))
+    key = ("wp_nearby", lang, round(lat, 5), round(lon, 5), radius)
     if key in _cache:
         return _cache[key]
     get = get or _get
@@ -384,7 +422,7 @@ def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None) -> l
                 "action": "query",
                 "generator": "geosearch",
                 "ggscoord": f"{lat:.6f}|{lon:.6f}",
-                "ggsradius": RADIUS_M,
+                "ggsradius": radius,
                 "ggslimit": 100,
                 "prop": "coordinates|pageprops",
                 "format": "json",
@@ -430,6 +468,14 @@ def enrich_candidates(get, qids, order=("en",), sleep=time.sleep, cache=None) ->
         )
     except WebError as exc:
         raise SourceError(str(exc))
+    kinds = {}
+    for qid, entity in data.get("entities", {}).items():
+        for stmt in (entity.get("claims", {}) or {}).get("P31", []):
+            value = ((stmt.get("mainsnak", {}) or {}).get("datavalue", {}) or {}).get("value", {})
+            if isinstance(value, dict) and value.get("id"):
+                kinds[qid] = value["id"]
+                break
+    kind_labels = _kind_labels(get, sorted(set(kinds.values())), order, sleep, cache)
     out = {}
     for qid, entity in data.get("entities", {}).items():
         part_of = None
@@ -443,8 +489,35 @@ def enrich_candidates(get, qids, order=("en",), sleep=time.sleep, cache=None) ->
             "description": _pick_text(entity.get("descriptions", {}), order) or "",
             "sitelinks": len(entity.get("sitelinks", {}) or {}),
             "part_of": part_of,
+            "kind": kind_labels.get(kinds.get(qid, ""), ""),
         }
     return out
+
+
+def _kind_labels(get, qids, order, sleep, cache) -> dict:
+    """Instance-of labels for kinds, one batched call; {} when none."""
+    if not qids:
+        return {}
+    try:
+        data = mediawiki_get(
+            get,
+            "https://www.wikidata.org/w/api.php",
+            {
+                "action": "wbgetentities",
+                "ids": "|".join(qids[:50]),
+                "props": "labels",
+                "languages": "|".join(order),
+                "format": "json",
+            },
+            sleep=sleep,
+            cache=cache,
+        )
+    except WebError as exc:
+        raise SourceError(str(exc))
+    return {
+        qid: _pick_text(entity.get("labels", {}), order) or ""
+        for qid, entity in data.get("entities", {}).items()
+    }
 
 
 def _pick_text(values: dict, order) -> str | None:
@@ -568,7 +641,8 @@ def attach_enrich(merged, enriched: dict) -> list:
             name = info.get("label") or (c.name if c.name != c.qid else c.qid)
         out.append(replace(
             c, name=name, description=info.get("description", ""),
-            sitelinks=info.get("sitelinks", 0)))
+            sitelinks=info.get("sitelinks", 0),
+            kind=info.get("kind") or c.kind))
     return out
 
 
@@ -680,12 +754,17 @@ def _shortlist_line(index: int, c: Candidate) -> str:
             f"bearing {c.bearing_deg} degrees)")
 
 
-def _pick_prompt(pool, direction, rejected) -> str:
-    facing = f" about {direction} degrees" if direction is not None else ""
+def _pick_prompt(pool, direction, rejected, near=None) -> str:
+    facing = f"The camera faced about {direction} degrees. " if direction is not None else ""
+    taken = f"The photo was taken near {near}. " if near else ""
     shortlist = "\n".join(_shortlist_line(i + 1, c) for i, c in enumerate(pool))
-    ruled_out = f"\nRuled out already: {', '.join(rejected)}." if rejected else ""
+    ruled_out = (
+        f"\nRuled out already: {', '.join(rejected)}. "
+        "Pick only what the photo itself shows, not the building or place it was taken in."
+        if rejected else ""
+    )
     return (
-        f"The camera faced{facing}. Nearby known objects, best matches first:\n"
+        f"{facing}{taken}Nearby known objects, best matches first:\n"
         f"{shortlist}{ruled_out}\nWhich one does the photo show? The photo may "
         "show the whole object or a detail of it. Answer with "
         "its number and name first, then one sentence of confidence. "
@@ -693,12 +772,13 @@ def _pick_prompt(pool, direction, rejected) -> str:
     )
 
 
-def _look_prompt(candidate: Candidate) -> str:
+def _look_prompt(candidate: Candidate, near=None) -> str:
+    taken = f" taken near {near}" if near else ""
+    kind = candidate.kind.replace("_", " ")
+    what = f"{candidate.name} ({kind})? This object is about {candidate.distance_m} m from the photo's location."
     if candidate.description:
-        what = f"{candidate.name}? It is described as: {candidate.description}."
-    else:
-        what = f"{candidate.name} ({candidate.kind.replace('_', ' ')})?"
-    return (f"Second look at the same photo. Does it show {what} "
+        what += f" It is described as: {candidate.description}."
+    return (f"Second look at the same photo{taken}. Does it show {what} "
             "Answer YES or NO first, then one short sentence.")
 
 
@@ -738,19 +818,24 @@ def parse_pick(response: dict) -> dict:
 
 
 def geocode(place, get=None, sleep=time.sleep) -> tuple:
-    """Nominatim fallback: typed place to coordinates plus country code."""
+    """Nominatim fallback: typed place to coordinates, country and name.
+
+    A name can belong to several places (a monument and a pharmacy),
+    so the most important hit wins, not the first.
+    """
     key = ("nominatim", place.strip().lower())
     if key in _cache:
         return _cache[key]
     results = _nominatim(
-        NOMINATIM_URL, {"q": place, "format": "json", "limit": 1,
+        NOMINATIM_URL, {"q": place, "format": "json", "limit": 5,
                         "addressdetails": 1}, get, sleep
     )
     if not results:
         raise NotIdentifiedError(f"place not found: {place}")
-    first = results[0]
+    first = max(results, key=lambda r: r.get("importance", 0))
     coords = (float(first["lat"]), float(first["lon"]),
-              (first.get("address", {}) or {}).get("country_code"))
+              (first.get("address", {}) or {}).get("country_code"),
+              first.get("display_name", place))
     _cache[key] = coords
     return coords
 

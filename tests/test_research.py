@@ -397,6 +397,18 @@ def test_assemble_claims_carries_visible_change_and_date_text():
     assert claim["date_text"] == "about 800 years old"
 
 
+def test_assemble_claims_drops_absurd_years():
+    events = [
+        {"year": -569997974, "event": "built", "detail": "Rocks formed."},
+        {"year": 2999, "event": "built", "detail": "Not yet built."},
+        {"year": "unknown", "event": "built", "detail": "No year given."},
+        {"year": -5000, "event": "stood", "detail": "Ancient tree stood."},
+        {"year": 1884, "event": "extended", "detail": "Railway opened."},
+    ]
+    claims = research.assemble_claims(events=events, citations=[], sources=[])
+    assert [c["year"] for c in claims] == [-5000, 1884]
+
+
 def test_lifespan_schema_asks_visible_change_and_vague_date():
     event = research.LIFESPAN_SCHEMA["properties"]["events"]["items"]
     assert set(event["required"]) == {"year", "event", "detail", "visible_change", "date_text"}

@@ -77,6 +77,50 @@ def test_fetch_wikipedia_full_article_in_own_language():
     assert "extracts" in get.calls[0]["params"]["prop"]
 
 
+def test_fetch_wikipedia_article_fails_fast():
+    get = FakeGet([TimeoutError("slow"), TimeoutError("slow"), TimeoutError("slow")])
+    with pytest.raises(verify.VerifyError):
+        verify.fetch_source_text("https://nl.wikipedia.org/wiki/Testtoren", get=get,
+                                 sleep=lambda s: None)
+    assert len(get.calls) == 2
+    assert get.calls[0]["timeout"] == 30
+
+
+def test_reference_tail_cut_in_english_and_german():
+    text = ("The castle was built in 1214.\n\n== See also ==\n\nList of castles.\n\n"
+            "== References ==\n\nSmith (2020). Castles. Retrieved 2020.")
+    assert verify.strip_reference_tail(text) == "The castle was built in 1214."
+    german = ("Das Schloss wurde 1214 erbaut.\n\n== Einzelnachweise ==\n\nMüller (2020).")
+    assert verify.strip_reference_tail(german) == "Das Schloss wurde 1214 erbaut."
+    assert verify.strip_reference_tail("Built in 1214. No sections here.") == "Built in 1214. No sections here."
+
+
+def test_fetch_wikipedia_article_drops_reference_tail():
+    extract = "The castle was built in 1214.\n\n== References ==\n\nSmith (2020)."
+    payload = {"query": {"pages": {"1": {"extract": extract}}}}
+    get = FakeGet([(200, payload)])
+    text = verify.fetch_source_text("https://en.wikipedia.org/wiki/Castle", get=get)
+    assert "built in 1214" in text
+    assert "Smith" not in text
+
+
+def test_fetch_many_runs_eight_plain_hosts_at_once():
+    import threading
+
+    barrier = threading.Barrier(8, timeout=10)
+
+    class SlowGet(FakeGet):
+        def __call__(self, url, **kwargs):
+            self.calls.append({"url": url, **kwargs})
+            barrier.wait()
+            return FakeResponse("<html><body><p>one two three four five six</p></body></html>")
+
+    urls = [f"https://host{i}.example/page" for i in range(8)]
+    texts, errors = verify.fetch_many(urls, get=SlowGet([(200, "")] * 8), sleep=lambda s: None)
+    assert errors == {}
+    assert len(texts) == 8
+
+
 def test_fetch_plain_page_extracts_main_text():
     html = (
         "<html><head><script>junk();</script></head><body><nav>menu</nav>"
@@ -228,7 +272,10 @@ class FakeGet:
 
     def __call__(self, url, **kwargs):
         self.calls.append({"url": url, **kwargs})
-        status, payload = self.script.pop(0)
+        entry = self.script.pop(0)
+        if isinstance(entry, Exception):
+            raise entry
+        status, payload = entry
         assert status == 200
         return FakeResponse(payload)
 

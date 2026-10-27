@@ -5,6 +5,8 @@ Dropped periods survive only as caption lines inside a neighbouring scene.
 Pure function of the timeline and the verified claims.
 """
 
+from witness import states
+
 LIMIT = 7
 
 
@@ -42,7 +44,7 @@ def choose_scenes(timeline, claims, limit=LIMIT):
             {
                 "from_year": year,
                 "to_year": None,
-                "date_label": str(year),
+                "date_label": states.date_label(first_claim[year][1], year),
                 "state": _state_at(timeline, year),
                 "reason": f"{counts[year]} verified surroundings claims",
                 "caption_lines": [],

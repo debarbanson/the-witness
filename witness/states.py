@@ -49,12 +49,25 @@ COMPLETION_WORDS = (
 # survives, and become captions when the part is gone.
 SURROUNDINGS = (
     "outbuilding", "annex", "bijgebouw", "dependance", "shed", "garage",
-    "small building", "fence",
+    "small building", "fence", "outlying", "ancillary", "surrounding",
 )
 INTERIOR = (
     "interior", "foyer", "lobby", "room", "ballroom", "restaurant",
     "entrance", "door", "doorway",
 )
+CONTENTS = (
+    "exhibition", "collection", "furniture", "archive", "archives",
+    "holdings", "artefact", "artifact", "throne",
+    "sculptures", "reliefs", "carvings", "relics", "murals", "frescoes",
+    "inscriptions",
+)
+OCCUPANTS = (
+    "assembly", "parliament", "council", "committee", "government",
+    "tenant", "resident", "occupant", "household", "staff",
+    "museum", "school", "congregation", "company", "capital", "court",
+)
+RULERS = ("king", "queen", "emperor", "empress", "ruler", "monarch")
+SEATS = ("capital", "court", "throne", "seat", "palace", "residence", "castle", "manor")
 ATTACHED_PART = (
     "wing", "vleugel", "branch", "deck", "track", "rail", "cable",
     "span", "roadway", "chimney", "lift", "elevator", "escalator", "staircase",
@@ -183,6 +196,42 @@ def _constructing(text: str) -> bool:
     return "construction" in text and bool(re.search(r"\bbeg[au]n\b|\bstarted\b", text))
 
 
+def _occupant_moved(event: str, detail: str) -> bool:
+    """The thing moving is contents or occupants, not the object.
+
+    A ruler with a seat of power ("the king moved the capital")
+    is never the object; ship names ("Queen Mary") need the seat
+    too, so they keep their genuine moves. Otherwise position
+    decides: occupant words before the move word are the subject
+    ("the congregation moved"), "moved X" names what moved, and
+    only "moved to X" names a destination. When the move is
+    stated by the event alone, a named occupant in the detail
+    moved.
+    """
+    lowered = f"{event} {detail}".lower().replace("courthouse", "civic building")
+    if _has(lowered, RULERS) and _has(lowered, SEATS):
+        return True
+    if not (_has(lowered, CONTENTS) or _has(lowered, OCCUPANTS)):
+        return False
+    said = detail.lower().replace("courthouse", "civic building")
+    hits = [m.start() for pat in MOVE_WORDS
+            for m in re.finditer(rf"\b{re.escape(pat)}\w*\b", said)]
+    if not hits:
+        return True
+    first = min(hits)
+    if _has(said[:first], CONTENTS) or _has(said[:first], OCCUPANTS):
+        return True
+    after = said[first:]
+    for word in CONTENTS + OCCUPANTS:
+        for match in re.finditer(rf"\b{re.escape(word)}\w*\b", after):
+            between = after[: match.start()]
+            if re.search(r"[;.,]", between):
+                continue  # a new clause names something else
+            if not re.search(r"\b(to|into|onto)\b", between):
+                return True
+    return False
+
+
 def _destruction_stated(text: str) -> bool:
     """Unnegated destruction words: the change follows real damage."""
     for words in (RUIN_WORDS, DEMOLISH_WORDS, DAMAGE_WORDS, FIRE_WORDS):
@@ -267,6 +316,8 @@ def classify(event: str, detail: str = "", visible_change: str = "",
             return state("standing")  # a facelift, not a rebuild after ruin
         return state("rebuilt")
     if words & set(EVENT_MOVE):
+        if _occupant_moved(event, detail):
+            return None  # contents or occupants moved; the object stayed
         return state("moved")
     part = _has(lowered, ATTACHED_PART) and _has(text, DESTRUCTIVE_WORDS)
     ruin = _has(text, RUIN_WORDS)
@@ -292,7 +343,7 @@ def classify(event: str, detail: str = "", visible_change: str = "",
             return None
         return state("demolished")
     if _has(text, MOVE_WORDS):
-        if part:
+        if part or _occupant_moved(event, detail):
             return None
         return state("moved")
     if _has(text, REBUILD_WORDS):

@@ -46,6 +46,7 @@ def main(argv=None):
     paint_cmd.add_argument("--place", required=True)
     paint_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel"))
     paint_cmd.add_argument("--scenes", default=None)
+    paint_cmd.add_argument("--tag", default=None)
     args = parser.parse_args(argv)
     if args.command == "identify":
         return cmd_identify(args.photo, place=args.place, lang=args.lang,
@@ -58,7 +59,7 @@ def main(argv=None):
         return cmd_layers(args.slug, mode=args.mode)
     if args.command == "paint":
         return cmd_paint(args.slug, args.photo, place=args.place,
-                         mode=args.mode, scenes=args.scenes)
+                         mode=args.mode, scenes=args.scenes, tag=args.tag)
     if args.command == "film":
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
@@ -1001,8 +1002,8 @@ def check_respond(image_bytes, prompt):
     return "\n".join(texts)
 
 
-def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
-              paint_call=None, check_call=None):
+def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
+              paint_call=None, check_call=None, photo_call=None):
     """Paint an object's eras from its research, checked per era."""
     out_dir = Path("out") / slug
     path = out_dir / "research.json"
@@ -1021,16 +1022,29 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
         return 2
     call = paint_call or paint_respond
     checker = check_call or check_respond
+    looker = photo_call or check_respond
+    dated = [(s["from_year"],
+              (s.get("state") or {}).get("description", "") + " " +
+              " ".join(line.get("line", "") for line in s.get("caption_lines", [])))
+             for s in data.get("scenes", []) if isinstance(s.get("from_year"), int)]
+    directives = paint.paint_directives(looker, photo_bytes, dated)
+    print(f"anchor season: {directives['season']}")
+    if any(directives["excluded"].values()):
+        print(f"anchor elements held back: "
+              f"{sorted({el for els in directives['excluded'].values() for el in els})}")
     started = time.perf_counter()
     if mode == "chain":
         results = paint.paint_chain(call, photo_bytes, eras, name, place,
-                                    check_call=checker)
+                                    check_call=checker, season=directives["season"],
+                                    excluded=directives["excluded"])
     else:
         results = paint.paint_parallel(call, photo_bytes, eras, name, place,
-                                       check_call=checker)
-    era_dir = out_dir / f"eras_{mode}"
+                                       check_call=checker, season=directives["season"],
+                                       excluded=directives["excluded"])
+    suffix = f"{mode}_{tag}" if tag else mode
+    era_dir = out_dir / f"eras_{suffix}"
     era_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = out_dir / f"paint_{mode}.json"
+    manifest_path = out_dir / f"paint_{suffix}.json"
     entries = {}
     if manifest_path.exists():
         for entry in json.loads(manifest_path.read_text()).get("eras", []):
@@ -1041,7 +1055,7 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
                  "attempts": result["attempts"]}
         if result["image"] is not None:
             (era_dir / f"{year}.png").write_bytes(result["image"])
-            entry["file"] = f"eras_{mode}/{year}.png"
+            entry["file"] = f"eras_{suffix}/{year}.png"
         else:
             entry["note"] = result["note"]
         entries[year] = entry
@@ -1053,6 +1067,7 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None,
                             str(era_dir / "contact.png"))
     manifest = {"slug": slug, "mode": mode, "object": name,
                 "paint_s": round(time.perf_counter() - started, 1),
+                "season": directives["season"],
                 "eras": [entries[y] for y in sorted(entries)]}
     manifest_path.write_text(json.dumps(manifest, indent=1))
     kept = sum(1 for e in manifest["eras"] if e["verdict"] == "matches")

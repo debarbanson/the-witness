@@ -12,7 +12,20 @@ SIZE = "1024x1536"  # closest accepted portrait; returns 1280x1920, cropped late
 STYLE = (
     "Painterly historical illustration, soft daylight, muted period colours."
 )
+NO_TEXT = (
+    "No text of any kind: no signs, dates, captions, signatures, "
+    "watermarks or lettering."
+)
 MAX_REPAINTS = 2
+SEASONS = ("spring", "summer", "autumn", "winter")
+SEASON_SENTENCES = {
+    "spring": "All eras share the anchor's spring season: fresh leaves, blossom, no snow.",
+    "summer": "All eras share the anchor's summer season: leafy trees, green grass, no snow.",
+    "autumn": "All eras share the anchor's autumn season: turning leaves, no snow.",
+    "winter": "All eras share the anchor's winter season: bare trees, snow on the ground.",
+}
+CANOPY_WORDS = frozenset({"leaf", "leaves", "leafless", "bare", "crown", "canopy", "foliage"})
+STOP_WORDS = frozenset({"the", "and", "for", "with", "from", "its", "into", "over"})
 
 
 class PaintError(Exception):
@@ -69,23 +82,32 @@ def describe_state(object_name, state) -> str:
     return f"The {object_name} is {condition}: {description}"
 
 
-def scene_prompt(scene, object_name, place) -> str:
-    """One era prompt: verified state plus verified surroundings."""
+def scene_prompt(scene, object_name, place, season=None, excluded=()) -> str:
+    """One era prompt: verified state plus verified surroundings, no
+    lettering, one season unless the state governs the canopy, anchor
+    elements that postdate the era kept out."""
     year = scene.get("date_label", scene.get("from_year"))
-    state_text = describe_state(object_name, scene.get("state", {}))
+    state = scene.get("state", {})
+    state_text = describe_state(object_name, state)
     surroundings = " ".join(
         line.get("line", "") for line in scene.get("caption_lines", [])
         if not _describes_harm(line.get("line", "")))
     if not surroundings.strip():
         surroundings = f"everyday life around the {place} {object_name}."
-    return (
+    parts = [
         f"Repaint this exact view in {place} in the year {year}, same "
-        f"viewpoint, composition and painted style as the anchor photo. "
-        f"The object then: {state_text} "
-        f"Surroundings: {surroundings} "
-        f"Style: {STYLE} "
-        f"Show the object exactly as described, not as it looks today."
-    )
+        f"viewpoint, composition and painted style as the anchor photo. ",
+        f"The object then: {state_text} ",
+        f"Surroundings: {surroundings} ",
+        f"Style: {STYLE} ",
+        f"{NO_TEXT} ",
+    ]
+    if season in SEASON_SENTENCES and not _governs_canopy(state):
+        parts.append(f"{SEASON_SENTENCES[season]} ")
+    if excluded:
+        parts.append(f"Do not show: {', '.join(excluded)}. ")
+    parts.append("Show the object exactly as described, not as it looks today.")
+    return "".join(parts)
 
 
 def _describes_harm(line) -> bool:
@@ -101,8 +123,71 @@ def anchor_instruction(object_name, place) -> str:
         f"This photo shows {object_name} in {place} and anchors a series "
         f"of historical illustrations of the same place. Keep its viewpoint "
         f"and composition exactly, and establish this painted style for the "
-        f"series: {STYLE}"
+        f"series: {STYLE} {NO_TEXT}"
     )
+
+
+def _governs_canopy(state) -> bool:
+    """A state describing foliage overrules the series season."""
+    words = set(re.findall(r"[a-z]+", str(state.get("description", "")).lower()))
+    return bool(words & CANOPY_WORDS)
+
+
+def anchor_report(photo_call, photo_bytes) -> dict:
+    """One vision look at the anchor photo: its season plus the
+    discrete temporary elements the eras must not inherit blindly."""
+    answer = (photo_call(photo_bytes, ANCHOR_REPORT_PROMPT) or "").strip()
+    lines = [line.strip("- *\t") for line in answer.splitlines()]
+    lines = [line for line in lines if line]
+    season = None
+    if lines:
+        first = lines[0].lower()
+        for name in SEASONS:
+            if name in first:
+                season = name
+                break
+    elements = [line for line in lines[1:]
+                if line.lower() not in ("none", "no elements", "n/a")]
+    return {"season": season, "elements": elements}
+
+
+ANCHOR_REPORT_PROMPT = (
+    "Look at this photo. First line: Season: one of spring, summer, "
+    "autumn, winter. Then list the discrete temporary or recent man-made "
+    "elements visible (vehicles, decorations, people items, modern "
+    "additions), one per line, not the weather, season, sky or landscape. "
+    "If there are none, write None."
+)
+
+
+def element_allowed(element, texts) -> bool:
+    """An anchor element may appear only where verified words name it:
+    every significant word must be mentioned."""
+    words = {w for w in re.findall(r"[a-zà-ÿ]+", element.lower())
+             if len(w) > 2 and w not in STOP_WORDS}
+    if not words:
+        return True
+    mentioned = set()
+    for text in texts:
+        mentioned.update(re.findall(r"[a-zà-ÿ]+", str(text).lower()))
+    return words <= mentioned
+
+
+def excluded_elements(anchor_elements, dated_texts, year) -> list:
+    """Anchor elements no verified text up to `year` names. Once named,
+    an element persists into later eras."""
+    known = [text for when, text in dated_texts if when <= year]
+    return [el for el in anchor_elements if not element_allowed(el, known)]
+
+
+def paint_directives(photo_call, photo_bytes, dated_texts) -> dict:
+    """The decontamination pack for a run: one season plus, per era
+    year, the anchor elements that postdate it."""
+    report = anchor_report(photo_call, photo_bytes)
+    years = sorted({when for when, _ in dated_texts})
+    return {"season": report["season"],
+            "excluded": {year: excluded_elements(report["elements"], dated_texts, year)
+                         for year in years}}
 
 
 def extract_image_b64(response) -> str | None:
@@ -129,7 +214,8 @@ def paint_anchor(call, photo_bytes, object_name, place) -> dict:
 
 
 def paint_scene(call, check_call, scene, object_name, place, prev_id,
-               max_repaints=MAX_REPAINTS, photo_bytes=None) -> dict:
+               max_repaints=MAX_REPAINTS, photo_bytes=None, season=None,
+               excluded=()) -> dict:
     """Paint one scene and check it: repaint at most twice, else drop.
 
     `photo_bytes` rides the first attempt only, so scene 1 needs no
@@ -138,7 +224,7 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
     from witness import check as check_module
 
     year = scene.get("from_year")
-    prompt = scene_prompt(scene, object_name, place)
+    prompt = scene_prompt(scene, object_name, place, season, excluded)
     blocks = 0
     model_retried = False
     for attempt in range(1 + max_repaints):
@@ -164,14 +250,14 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
             continue
         verdict = check_module.check_painting(
             check_call, result["image"], object_name,
-            describe_state(object_name, scene.get("state", {})))
+            describe_state(object_name, scene.get("state", {})), year)
         if verdict["verdict"] == "matches":
             return {"year": year, "image": result["image"],
                     "response_id": result["response_id"],
                     "verdict": "matches", "attempts": attempt + 1,
                     "note": verdict["note"]}
         prev_id = result["response_id"]
-        prompt = (f"{scene_prompt(scene, object_name, place)} The previous "
+        prompt = (f"{scene_prompt(scene, object_name, place, season, excluded)} The previous "
                   f"attempt differed: {verdict['note']} Fix exactly that.")
     return {"year": year, "image": None, "response_id": None,
             "verdict": "dropped", "attempts": 1 + max_repaints,
@@ -179,40 +265,46 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
 
 
 def paint_chain(call, photo_bytes, scenes, object_name, place,
-                check_call=None) -> list:
+                check_call=None, season=None, excluded=None) -> list:
     """Eras one after another, each chained on the previous turn."""
     anchor = paint_anchor(call, photo_bytes, object_name, place)
     prev_id = anchor["response_id"]
     out = []
     for scene in scenes:
+        year_excluded = (excluded or {}).get(scene.get("from_year"), ())
         if check_call is None:
-            result = call(scene_prompt(scene, object_name, place), prev_id)
+            result = call(scene_prompt(scene, object_name, place, season,
+                                       year_excluded), prev_id)
             out.append({"year": scene.get("from_year"),
                         "image": result["image"],
                         "response_id": result["response_id"],
                         "verdict": "unchecked", "attempts": 1, "note": ""})
         else:
             out.append(paint_scene(call, check_call, scene, object_name,
-                                   place, prev_id))
+                                   place, prev_id, season=season,
+                                   excluded=year_excluded))
         if out[-1]["response_id"]:
             prev_id = out[-1]["response_id"]
     return out
 
 
 def paint_parallel(call, photo_bytes, scenes, object_name, place,
-                   check_call=None, max_workers=6) -> list:
+                   check_call=None, max_workers=6, season=None,
+                   excluded=None) -> list:
     """Every era branches from the anchor turn alone, painted at once."""
     anchor = paint_anchor(call, photo_bytes, object_name, place)
     anchor_id = anchor["response_id"]
 
     def one(scene):
+        year_excluded = (excluded or {}).get(scene.get("from_year"), ())
         if check_call is None:
-            result = call(scene_prompt(scene, object_name, place), anchor_id)
+            result = call(scene_prompt(scene, object_name, place, season,
+                                       year_excluded), anchor_id)
             return {"year": scene.get("from_year"), "image": result["image"],
                     "response_id": result["response_id"],
                     "verdict": "unchecked", "attempts": 1, "note": ""}
         return paint_scene(call, check_call, scene, object_name, place,
-                           anchor_id)
+                           anchor_id, season=season, excluded=year_excluded)
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         return list(pool.map(one, scenes))

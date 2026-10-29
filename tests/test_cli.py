@@ -449,7 +449,8 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
     code = cli_module.cmd_paint(
         "q1-test", str(photo), "Test Town", mode="parallel",
         paint_call=fake_call,
-        check_call=lambda image, prompt: "MATCHES whole.")
+        check_call=lambda image, prompt: "MATCHES whole.",
+        photo_call=lambda photo, prompt: "Season: summer\nNone")
     assert code == 0
     assert (out_dir / "eras_parallel" / "1850.png").exists()
     assert not (out_dir / "eras_parallel" / "today.png").exists()
@@ -497,7 +498,8 @@ def test_cmd_paint_filters_scenes(tmp_path, monkeypatch):
     code = cli_module.cmd_paint(
         "q1-test", str(photo), "Test Town", mode="chain",
         scenes="1950", paint_call=fake_call,
-        check_call=lambda image, prompt: "MATCHES whole.")
+        check_call=lambda image, prompt: "MATCHES whole.",
+        photo_call=lambda photo, prompt: "Season: summer\nNone")
     assert code == 0
     assert (out_dir / "eras_chain" / "1950.png").exists()
     assert not (out_dir / "eras_chain" / "1850.png").exists()
@@ -539,7 +541,8 @@ def test_cmd_paint_merges_manifest_and_contact_across_runs(tmp_path, monkeypatch
         code = cli_module.cmd_paint(
             "q1-test", str(photo), "Test Town", mode="parallel",
             scenes=year, paint_call=fake_call,
-            check_call=lambda image, prompt: "MATCHES whole.")
+            check_call=lambda image, prompt: "MATCHES whole.",
+        photo_call=lambda photo, prompt: "Season: summer\nNone")
         assert code == 0
     manifest = json.loads((out_dir / "paint_parallel.json").read_text())
     assert [e["year"] for e in manifest["eras"]] == [1850, 1950]
@@ -621,3 +624,41 @@ def test_cmd_layers_saves_figure_layers(tmp_path, monkeypatch):
     assert code == 0
     saved = sorted((out_dir / "layers_parallel" / "1850").glob("*.png"))
     assert len(saved) == 2
+
+
+def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, "PNG")
+    tiny = buf.getvalue()
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    (out_dir / "eras_parallel").mkdir(parents=True)
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"},
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ]}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(tiny)
+
+    def fake_call(prompt, prev_id, photo_bytes=None):
+        return {"image": tiny, "response_id": "r1"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(photo), "Test Town", mode="parallel", tag="b1",
+        paint_call=fake_call,
+        check_call=lambda image, prompt: "MATCHES whole.",
+        photo_call=lambda photo, prompt: "Season: summer\nNone")
+    assert code == 0
+    assert (out_dir / "eras_parallel_b1" / "1850.png").exists()
+    assert (out_dir / "paint_parallel_b1.json").exists()
+    assert not (out_dir / "paint_parallel.json").exists()

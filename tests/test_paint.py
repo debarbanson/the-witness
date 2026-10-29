@@ -304,3 +304,70 @@ def test_harm_filter_keeps_mortar_skilled_and_mortal():
               ["1870 note: skilled masons laid brick and mortar."]),
         "Bridge", "Town")
     assert "mortar" in prompt
+
+
+def test_scene_prompt_bans_all_lettering():
+    prompt = paint.scene_prompt(scene(1850), "Mill", "Town")
+    assert "No text" in prompt
+    assert "signs" in prompt and "dates" in prompt
+
+
+def test_anchor_instruction_bans_lettering():
+    assert "No text" in paint.anchor_instruction("Mill", "Town")
+
+
+def test_scene_prompt_adds_season_sentence():
+    prompt = paint.scene_prompt(scene(1850), "Mill", "Town", season="summer")
+    assert "summer" in prompt
+    assert "no snow" in prompt
+
+
+def test_scene_prompt_skips_season_when_state_governs_canopy():
+    prompt = paint.scene_prompt(
+        scene(2026, "standing", "canopy leafless, no leaves produced."),
+        "Oak", "Forest", season="summer")
+    assert "summer" not in prompt
+    assert "leafless" in prompt
+
+
+def test_scene_prompt_lists_excluded_anchor_elements():
+    prompt = paint.scene_prompt(scene(1932), "Tower", "Town",
+                                excluded=["tulip banners", "snow"])
+    assert "tulip banners" in prompt
+    assert "Do not show" in prompt
+
+
+def test_anchor_report_parses_season_and_elements():
+    report = paint.anchor_report(
+        lambda photo, prompt: "Season: winter\nsnow on the ground\nparagliders\nmodern cars",
+        b"photo")
+    assert report == {"season": "winter",
+                      "elements": ["snow on the ground", "paragliders", "modern cars"]}
+
+
+def test_anchor_report_unparseable_season_is_none():
+    report = paint.anchor_report(lambda photo, prompt: "no idea\ntulip banners",
+                                 b"photo")
+    assert report == {"season": None, "elements": ["tulip banners"]}
+
+
+def test_element_allowed_needs_every_word_mentioned():
+    assert paint.element_allowed("tulip banners", ["tulip banners added"]) is True
+    assert paint.element_allowed("modern cars", ["vintage cars pass"]) is False
+    assert paint.element_allowed("snow", ["no mention here"]) is False
+
+
+def test_excluded_elements_persist_once_verified():
+    dated = [(1986, "tulip banners added"), (1991, "shop opened")]
+    assert paint.excluded_elements(["tulip banners", "paragliders"], dated, 1932) == [
+        "tulip banners", "paragliders"]
+    assert paint.excluded_elements(["tulip banners", "paragliders"], dated, 1991) == [
+        "paragliders"]
+
+
+def test_paint_directives_combines_season_and_exclusions():
+    out = paint.paint_directives(
+        lambda photo, prompt: "Season: summer\ntulip banners",
+        b"photo", [(1932, "built plain"), (1986, "tulip banners added")])
+    assert out["season"] == "summer"
+    assert out["excluded"] == {1932: ["tulip banners"], 1986: []}

@@ -390,6 +390,42 @@ def test_scene_prompt_bans_all_lettering():
     assert "signs" in prompt and "dates" in prompt
 
 
+def test_paint_scene_crash_retry_keeps_photo_without_predecessor():
+    seen = []
+    calls = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        seen.append((prev_id, photo_bytes))
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("timed out")
+        return {"image": b"img", "response_id": "r1"}
+
+    out = paint.paint_scene(call, lambda image, p: "MATCHES whole.",
+                            scene(1850, "standing", "The mill stands whole."),
+                            "De Adriaan", "Haarlem", None, photo_bytes=b"photo")
+    assert out["verdict"] == "matches"
+    assert seen == [(None, b"photo"), (None, b"photo")]
+
+
+def test_paint_scene_crash_retry_chains_when_predecessor_exists():
+    seen = []
+    calls = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        seen.append((prev_id, photo_bytes))
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("timed out")
+        return {"image": b"img", "response_id": "r2"}
+
+    out = paint.paint_scene(call, lambda image, p: "MATCHES whole.",
+                            scene(1950, "standing", "The mill stands whole."),
+                            "De Adriaan", "Haarlem", "r1", photo_bytes=b"photo")
+    assert out["verdict"] == "matches"
+    assert seen == [("r1", None), ("r1", None)]
+
+
 def test_paint_scene_repaint_keeps_claims_in_prompt():
     prompts = []
 

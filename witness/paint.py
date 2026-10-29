@@ -8,6 +8,8 @@ call is injected, so tests run without live calls.
 import re
 from concurrent.futures import ThreadPoolExecutor
 
+from witness import models
+
 SIZE = "1024x1536"  # closest accepted portrait; returns 1280x1920, cropped later
 STYLE = (
     "Painterly historical illustration, soft daylight, muted period colours."
@@ -314,7 +316,7 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
     for attempt in range(1 + max_repaints):
         try:
             result = call(prompt, prev_id,
-                          photo_bytes if attempt == 0 else None)
+                          photo_bytes if prev_id is None else None)
         except PaintSafetyError:
             blocks += 1
             if blocks >= 1 + max_repaints:
@@ -420,7 +422,9 @@ def paint_parallel(call, photo_bytes, scenes, object_name, place,
     photo = photo_bytes if base_id is None else None
     pool = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        rest = list(pool.map(lambda scene: one(scene, base_id, photo), scenes[1:]))
+        futures = [models.submit_context(pool, one, scene, base_id, photo)
+                   for scene in scenes[1:]]
+        rest = [future.result() for future in futures]
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
     return [base, *rest]

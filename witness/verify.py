@@ -299,6 +299,18 @@ def is_literal_quote(quote, passages, year, keywords, min_chars=30) -> bool:
     return norm in joined
 
 
+def quote_carries_year(quote, year, date_text="") -> bool:
+    """The winning quote dates the claim: it carries the claim year
+    or its date phrase. Yearless support jobs (captions) never pass."""
+    if not isinstance(year, int) or isinstance(year, bool) or year == 0:
+        return False
+    text = quote or ""
+    if str(year) in text:
+        return True
+    phrase = (date_text or "").strip()
+    return len(phrase) > 3 and phrase.lower() in text.lower()
+
+
 def judge_claim(support_respond, job, search_respond=None, completion_respond=None,
               completion=True, dispute_check=None) -> dict:
     """One claim judged end to end: support vote, second judgement when
@@ -391,6 +403,15 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
                 "fast_path": fast_path,
             }
         winner = {**winner, "support": support}
+    year = job.get("year")
+    dated = isinstance(year, int) and not isinstance(year, bool) and year != 0
+    if verdict == "supported" and dated and not quote_carries_year(
+            winner.get("quote", ""), year, job.get("date_text", "")):
+        prior = winner.get("note") or ""
+        note = (f"{prior}; winning quote does not carry the year or date"
+                if prior else "winning quote does not carry the year or date")
+        verdict = "partly"
+        winner = {**winner, "verdict": "partly", "note": note}
     completed, completion_note = True, None
     event, detail = job.get("event", ""), job.get("detail", "")
     needs_completion = states.classify(event, detail) is not None or states.looks_incomplete(event, detail)

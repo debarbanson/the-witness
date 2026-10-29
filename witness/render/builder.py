@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from witness import captions, states
+from witness import states
 from witness.verify import normalise_text
 
 TITLE_S = 3
@@ -15,14 +15,20 @@ TODAY_S = 5
 END_S = 6
 
 
+def filmable(scene) -> bool:
+    """A scene reaches the film only with a written sentence from its
+    own verified claim. No sentence, or a sentence without a claim,
+    and the scene is dropped; there is no filler line."""
+    stored = scene.get("caption_sentence") or {}
+    return bool(stored.get("text")) and stored.get("claim_year") is not None
+
+
 def caption_for(scene):
     """A date stamp plus one sentence: the written sentence for the
-    scene, or a plain line with no fact. Never cut, never borrowed."""
+    scene, or nothing. Never cut, never borrowed."""
     stamp = scene.get("date_label") or str(scene.get("from_year"))
     stored = (scene.get("caption_sentence") or {}).get("text", "")
-    if stored:
-        return (stamp, stored)
-    return (stamp, captions.fallback_line(scene))
+    return (stamp, stored)
 
 
 def source_site(url) -> str:
@@ -150,7 +156,8 @@ def build_timeline(scenes, images, claims=()) -> list:
     """Contiguous segments: title, anchor, one era per painting, today, end."""
     plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
     plan.append({"kind": "anchor", "start": TITLE_S, "end": TITLE_S + ANCHOR_S})
-    eras = [s for s in dated(scenes) if str(s["from_year"]) in images]
+    eras = [s for s in dated(scenes)
+            if str(s["from_year"]) in images and filmable(s)]
     t = TITLE_S + ANCHOR_S
     for position, scene in enumerate(eras):
         year = scene["from_year"]
@@ -183,7 +190,7 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
     film_scenes = []
     for scene in scenes:
         key = str(scene["from_year"])
-        if key not in images:
+        if key not in images or not filmable(scene):
             continue
         stamp, sentence = caption_for(scene)
         stored = scene.get("caption_sentence") or {}
@@ -202,7 +209,8 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
     attribution = []
     if research.get("timings", {}).get("identify_steps", {}).get("overpass_s") is not None:
         attribution.append("© OpenStreetMap contributors")
-    painted = [s for s in scenes if str(s["from_year"]) in images]
+    painted = [s for s in scenes
+               if str(s["from_year"]) in images and filmable(s)]
     last = painted[-1] if painted else {"from_year": "today", "state": {}}
     today_line, today_sub = today_card(photo_year, own_photo, last, claims)
     first = (research.get("scenes", []) or [{}])[0]

@@ -446,7 +446,7 @@ def assemble_claims(events, citations, sources, anchor_year=None) -> list:
             "year": e["year"],
             "event": e["event"],
             "kind": "object",
-            "claim": f"{e['event']}: {e['detail']}",
+            "claim": f"{e['event']} ({e.get('date_text') or e['year']}): {e['detail']}",
             "quote_span": e["detail"],
             "date_text": e.get("date_text", ""),
             "visible_change": e.get("visible_change", ""),

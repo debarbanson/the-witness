@@ -530,18 +530,19 @@ def test_quote_prefers_best_source_rank():
     assert result["url"] == "https://en.wikipedia.org/wiki/Major_Oak"
 
 
-def scripted_support(*verdicts):
+def scripted_support(*verdicts, year=1932):
     calls = []
 
     def respond(prompt):
         calls.append(prompt)
         verdict = verdicts[min(len(calls) - 1, len(verdicts) - 1)]
+        quote = f"{verdict} quote in {year}."
         return answered_with(
-            {"verdict": verdict, "quote": f"{verdict} quote",
+            {"verdict": verdict, "quote": quote,
              "url": "https://en.wikipedia.org/wiki/X",
              "support": [{"url": "https://en.wikipedia.org/wiki/X",
                           "supports": verdict != "unsupported",
-                          "quote": f"{verdict} quote"}]}
+                          "quote": quote}]}
         )
 
     respond.calls = calls
@@ -583,7 +584,7 @@ def test_judge_tie_goes_to_last_round():
 
 def test_judge_unsupported_with_evidence_gets_second_judgement():
     passages = ["De watertoren is sinds 1986 opgesierd met een metershoge tulp."]
-    respond = scripted_support("unsupported", "supported")
+    respond = scripted_support("unsupported", "supported", year=1986)
     result = verify.judge_claim(
         respond, job(year=1986, keywords=["meters", "tulip"], passages=passages),
         completion_respond=lambda prompt: answered_with({"completed": True}))
@@ -744,7 +745,8 @@ def test_quoteless_round_then_quoted_wins_and_stops():
 
 
 def test_paraphrased_quote_still_votes():
-    respond = quoted_support(("supported", "The mill dates to the late eighteenth century."))
+    respond = quoted_support(
+        ("supported", "The mill dates to 1779, the late eighteenth century."))
     result = verify.judge_claim(
         respond, job(votes=3, year=1779, keywords=["mill"], passages=MILL_PASSAGES,
                      claim="The mill was built in 1779."),
@@ -843,7 +845,9 @@ def test_anchor_sentence_reads_dutch():
 
 
 def test_judge_stream_yields_each_claim_as_it_finishes():
-    inner = quoted_support(("supported", "The old mill dates to the eighteenth century."))
+    # Quotes arrive fast claim first: the 1932 job answers while 1779 sleeps.
+    inner = quoted_support(("supported", "The old mill dates to 1932."),
+                           ("supported", "The old mill dates to 1779."))
     calls = []
 
     def slow_then_fast(prompt):
@@ -859,6 +863,34 @@ def test_judge_stream_yields_each_claim_as_it_finishes():
     assert sorted(i for i, _ in seen) == [0, 1]
     assert all(r["verdict"] == "supported" for _, r in seen)
     assert seen[0][0] == 1  # the fast claim arrives first
+
+
+def test_quote_carries_year_or_date_phrase():
+    assert verify.quote_carries_year("Built in 1932 here.", 1932, "in 1932")
+    assert verify.quote_carries_year("Opened in the spring of 2016.", 2016,
+                                     "spring 2016")
+    assert not verify.quote_carries_year("Later beautifully restored.", 1932,
+                                         "in 1932")
+    assert not verify.quote_carries_year("", 1932, "in 1932")
+    assert not verify.quote_carries_year("Built in 1932 here.", 0, "")
+
+
+def test_winning_quote_without_year_downgrades_to_partly():
+    respond = quoted_support(
+        ("supported", "The mill was later restored beautifully."))
+    result = verify.judge_claim(
+        respond, job(),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "partly"
+    assert "year" in result["note"]
+
+
+def test_winning_quote_with_year_stays_supported():
+    respond = quoted_support(("supported", "The old mill dates to 1779."))
+    result = verify.judge_claim(
+        respond, job(year=1779),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
 
 
 def test_judge_stream_marks_crashed_job_unsupported():
@@ -962,12 +994,13 @@ def test_regression_tower_1986_supported_1990_weak_only():
 
 def test_regression_de_adriaan_states_and_1963_not_completed():
     assert verify.judge_claim(
-        scripted_support("supported"), job(year=1779))["verdict"] == "supported"
+        scripted_support("supported", year=1779),
+        job(year=1779))["verdict"] == "supported"
     assert verify.judge_claim(
         scripted_support("supported"),
         job(event="burnt", detail="Completely burnt down.", year=1932))["verdict"] == "supported"
     opened = verify.judge_claim(
-        scripted_support("supported"),
+        scripted_support("supported", year=2002),
         job(event="rebuilt", detail="Reopened in 2002.", year=2002))
     assert opened["verdict"] == "supported"
     promise = verify.judge_claim(
@@ -1057,7 +1090,7 @@ def test_judge_disputed_single_source_is_unsupported():
 def test_judge_clean_second_source_saves_disputed_claim():
     def respond(prompt):
         return answered_with({
-            "verdict": "supported", "quote": "both hold",
+            "verdict": "supported", "quote": "both hold here in 1932.",
             "url": "https://en.wikipedia.org/wiki/X",
             "support": [
                 {"url": "https://a.example/1", "supports": True,

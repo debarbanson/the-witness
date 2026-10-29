@@ -18,7 +18,32 @@ from witness.photo import photo_bytes_clean, prepare_photo
 from witness.render import builder as render_builder
 
 
+def load_dotenv(path=".env.local") -> None:
+    """Load keys from .env.local into the environment at startup.
+
+    Variables that are already set are never overridden, values are
+    never printed, and a missing or malformed file is silently
+    ignored: startup must never fail on it.
+    """
+    try:
+        text = Path(path).read_text()
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.removeprefix("export ").partition("=")
+        name, value = name.strip(), value.strip()
+        if not name.replace("_", "").isalnum() or name in os.environ:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ[name] = value
+
+
 def main(argv=None):
+    load_dotenv()
     parser = argparse.ArgumentParser(prog="witness")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("identify", "research", "film"):
@@ -186,6 +211,23 @@ def collect_paint_entries(paint_futures) -> dict:
     return entries
 
 
+def final_paint_actions(chosen, painted_years, painted_states) -> dict:
+    """Paint, repaint or keep per final scene: a draft painting whose
+    state no longer matches the final state is repainted, never kept."""
+    actions = {}
+    for scene in chosen:
+        year = scene.get("from_year")
+        if not isinstance(year, int):
+            continue
+        if year not in painted_years:
+            actions[year] = "paint"
+        elif painted_states.get(year) != scene.get("state"):
+            actions[year] = "repaint"
+        else:
+            actions[year] = "keep"
+    return actions
+
+
 def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
              progress=None, paint_eras=False, paint_call=None, check_call=None,
              out_dir="out"):
@@ -289,6 +331,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
 
     paint_pool = None
     paint_futures = {}
+    painted_states = {}
     anchor_future = None
     paint_fn = paint_call or paint_respond
     check_fn = check_call or check_respond
@@ -329,6 +372,13 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                   f"dropped ({result['note']})", flush=True)
         return result
 
+    def repaint_scene_worker(old_future, scene, scene_no):
+        try:
+            old_future.result()
+        except Exception:  # noqa: BLE001 - a dead draft still gets its repaint
+            pass
+        return paint_scene_worker(scene, scene_no, False)
+
     def start_scene1(card_claims):
         """Scene 1 paints from the anchor while research runs; later
         scenes branch from its response id, or a plain anchor turn."""
@@ -338,10 +388,11 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         if anchor_year is not None:
             print(f"scene 1 ({anchor_year}) verified from the anchor; "
                   f"painting while research runs", flush=True)
+            scene1 = film_anchor_scene(found.name, anchor_year)
             scene1_future = paint_pool.submit(
-                paint_scene_worker, film_anchor_scene(found.name, anchor_year),
-                1, True)
+                paint_scene_worker, scene1, 1, True)
             paint_futures[anchor_year] = scene1_future
+            painted_states[anchor_year] = dict(scene1.get("state") or {})
         if scene1_future is not None:
             anchor_future = paint_pool.submit(
                 lambda: (scene1_future.result()["response_id"]
@@ -386,6 +437,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     phase = time.perf_counter()
     to_check, draft, jobs = gathered["to_check"], gathered["draft"], gathered["jobs"]
     judged_years: list = []
+    supported_years: list = []
     emitted: set = set()
     to_check_years = [c["year"] for c in to_check]
     numbers = stream.scene_numbers(draft)
@@ -398,13 +450,17 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         claim["war_politics_only"] = (
             claim["war_politics_only"] or bool(verify.flag_content(claim["claim"])))
         judged_years.append(claim["year"])
-        for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years, emitted):
+        if claim["verdict"] in ("supported", "partly"):
+            supported_years.append(claim["year"])
+        for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years,
+                                               emitted, supported_years):
             emitted.add(scene["from_year"])
             emit_scene(numbers[scene["from_year"]], scene)
             if (paint_eras and isinstance(scene["from_year"], int)
                     and scene["from_year"] not in paint_futures):
                 paint_futures[scene["from_year"]] = paint_pool.submit(
                     paint_scene_worker, scene, numbers[scene["from_year"]], False)
+                painted_states[scene["from_year"]] = dict(scene.get("state") or {})
     fast = sum(1 for c in to_check if c.get("fast_path"))
     if fast:
         print(f"fast paths: {fast} of {len(to_check)} decided without a vote")
@@ -440,11 +496,16 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     if paint_eras:
         # The final choice can differ from the draft (failed claims move
         # scenes); chosen scenes never painted as drafts paint now, late
-        # but complete, numbered in final film order.
+        # but complete, numbered in final film order. A draft painting
+        # whose state no longer matches is repainted, never kept.
         final_numbers = stream.scene_numbers(chosen)
+        actions = final_paint_actions(chosen, set(paint_futures), painted_states)
         for scene in chosen:
             year = scene["from_year"]
-            if isinstance(year, int) and year not in paint_futures:
+            action = actions.get(year)
+            if action is None or action == "keep":
+                continue
+            if action == "paint":
                 filmed.emit("scene_verified", {"scene": final_numbers[year],
                                                "year": year,
                                                "date_label": scene.get("date_label")})
@@ -452,6 +513,13 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                       f"verified (final choice)", flush=True)
                 paint_futures[year] = paint_pool.submit(
                     paint_scene_worker, scene, final_numbers[year], False)
+            else:
+                print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
+                      f"repainted (final state differs)", flush=True)
+                paint_futures[year] = paint_pool.submit(
+                    repaint_scene_worker, paint_futures[year], scene,
+                    final_numbers[year])
+            painted_states[year] = dict(scene.get("state") or {})
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
     if paint_eras:
         try:
@@ -703,6 +771,7 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
     print(f"timings (s): {json.dumps(timings)}")
     tokens = models.usage_totals()
     print(f"tokens: {json.dumps(tokens)}")
+    sites = sorted({render_builder.source_site(c["url"]) for c in kept if c.get("url")})
     saved = {
         "saved_at": date.today().isoformat(),
         "object": {"name": found.name, "kind": found.kind, "qid": found.qid, "articles": found.articles,
@@ -716,6 +785,7 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
         "verify_with": verify_with,
         "failures": failures,
         "comparison": comparison,
+        "source_note": {"distinct_sources": len(sites), "sites": sites},
     }
     if stream_events is not None:
         saved["stream"] = stream_events
@@ -835,9 +905,14 @@ def build_jobs(claims, texts, snippets, anchor_year) -> list:
             for para in verify.select_paragraphs(text, claim["year"], keywords, max_paras=3):
                 evidence.append(f"{url}\n{para}")
         detail = claim.get("quote_span") or claim["claim"]
+        job_claim = claim["claim"]
+        date_text = claim.get("date_text", "")
+        if str(claim["year"]) not in job_claim and not (date_text and date_text in job_claim):
+            job_claim = f"{job_claim} ({date_text or claim['year']})"
         jobs.append({
-            "claim": claim["claim"], "event": claim.get("event", "stood"), "detail": detail,
-            "year": claim["year"], "keywords": keywords, "passages": evidence[:13],
+            "claim": job_claim, "event": claim.get("event", "stood"), "detail": detail,
+            "year": claim["year"], "date_text": date_text,
+            "keywords": keywords, "passages": evidence[:13],
             "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
             "anchor": claim.get("anchor"), "claim_index": index,
         })
@@ -1120,10 +1195,19 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
     name = data["object"]["name"]
     photo_bytes = photo_bytes_clean(photo)
     wanted = {int(y) for y in scenes.split(",")} if scenes else None
+    claims = data.get("claims", [])
     eras = [s for s in data.get("scenes", [])
             if isinstance(s.get("from_year"), int)
             and not states.is_age_range(s.get("date_label", ""))
-            and (wanted is None or s["from_year"] in wanted)]
+            and (wanted is None or s["from_year"] in wanted)
+            and any(captions.claim_matches(c, s["from_year"]) for c in claims)]
+    skipped = [s["from_year"] for s in data.get("scenes", [])
+               if isinstance(s.get("from_year"), int)
+               and not states.is_age_range(s.get("date_label", ""))
+               and (wanted is None or s["from_year"] in wanted)
+               and not any(captions.claim_matches(c, s["from_year"]) for c in claims)]
+    for year in skipped:
+        print(f"{year}: skipped (no supported claim of its own)")
     if not eras:
         print("no paintable eras in research")
         return 2
@@ -1179,6 +1263,9 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
         entries[year] = entry
         print(f"{year}: {result['verdict']} "
               f"(attempts {result['attempts']}) {result.get('note', '')}"[:160])
+    for year in skipped:
+        entries[year] = {"year": year, "verdict": "skipped", "attempts": 0,
+                         "note": "no supported claim of its own"}
     kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
     if kept_files:
         paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
@@ -1215,9 +1302,9 @@ def child_support_respond(line, source):
     return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
 
 
-def caption_rewrite_respond(detail, quote, year, plain):
+def caption_rewrite_respond(detail, quote, year, plain, stamp=""):
     """One caption sentence on Muse Spark, steady temperature."""
-    prompt = captions.sentence_prompt(detail, quote, year)
+    prompt = captions.sentence_prompt(detail, quote, year, stamp=stamp or None)
     if plain:
         prompt += " Shorter and simpler."
     resp = models.respond(_respond_for(models.VERIFY), models.VERIFY, input=prompt)
@@ -1258,12 +1345,12 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, out_dir="out"):
             continue
         claim = assigned.get(year)
         if claim is None:
-            scene["caption_sentence"] = {
-                "text": captions.fallback_line(scene),
-                "claim_year": None, "claim_url": None}
-            print(f"{year}: fallback (no claim of its own)")
+            print(f"{year}: no claim of its own; dropped from the film")
             continue
-        out = captions.write_sentence(rewrite, support, claim, year)
+        others = captions.other_texts(claim, data.get("claims", []), year)
+        out = captions.write_sentence(
+            rewrite, support, claim, year, other_texts=others,
+            stamp=scene.get("date_label", "") or "")
         if not out["verified"]:
             failed.append(year)
             print(f"{year}: sentence failed verification")

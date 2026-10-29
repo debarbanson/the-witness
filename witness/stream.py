@@ -49,11 +49,13 @@ def scene_event(scene_no, scene, image, elapsed):
     }
 
 
-def newly_ready_scenes(draft, judged_years, to_check_years, emitted):
+def newly_ready_scenes(draft, judged_years, to_check_years, emitted,
+                       supported_years):
     """Draft scenes whose every checked claim is judged, minus emitted.
 
     `judged_years` and `to_check_years` are year multisets (one entry
-    per claim); a scene year is ready when judged covers checked.
+    per claim); a scene year is ready when judged covers checked and
+    at least one of its claims came back supported.
     """
     remaining = {}
     for year in to_check_years:
@@ -61,9 +63,13 @@ def newly_ready_scenes(draft, judged_years, to_check_years, emitted):
     for year in judged_years:
         if year in remaining:
             remaining[year] -= 1
+    supported = {}
+    for year in supported_years:
+        supported[year] = supported.get(year, 0) + 1
     return [s for s in draft
             if isinstance(s["from_year"], int)
             and remaining.get(s["from_year"], 0) <= 0
+            and supported.get(s["from_year"], 0) > 0
             and s["from_year"] not in emitted]
 
 

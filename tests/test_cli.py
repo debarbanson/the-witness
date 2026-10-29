@@ -297,6 +297,32 @@ def test_claim_urls_skips_fetched_and_failed():
     assert urls == ["https://b.example/y"]
 
 
+def test_dotenv_key_reaches_client_for(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WITNESS_TEST_KEY", raising=False)
+    (tmp_path / ".env.local").write_text('WITNESS_TEST_KEY="t-abc"\n')
+    cli_module.load_dotenv()
+    spec = models.ModelSpec(provider="x", base_url="https://example.com/v1",
+                            model="m", key_name="WITNESS_TEST_KEY")
+    assert models.client_for(spec).api_key == "t-abc"
+
+
+def test_dotenv_never_overrides_set_variables(tmp_path, monkeypatch, capsys):
+    import os
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WITNESS_TEST_KEY", "keep")
+    (tmp_path / ".env.local").write_text('WITNESS_TEST_KEY="t-abc"\nOTHER=hush\n')
+    cli_module.load_dotenv()
+    assert os.environ["WITNESS_TEST_KEY"] == "keep"
+    assert os.environ["OTHER"] == "hush"
+    assert capsys.readouterr().out == ""
+
+
 def test_build_jobs_runs_in_film_order():
     from witness.cli import build_jobs
 
@@ -311,6 +337,23 @@ def test_build_jobs_runs_in_film_order():
     assert [(j["year"], j.get("anchor")) for j in jobs] == [
         (1779, "build"), (1850, None), (1930, None)]
     assert [j["claim_index"] for j in jobs] == [1, 2, 0]
+
+
+def test_build_jobs_carries_date_and_backstops_yearless_text():
+    from witness.cli import build_jobs
+
+    claims = [
+        {"year": 1865, "event": "converted", "claim": "converted to steam",
+         "date_text": "1865", "sources": ["https://en.wikipedia.org/wiki/X"]},
+        {"year": 1779, "event": "built", "claim": "built (in 1779): raised",
+         "date_text": "in 1779", "sources": ["https://en.wikipedia.org/wiki/X"]},
+    ]
+    jobs = build_jobs(claims, {}, [], None)
+    by_year = {j["year"]: j for j in jobs}
+    assert by_year[1865]["claim"] == "converted to steam (1865)"
+    assert by_year[1865]["date_text"] == "1865"
+    assert by_year[1779]["claim"] == "built (in 1779): raised"
+    assert by_year[1779]["date_text"] == "in 1779"
 
 
 def test_apply_judged_maps_results_back_in_claim_order():
@@ -459,6 +502,8 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
+                   {"year": 1950, "verdict": "supported", "claim": "stood"}],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
@@ -506,11 +551,16 @@ def test_cmd_paint_filters_scenes(tmp_path, monkeypatch):
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
+                   {"year": 1950, "verdict": "supported", "claim": "stood"}],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
-             "caption_lines": []},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
             {"from_year": 1950, "date_label": "1950",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
@@ -550,11 +600,16 @@ def test_cmd_paint_merges_manifest_and_contact_across_runs(tmp_path, monkeypatch
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
+                   {"year": 1950, "verdict": "supported", "claim": "stood"}],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
-             "caption_lines": []},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
             {"from_year": 1950, "date_label": "1950",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
@@ -670,11 +725,16 @@ def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
+                   {"year": 1950, "verdict": "supported", "claim": "stood"}],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
-             "caption_lines": []},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
         ]}))
     photo = tmp_path / "photo.jpg"
     photo.write_bytes(tiny)
@@ -716,7 +776,10 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
-             "caption_lines": []},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
         ],
         "timeline": [], "timings": {}}))
     photo = tmp_path / "photo.jpg"
@@ -762,7 +825,10 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
-             "caption_lines": []},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
         ],
         "timeline": [], "timings": {}}))
     photo = tmp_path / "photo.png"
@@ -834,7 +900,10 @@ def _render_fixture(tmp_path, slug="q1-test", root=None):
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
                        "scope": "whole", "description": "Whole."},
-             "caption_lines": []},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
         ],
         "timeline": [], "timings": {}}))
     photo = tmp_path / "photo.jpg"
@@ -888,6 +957,49 @@ def test_render_writes_into_job_folder(tmp_path, monkeypatch):
     assert code == 0
     assert (root / "q1-test" / "film" / "film.html").exists()
     assert not (tmp_path / "out" / "q1-test").exists()
+
+
+def test_final_paint_actions_paints_repaints_and_keeps():
+    from witness import cli as cli_module
+
+    standing = {"condition": "standing", "degree": "total", "scope": "whole",
+                "description": "Whole."}
+    burnt = {"condition": "burnt", "degree": "total", "scope": "whole",
+             "description": "Burnt."}
+    chosen = [{"from_year": 1779, "state": standing},
+              {"from_year": 1932, "state": burnt},
+              {"from_year": 1999, "state": standing}]
+    actions = cli_module.final_paint_actions(
+        chosen, {1779, 1999}, {1779: standing, 1999: burnt})
+    assert actions == {1779: "keep", 1932: "paint", 1999: "repaint"}
+
+
+def test_report_and_save_records_source_note(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    found = SimpleNamespace(name="Test Mill", kind="mill", qid="Q1",
+                            articles={"en": "Test Mill"})
+    kept = [
+        {"year": 1779, "verdict": "supported", "claim": "built",
+         "sources": ["https://en.wikipedia.org/wiki/X"],
+         "url": "https://en.wikipedia.org/wiki/X"},
+        {"year": 1865, "verdict": "supported", "claim": "stood",
+         "sources": ["https://nl.wikipedia.org/wiki/Y"],
+         "url": "https://nl.wikipedia.org/wiki/Y"},
+        {"year": 1932, "verdict": "supported", "claim": "burnt",
+         "sources": ["https://example.com/z"],
+         "url": "https://example.com/z"},
+    ]
+    slug = cli_module.report_and_save(
+        found, "en", ("en",), kept, [], [],
+        {"outcome": "full_film", "reason": "x", "verified": 3, "eras": 3,
+         "good_sources": 2}, {}, "meta", [], None)
+    saved = json.loads((tmp_path / "out" / slug / "research.json").read_text())
+    assert saved["source_note"] == {"distinct_sources": 2,
+                                    "sites": ["Wikipedia", "example.com"]}
 
 
 def test_report_and_save_writes_into_job_folder(tmp_path, monkeypatch):
@@ -946,7 +1058,7 @@ def _caption_research():
     }
 
 
-def test_cmd_captions_writes_sentence_and_fallback(tmp_path, monkeypatch, capsys):
+def test_cmd_captions_writes_sentence_and_skips_claimless(tmp_path, monkeypatch, capsys):
     import json
     from pathlib import Path
     from witness import cli as cli_module
@@ -957,7 +1069,7 @@ def test_cmd_captions_writes_sentence_and_fallback(tmp_path, monkeypatch, capsys
     (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
     calls = []
 
-    def rewrite(detail, quote, year, plain):
+    def rewrite(detail, quote, year, plain, stamp=""):
         calls.append((year, plain))
         return "I opened my doors to the town."
 
@@ -971,9 +1083,7 @@ def test_cmd_captions_writes_sentence_and_fallback(tmp_path, monkeypatch, capsys
     assert first["caption_sentence"] == {
         "text": "I opened my doors to the town.",
         "claim_year": 1779, "claim_url": "https://a.example/x"}
-    assert second["caption_sentence"] == {
-        "text": "Here I stood in 1865, much as always.",
-        "claim_year": None, "claim_url": None}
+    assert "caption_sentence" not in second
 
 
 def test_cmd_captions_skips_captioned_scenes(tmp_path, monkeypatch, capsys):
@@ -991,7 +1101,7 @@ def test_cmd_captions_skips_captioned_scenes(tmp_path, monkeypatch, capsys):
     (slug_dir / "research.json").write_text(json.dumps(data))
     calls = []
 
-    def rewrite(detail, quote, year, plain):
+    def rewrite(detail, quote, year, plain, stamp=""):
         calls.append(year)
         return "I opened my doors."
 
@@ -1001,7 +1111,7 @@ def test_cmd_captions_skips_captioned_scenes(tmp_path, monkeypatch, capsys):
     assert code == 0
     assert calls == []
     out, _ = capsys.readouterr()
-    assert "fallback" in out
+    assert "no claim" in out
 
 
 def test_cmd_captions_reports_failed_scenes(tmp_path, monkeypatch, capsys):
@@ -1016,12 +1126,12 @@ def test_cmd_captions_reports_failed_scenes(tmp_path, monkeypatch, capsys):
 
     code = cli_module.cmd_captions(
         "q1-test",
-        rewrite_call=lambda detail, quote, year, plain: "x" * 200,
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "x" * 200,
         support_call=lambda sentence, quote: "supported")
     assert code == 1
     saved = json.loads((tmp_path / "out" / "q1-test" / "research.json").read_text())
     assert "caption_sentence" not in saved["scenes"][0]
-    assert saved["scenes"][1]["caption_sentence"]["claim_year"] is None
+    assert "caption_sentence" not in saved["scenes"][1]
 
 
 def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
@@ -1041,7 +1151,8 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
     Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
     (slug_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
-        "claims": [],
+        "claims": [{"year": 1932, "verdict": "supported",
+                    "claim": "burnt in 1932"}],
         "scenes": [
             {"from_year": 1932, "date_label": "1932",
              "state": {"condition": "ruin", "degree": "total",
@@ -1081,7 +1192,9 @@ def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
     Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
     (slug_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
-        "claims": [], "timeline": [], "timings": {},
+        "claims": [{"year": 1790, "verdict": "supported",
+                    "claim": "named in 1790"}],
+        "timeline": [], "timings": {},
         "scenes": [
             {"from_year": 1026, "date_label": "about 800 to 1,200 years old",
              "state": {"condition": "standing", "degree": "total",
@@ -1110,3 +1223,53 @@ def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
     assert code == 0
     assert painted == [True]
     assert not (slug_dir / "eras_parallel" / "1026.png").exists()
+
+
+def test_cmd_paint_skips_scenes_without_supported_claims(tmp_path, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
+    (slug_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
+        "claims": [{"year": 1790, "verdict": "supported",
+                    "claim": "named in 1790"},
+                   {"year": 1970, "verdict": "unsupported",
+                    "claim": "scaffolded in 1970"}],
+        "timeline": [], "timings": {},
+        "scenes": [
+            {"from_year": 1790, "date_label": "1790",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+            {"from_year": 1970, "date_label": "1970",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Scaffolded."},
+             "caption_lines": []},
+        ],
+    }))
+    painted = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        if photo_bytes is not None:
+            return {"image": b"anchor", "response_id": "r0"}
+        painted.append("1970" in prompt)
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8), "green").save(buf, "PNG")
+        return {"image": buf.getvalue(), "response_id": "r1"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(tmp_path / "photo.jpg"), place="Forest",
+        paint_call=call, check_call=lambda image, p: "MATCHES whole.",
+        photo_call=lambda photo_bytes, prompt: "summer")
+    assert code == 0
+    assert painted == [False]
+    assert not (slug_dir / "eras_parallel" / "1970.png").exists()
+    manifest = json.loads((slug_dir / "paint_parallel.json").read_text())
+    assert {e["year"]: e["verdict"] for e in manifest["eras"]} == {
+        1790: "matches", 1970: "skipped"}

@@ -459,6 +459,25 @@ def test_assemble_claims_dedupes_sources():
     assert "1932" in claim["claim"]
 
 
+def test_assemble_claims_dates_the_claim_text():
+    (claim,) = research.assemble_claims(
+        events=[{"year": 1932, "event": "burnt",
+                 "detail": "the mill burnt down",
+                 "date_text": "23 April 1932"}],
+        citations=[], sources=[])
+    assert claim["claim"] == "burnt (23 April 1932): the mill burnt down"
+
+
+def test_assemble_claims_ranges_stay_ranges_in_text():
+    (claim,) = research.assemble_claims(
+        events=[{"year": 1026, "event": "stood",
+                 "detail": "thought to be old",
+                 "date_text": "between 800 and 1,200 years old"}],
+        citations=[], sources=[])
+    assert "(between 800 and 1,200 years old)" in claim["claim"]
+    assert "1026" not in claim["claim"]
+
+
 def test_assemble_claims_carries_visible_change_and_date_text():
     (claim,) = research.assemble_claims(
         events=[

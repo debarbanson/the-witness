@@ -20,14 +20,14 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 - **Back end:** Python, a small FastAPI app around the same `witness` package the command line uses. A film takes minutes, so `POST /films` starts a job and returns its id; `GET /films/{id}` returns its progress events and, at the end, the film and sources.
 - **Front end:** one static HTML page with plain JavaScript, no framework. It polls the job, renders the progress events and the growing timeline, and plays the finished film with the same renderer code the MP4 export uses.
 - **Rendering on the server** (MP4 for download or sharing only) needs Playwright with Chromium and ffmpeg, so the host must run a container.
-- **Cache:** finished objects are kept by Wikidata id plus language, so a known object opens at once. Only research results and paintings are cached, never the visitor's photo or location.
+- **Cache:** reviewed research is kept by Wikidata id plus language, and a fresh film is reused from its folder for a week, so a known object opens at once. Only research results and paintings are cached, never the visitor's photo or location.
 - **Hosting: Modal, TEST on day 4.** A Modal account exists (workspace `debarbanson`), and the hackathon's $100 Modal credits were requested on 26 Oct (selected teams only, not guaranteed). Modal authenticates through its own CLI (`modal token new`, stored outside the repo), and the app's keys go into Modal secrets, never into the repo. Fallback: another container host. It must stay up through judging (5 to 9 November).
 - **Limits for a public link:** one film at a time per visitor and a hard daily cap on films, enforced in our own code. Meta's "Spend Limit" is only an alert and does not stop billing (hackathon FAQ, 26 Oct), so the app itself must refuse new films once the daily cap or a running cost estimate is reached; past the $150 credits, usage is charged to the card.
 
 ## Privacy
 
 - No accounts, no cookies, no analytics.
-- Photos and coordinates live only for the job's duration plus 24 hours, then are deleted. GPS is never written into outputs.
+- The photo is normalised at upload (orientation applied, metadata stripped) and kept for the job's duration plus 24 hours, then deleted. Coordinates never touch disk or outputs: lookups run in memory and error text carries no query strings.
 - The page says this in one line under the upload button.
 
 ## Out of scope

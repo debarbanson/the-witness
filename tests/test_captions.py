@@ -68,7 +68,7 @@ def test_assign_claims_accepts_a_span_covering_the_scene():
 
 def test_write_sentence_keeps_supported_rewrite():
     out = captions.write_sentence(
-        rewrite_call=lambda detail, quote, year, plain: "My sails turned for the miller.",
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "My sails turned for the miller.",
         support_call=lambda sentence, quote: "supported",
         claim=claim(1865), year=1865)
     assert out == {"sentence": "My sails turned for the miller.",
@@ -77,7 +77,7 @@ def test_write_sentence_keeps_supported_rewrite():
 
 def test_write_sentence_keeps_partly_verified_rewrite():
     out = captions.write_sentence(
-        rewrite_call=lambda detail, quote, year, plain: "I burnt down that evening.",
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I burnt down that evening.",
         support_call=lambda sentence, quote: "partly",
         claim=claim(1932), year=1932)
     assert out == {"sentence": "I burnt down that evening.",
@@ -87,7 +87,7 @@ def test_write_sentence_keeps_partly_verified_rewrite():
 def test_write_sentence_retries_shorter_once_then_fails():
     calls = []
 
-    def rewrite(detail, quote, year, plain):
+    def rewrite(detail, quote, year, plain, stamp=""):
         calls.append(plain)
         return "Much too long " * 20 if not plain else "Still much too long " * 20
 
@@ -102,7 +102,7 @@ def test_write_sentence_retries_shorter_once_then_fails():
 def test_write_sentence_rejects_borrowed_years_and_cutting():
     seen = []
 
-    def rewrite(detail, quote, year, plain):
+    def rewrite(detail, quote, year, plain, stamp=""):
         return seen.pop(0)
 
     seen[:] = ["I was saved in 1925, they say.",
@@ -147,12 +147,110 @@ def test_sentence_prompt_forbids_years_and_cutting():
     assert "The mill was converted in 1865." in prompt
 
 
-def test_fallback_line_has_no_fact_and_differs_per_scene():
-    first = captions.fallback_line(scene(1026))
-    second = captions.fallback_line(scene(1790))
-    assert first and second and first != second
-    assert "…" not in first
-    assert captions.sentence_ok(first, 1026)
-    assert captions.sentence_ok(second, 1790)
-    with pytest.raises(KeyError):
-        captions.fallback_line({"from_year": "today", "state": {}})
+def test_unmatched_scene_gets_no_sentence():
+    assigned = captions.assign_claims([scene(1865)], [claim(1779)])
+    assert assigned == {}
+
+
+def test_other_texts_collects_scene_evidence_beyond_the_main_quote():
+    main = claim(1932, quote="The brigade could not prevent it.",
+                 support=[{"url": "u1", "supports": True,
+                           "quote": "The brigade could not prevent it."},
+                          {"url": "u1", "supports": True,
+                           "quote": "The cause was never established."}])
+    other = claim(1932, claim="burnt on the evening of April 23, 1932",
+                  quote="On the evening of April 23, 1932 it burnt down.",
+                  support=[{"url": "u2", "supports": True,
+                            "quote": "On the evening of April 23, 1932 it burnt down."},
+                           {"url": "u3", "supports": False, "quote": "Rumour."}])
+    unrelated = claim(1865, claim="converted to steam",
+                      support=[{"url": "u4", "supports": True,
+                                "quote": "Converted."}])
+    texts = captions.other_texts(main, [main, other, unrelated], 1932)
+    assert "burnt on the evening of April 23, 1932" in texts
+    assert "On the evening of April 23, 1932 it burnt down." in texts
+    assert "The cause was never established." in texts
+    assert "The brigade could not prevent it." not in texts
+    assert "something happened in 1932" not in texts
+    assert "Rumour." not in texts
+    assert "Converted." not in texts
+
+
+def test_sentence_prompt_leaves_out_disputed_details():
+    prompt = captions.sentence_prompt("detail words.", "Quote words.", 1932)
+    assert "disagree" in prompt
+    assert "leave that detail out" in prompt
+
+
+def test_sentence_prompt_names_the_stamp_and_asks_for_natural_numbers():
+    prompt = captions.sentence_prompt("d", "q", 2019, stamp="22 October 2019")
+    assert "22 October 2019" in prompt
+    assert "naturally" in prompt
+    assert "22 October 2019" not in captions.sentence_prompt("d", "q", 2019)
+
+
+def test_sentence_ok_rejects_a_different_date():
+    assert captions.sentence_ok("I burnt down on 23 April 1932.", 1932,
+                                stamp="23 April 1932")
+    assert not captions.sentence_ok("I burnt down on 21 April 1932.", 1932,
+                                    stamp="23 April 1932")
+    assert captions.sentence_ok("I stood here quietly.", 1932,
+                                stamp="23 April 1932")
+    assert captions.sentence_ok("I stood 23 metres from the cliff.", 2002,
+                                stamp="2002")
+
+
+def test_write_sentence_forwards_the_stamp():
+    seen = {}
+
+    def rewrite(detail, quote, year, plain, stamp=""):
+        seen["stamp"] = stamp
+        return "I was moved."
+
+    out = captions.write_sentence(
+        rewrite_call=rewrite,
+        support_call=lambda sentence, quote: "supported",
+        claim=claim(2019), year=2019, stamp="22 October 2019")
+    assert out["verified"] is True
+    assert seen["stamp"] == "22 October 2019"
+
+
+def test_write_sentence_checks_the_combined_evidence():
+    seen = {}
+
+    def rewrite(detail, quote, year, plain, stamp=""):
+        seen["source"] = quote
+        return "I burnt down on 23 April 1932."
+
+    def support(sentence, quote):
+        return "supported" if "23 April 1932" in quote else "unsupported"
+
+    out = captions.write_sentence(
+        rewrite_call=rewrite, support_call=support,
+        claim=claim(1932, quote="The brigade could not prevent it."), year=1932,
+        other_texts=["On the evening of 23 April 1932 it burnt down."])
+    assert out["verified"] is True
+    assert "On the evening of 23 April 1932 it burnt down." in seen["source"]
+
+
+def test_write_sentence_retries_without_the_contested_detail():
+    seen = []
+
+    def rewrite(detail, quote, year, plain, stamp=""):
+        seen.append(plain)
+        if not plain:
+            return "I burnt down in the evening."
+        return "I burnt down on 23 April 1932."
+
+    def support(sentence, quote):
+        if "evening" in sentence:
+            return "unsupported"
+        return "supported"
+
+    out = captions.write_sentence(
+        rewrite_call=rewrite, support_call=support,
+        claim=claim(1932, quote="The brigade could not prevent it."), year=1932,
+        other_texts=["On Saturday afternoon, April 23rd, 1932 it burnt."])
+    assert out == {"sentence": "I burnt down on 23 April 1932.",
+                   "verified": True, "attempts": 2}
+    assert seen == [False, True]

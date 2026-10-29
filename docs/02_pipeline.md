@@ -29,7 +29,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
    - **Proven 26 Oct:** a narrow tag set (windmill, lighthouse, historic, tree) missed the owner's photo of the Roelofarendsveen water tower (`man_made=water_tower`, Wikidata Q2487636); a broader query found it. **TEST** the key-regex form above on that photo.
    - **Wikidata nearby items** as a second source, for objects OSM tags poorly. Wikidata is language-neutral: each item carries coordinates and links to its Wikipedia article in every language, so no language is hard-coded. Query items near the photo with the MediaWiki API on wikidata.org (`action=query&list=geosearch`). Avoid the Wikidata Query Service for this: its `wikibase:around` is deprecated for the new backend and the public endpoint is slow and throttled (60 s of query time per minute per client) ([WDQS manual](https://www.mediawiki.org/wiki/Wikidata_Query_Service/User_Manual), [query limits](https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service/query_limits)). **TEST** geosearch on wikidata.org on day 2.
    - **Article languages per candidate (from the Wikidata sitelinks):** the language of the country where the photo was taken (local Wikipedias know local history best), the user's own language, and English as a fallback.
-   - **Reliability:** Overpass returned 502 twice on 26 Oct. Retry with a pause (30 s after 429 or 502), then a second public Overpass instance; cache every result.
+   - **Reliability:** Overpass returned 502 twice on 26 Oct. One fast try per instance (about 5 s) and identify moves on without it; coordinate lookups stay in memory and are never written to the disk cache.
    - Fair use (OSM wiki, checked 26 Oct): under 10,000 queries and 1 GB a day, a `User-Agent` naming the app, no parallel scripts, cache results, and wait 30 s after a 429 ([Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API)).
 2. **Rank by distance; camera direction is a tie-breaker only.** **Proven 26 Oct:** the owner's photo said 201 degrees while the tower stood at bearing 5 (the camera was pointed upwards, where the compass is unreliable), so direction ranking put the right answer last. Rank by distance, use `GPSImgDirection` only to break ties, and drop candidates whose centre lies beyond the radius (a municipal boundary matched `around` but sat 1,113 m away). Keep the top 5; the vision pick chose correctly from them.
 3. **Typed place to coordinates (Nominatim), fallback only.** At most 1 request per second, a `User-Agent` naming the app, results cached, attribution shown; no autocomplete ([usage policy](https://operations.osmfoundation.org/policies/nominatim/)).
@@ -49,11 +49,8 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 
 - Responses API, model `muse-spark-1.3`, `tools: [{"type": "web_search"}]`, `include: ["web_search_call.results"]` ([search grounding](https://dev.meta.ai/docs/search-grounding.md)).
 - Citations come back as `url_citation` annotations on `output_text` (url, title, start and end index).
-- Meta notes multi-hop research is less dependable, so ask **one question per call**:
-  1. When and why was it built? (anchor year)
-  2. **The object's own life:** what happened to the object itself (extended, damaged, burnt, demolished, moved, restored, rebuilt), with years. This gives its **state per era**.
-  3. Then one question per era about its surroundings, for 5 to 7 eras between the anchor year and today.
-- Each answer becomes a claim: `{era, year, kind: "object" | "surroundings", claim, quote_span, sources[]}`. A claim with no `url_citation` is discarded.
+- Meta notes multi-hop research is less dependable, so ask **one lifespan question** covering the build year and the object's own life (extended, damaged, burnt, demolished, moved, restored, rebuilt), with years. This gives its **state per era**.
+- Each dated event in the answer becomes a claim: `{era, year, kind: "object" | "surroundings", claim, quote_span, sources[]}`. Sources are pooled per answer: every claim from one answer shares its deduped source list. A claim with no `url_citation` is discarded.
 - **Structured facts first (Wikidata, free).** Before any web search, read the confirmed object's Wikidata item (`action=wbgetentities`): inception (P571), architect (P84), significant events (P793, with point in time), demolished or destroyed (P576), heritage designation (P1435), and the image and Commons category (P18, P373). Each dated statement becomes a claim whose source is the Wikidata item URL plus any references on the statement. These seed the state timeline; web search fills in and confirms.
 - **Languages:** sources may be in any language; the research reads the local-language and the user's-language articles first (from step 0). Captions are written in the user's language (on the web page, from the browser's language setting; on the command line, `--lang`, default English). Source links keep their original language.
 - From the object claims, build a state timeline: `{from_year, to_year, state}` where a state is what you would see standing in front of the object: a condition from a fixed list (`under_construction`, `standing`, `damaged`, `burnt`, `ruin`, `rebuilt`, `moved`, `demolished`), a degree (`partial` or `total`), a scope (`whole` or `part`), and a free sourced description of the visible change. One meaning question decides state vs caption: does this change what the object physically looks like? Non-physical history (architect, listing, rename, plans) stays as captions (for example De Adriaan: standing 1779 to 1932; ruin 1932 to 1999; under construction 1999 to 2002; rebuilt from 2002).
@@ -127,13 +124,13 @@ Every source outside the Meta API is free. They ask for good manners, which the 
 |---|---|---|---|
 | OpenStreetMap Overpass | Nearby candidates | None | User-Agent naming the app, under 10,000 queries a day, no parallel calls, cache, 30 s pause after 429 |
 | Nominatim | Typed place to coordinates | None | At most 1 request per second, User-Agent, cache, attribution, no autocomplete |
-| Wikidata and Wikipedia (MediaWiki API) | Nearby items, structured facts, articles | None | User-Agent with contact details, one request at a time, cache, back off on `ratelimited` ([etiquette](https://www.mediawiki.org/wiki/API:Etiquette), [User-Agent policy](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy)) |
+| Wikidata and Wikipedia (MediaWiki API) | Nearby items, structured facts, articles | None | User-Agent with contact details, one request per site at a time (the two geosearch calls run in parallel on different hosts), cache, back off on `ratelimited` ([etiquette](https://www.mediawiki.org/wiki/API:Etiquette), [User-Agent policy](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy)) |
 | Wikimedia Commons | Historical reference images | None | As Wikidata; public domain, CC0 or CC BY files only, CC BY credited by author, licence and link |
 | Europeana | Historical reference images | Free personal key | A personal key is for "individual, non-production use": use it for building and for the demo films; the public web page uses Commons only unless a Europeana project key is granted. Key never shared or committed. All API use is logged; reasonable limits (429). Use each image only as its own `edm:rights` statement allows (public domain, CC0 or CC BY here), keep its rights URL and provider link with it, credit the provider, and remove an image on Europeana's request ([terms of use](https://www.europeana.eu/en/rights/terms-of-use)) |
 
 The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson/the-witness)`. Wikimedia's policy accepts a website as the contact, so no email address goes into public code.
 - **Consistency, measured 28 Oct:** branching every era from the anchor holds the object's centre within 0.3 percent of the frame (3.6 percent for the serial chain).
-- A safety block returns 400 `content_policy_violation`; log it, soften the scene prompt once, otherwise skip the era.
+- A safety block returns 400 `content_policy_violation`; the first block retries the same prompt once (the filter is flaky), the second softens the scene prompt, then the era is dropped and logged.
 
 ## Step 5: Check each painting against the object's state (Muse Spark, vision)
 
@@ -143,12 +140,12 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 
 ## Step 5b: Spot the difference (children's version)
 
-One painted era next to today's photo; `muse-spark-1.3` (vision) finds up to 5 visible differences with regions, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through steps 2 to 7; both versions are made together and cached.
+One painted era next to today's photo; `muse-spark-1.3` (vision) finds up to 5 visible differences with regions, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through research and captions and both versions are written and cached, but the film page renders the adult captions only.
 
 ## Step 6: People as layers (SAM 3.1)
 
 - On each painted era, `sam-3.1` with the prompt `person` (up to 16 objects) gives masks for period figures.
-- Each figure becomes its own RGBA layer, so the renderer can move them at a different speed from the background (parallax).
+- Each figure becomes its own RGBA layer. The layers share the painting's transform exactly (push-in only), so figures never double; there is no parallax drift between layers and background.
 
 ## Step 7: Film (our renderer)
 

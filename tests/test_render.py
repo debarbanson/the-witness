@@ -23,7 +23,9 @@ def scene(year, condition="standing", description="", lines=(), sentence=None,
 
 def test_timeline_gives_every_part_its_seconds():
     plan = builder.build_timeline(
-        [scene(1779), scene(1865)], {"1779": "e/1779.png", "1865": "e/1865.png"})
+        [scene(1779, sentence="I opened."),
+         scene(1865, sentence="I ground.")],
+        {"1779": "e/1779.png", "1865": "e/1865.png"})
     kinds = [(seg["kind"], seg["start"], seg["end"]) for seg in plan]
     assert kinds[0][0] == "title" and kinds[0][1] == 0
     assert kinds[1][0] == "anchor"
@@ -36,9 +38,19 @@ def test_timeline_gives_every_part_its_seconds():
 
 
 def test_timeline_skips_eras_without_paintings():
-    plan = builder.build_timeline([scene(1779), scene(1865)], {"1865": "e/1865.png"})
+    plan = builder.build_timeline(
+        [scene(1779, sentence="I opened."), scene(1865, sentence="I ground.")],
+        {"1865": "e/1865.png"})
     eras = [seg for seg in plan if seg["kind"] == "era"]
     assert [seg["year"] for seg in eras] == [1865]
+
+
+def test_timeline_skips_eras_without_written_sentences():
+    plan = builder.build_timeline(
+        [scene(1779, sentence="I opened."), scene(1865)],
+        {"1779": "e/1779.png", "1865": "e/1865.png"})
+    eras = [seg for seg in plan if seg["kind"] == "era"]
+    assert [seg["year"] for seg in eras] == [1779]
 
 
 def age_scene():
@@ -49,7 +61,7 @@ def age_scene():
 
 def test_timeline_never_films_an_age_range():
     plan = builder.build_timeline(
-        [age_scene(), scene(1790)],
+        [age_scene(), scene(1790, sentence="I was renamed.")],
         {"1026": "e/1026.png", "1790": "e/1790.png"})
     eras = [seg for seg in plan if seg["kind"] == "era"]
     assert [seg["year"] for seg in eras] == [1790]
@@ -91,11 +103,11 @@ def test_caption_is_a_date_stamp_and_one_sentence():
     assert stamp == "23 April 1932"
 
 
-def test_caption_without_sentence_is_plain_and_unborrowed():
-    _, line2 = builder.caption_for(
-        scene(1779, "standing", "opened in 1779", ["barges on the quay"]))
-    assert line2 == "Here I stood in 1779, much as always."
-    assert "…" not in line2
+def test_caption_without_sentence_is_empty():
+    stamp, sentence = builder.caption_for(scene(1779))
+    assert (stamp, sentence) == ("1779", "")
+    assert builder.filmable(scene(1779)) is False
+    assert builder.filmable(scene(1779, sentence="I opened.")) is True
 
 
 def test_source_site_names_domain():
@@ -168,7 +180,8 @@ def test_film_json_carries_readiness_and_attribution(tmp_path):
         "outcome": {"outcome": "full_film"},
         "claims": [{"url": "https://a.example/1", "quote": "q",
                     "verdict": "supported"}],
-        "scenes": [scene(1779, "standing", "opened in 1779")],
+        "scenes": [scene(1779, "standing", "opened in 1779",
+                         sentence="I opened my doors to the town.")],
         "timeline": [],
         "timings": {"identify_steps": {"overpass_s": 5}},
         "stream": [{"event": "scene_painted", "year": 1779, "t": 54.4,
@@ -189,7 +202,8 @@ def test_film_without_stream_events_is_ready_at_once(tmp_path):
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1779)], "timeline": [], "timings": {},
+        "scenes": [scene(1779, sentence="I opened my doors to the town.")],
+        "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
                              photo="today.jpg", photo_credit="me", layers={})
@@ -296,21 +310,25 @@ def test_today_card_uses_last_words_when_dead_or_gone():
     assert line == "And here I stood."
 
 
-def test_film_caption_fallback_carries_no_claim(tmp_path):
+def test_film_drops_scenes_without_written_sentences(tmp_path):
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1779, "standing", "opened")],
+        "scenes": [scene(1779, "standing", "opened",
+                         sentence="I opened my doors to the town."),
+                   scene(1865, "standing", "millstones")],
         "timeline": [], "timings": {},
     }
-    out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
+    out = builder.write_film(tmp_path, research,
+                             {"1779": "e/1779.png", "1865": "e/1865.png"},
                              photo="today.jpg", photo_credit="me", layers={})
     film = json.loads((out / "film.json").read_text())
-    assert film["scenes"][0]["caption"][1] != ""
-    assert film["scenes"][0]["caption_claim"] is None
+    assert [entry["year"] for entry in film["scenes"]] == [1779]
+    eras = [seg for seg in film["segments"] if seg["kind"] == "era"]
+    assert [seg["year"] for seg in eras] == [1779]
 
 
-def test_film_fallback_sentence_carries_no_claim(tmp_path):
+def test_film_drops_sentences_without_a_claim(tmp_path):
     made = scene(1970, "standing", "scaffolding")
     made["caption_sentence"] = {
         "text": "Here I stood in 1970, much as always.",
@@ -323,8 +341,7 @@ def test_film_fallback_sentence_carries_no_claim(tmp_path):
     out = builder.write_film(tmp_path, research, {"1970": "e/1970.png"},
                              photo="today.jpg", photo_credit="me", layers={})
     film = json.loads((out / "film.json").read_text())
-    assert film["scenes"][0]["caption"][1] != ""
-    assert film["scenes"][0]["caption_claim"] is None
+    assert film["scenes"] == []
 
 
 def test_film_html_plays_without_fetch(tmp_path):

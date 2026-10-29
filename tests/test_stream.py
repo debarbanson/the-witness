@@ -50,12 +50,20 @@ def test_scene_event_carries_number_year_caption_source_and_image():
 def test_newly_ready_scenes_fire_once_when_their_claims_land():
     draft = [{"from_year": 1779}, {"from_year": 1932}, {"from_year": "today"}]
     to_check = [1779, 1779, 1932]
-    assert stream.newly_ready_scenes(draft, [1779], to_check, set()) == []
-    ready = stream.newly_ready_scenes(draft, [1779, 1779], to_check, set())
+    assert stream.newly_ready_scenes(draft, [1779], to_check, set(), [1779]) == []
+    ready = stream.newly_ready_scenes(
+        draft, [1779, 1779], to_check, set(), [1779, 1779])
     assert [s["from_year"] for s in ready] == [1779]
-    assert stream.newly_ready_scenes(draft, [1779, 1779], to_check, {1779}) == []
-    ready = stream.newly_ready_scenes(draft, [1779, 1779, 1932], to_check, {1779})
+    assert stream.newly_ready_scenes(
+        draft, [1779, 1779], to_check, {1779}, [1779, 1779]) == []
+    ready = stream.newly_ready_scenes(
+        draft, [1779, 1779, 1932], to_check, {1779}, [1779, 1779, 1932])
     assert [s["from_year"] for s in ready] == [1932]
+
+
+def test_newly_ready_scenes_stay_dark_without_supported_claims():
+    draft = [{"from_year": 1779}]
+    assert stream.newly_ready_scenes(draft, [1779], [1779], set(), []) == []
 
 
 def test_speculation_starts_work_before_the_answer():

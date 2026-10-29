@@ -163,3 +163,11 @@ Block 5: Parliament swapped for the Chain Bridge (CC0, full film, war rule clean
 Stretch: children captions 5/5 lines plus 3/6 states for De Adriaan (drops honest); 22 figure layers across 4/6 eras, one viewed clean.
 
 Noted for Monday: research from the local article plus Wikidata first (few-claim flap), Dutch scene labels, the "1931 to 1932" range build, range-year scenes that never paint, fire-state filter hostility.
+
+## 29 October (renderer day)
+
+Block 1 (painting fixes, test-first): prompts ban all lettering and the check fails text or dates; one vision call judges object state plus text plus anachronisms, with differs notes feeding repaints; one anchor look per run sets the series season and the temporary elements each era holds back unless verified words up to its year name them (states describing foliage overrule the season). Repaints from kept research: De Adriaan 5/6 (1932 filter), oak 6/6, Rubjerg 6/6, tower 3/3 with the 1932 tulips gone first try. New sheets beside the old (eras_parallel_b1). Notable: the oak's bare 2026 is its verified death in June 2026, so the season rule rightly leaves it; the De Adriaan 1932 crane came from its own anchor photo.
+
+Block 2 (renderer, step 7): witness/render builds a live page per film (title and anchor cards over the photo, 7 s eras with push-in and crossfade, first-person two-line captions with source sites, parallax figure layers, cut-out-first today dissolve, end card with sources, AI label, OSM and photo credits). Every frame is a pure function of t: the page plays live and Playwright steps the same render(t) at 30 fps into ffmpeg H.264 1080x1920 (browser needs an unsandboxed run on this Mac). Buffer progress line and clock included. Films: De Adriaan 51 s, oak 58 s, Rubjerg 58 s, page plus MP4 in out/<slug>/film/.
+
+Block 3 (docs): parallel branching with measured reasons replaces chaining in the brief, README and step 4; Muse Wonder dropped from README; demo carries the tower tulips story and the delivery numbers; brief success criteria recorded met.

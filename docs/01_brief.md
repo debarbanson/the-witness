@@ -20,7 +20,7 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 
 1. **Research with receipts:** every caption is backed by a URL the viewer can see, and claims that cannot be verified are dropped.
 2. **The object's own history is shown truthfully:** built, extended, burnt, rebuilt, each state is a sourced claim, and every painted era is checked against it.
-3. **A consistent series:** the eras are painted as one chained conversation anchored on the user's photo, so the film feels like one place through time, ending on the real photo as "today".
+3. **A consistent series:** every era branches in parallel from one anchor turn on the user's photo, so the film feels like one place through time, ending on the real photo as "today". Parallel beat the serial chain on De Adriaan (6 of 6 eras in 79 s against 5 of 6 in 195 s, 0.3% framing drift against 3.6%).
 4. **Open knowledge, worldwide and free:** the object is found through OpenStreetMap and Wikidata, its dated facts come from Wikidata, and real historical photos (public domain, CC0 or CC BY with credit, from Wikimedia Commons and Europeana) guide the paintings. Any object, in any country, in any language.
 5. **A finished film:** layered parallax, first-person captions and citations, ready to share.
 
@@ -39,4 +39,4 @@ Every film comes in a version for adults and one for children aged 8 and up: the
 - Three films from three real photos (a windmill, an old tree, a lighthouse), each 40 to 60 seconds.
 - Every caption has a working source link, shown on screen and in an end card.
 - In every era the object matches its verified state for that year (for example De Adriaan: built 1779, burnt 1932, rebuilt 2002).
-- Generated in under 10 minutes per film, for under $1 in API cost.
+- Generated in under 10 minutes per film, for under $1 in API cost. Met 29 Oct: a painted film costs about $0.47 plus Baseten tokens, and the streamed build runs under 4 minutes.

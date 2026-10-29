@@ -108,8 +108,8 @@ The thresholds are first guesses; tune them on the demo subjects.
 
 Pattern from Meta's cookbook [Keep an image series consistent](https://dev.meta.ai/docs/cookbook/anchored-image-series.md):
 
-- Responses API, model `muse-image-1.0`. Each era is a turn chained with `previous_response_id`, so every era sees the anchor.
-- **Parallel eras (TEST for speed).** Painting eras one after another, each chained on the previous, takes about 3 minutes for 7 eras. Instead, branch every era from the anchor turn (`previous_response_id` = the anchor's id) and paint them in parallel (the limit is 150 images a minute). Consistency then rests on the anchor alone: measure object drift and style against the serial chain on De Adriaan before switching.
+- Responses API, model `muse-image-1.0`. Every era branches from the anchor turn (`previous_response_id` = the anchor's id) and paints in parallel (the limit is 150 images a minute).
+- **Parallel decided 28 Oct on De Adriaan:** 6 of 6 eras in 79 s against 5 of 6 in 195 s for the serial chain, framing drift 0.3% against 3.6% by SAM box, and no expired-id cascade. Consistency rests on the anchor alone, and holds.
 - **Anchor turn:** the user's photo as `input_image`, with an instruction to keep the place's viewpoint and composition and to establish the painted style.
 - **Era turns:** the object's verified state for that year (from the state timeline) plus the verified surroundings (season, period dress and transport) and the shared style words. The object is painted as it was then: whole, burnt, a stump, under scaffolding, rebuilt.
 - **Settings go inside the image tool** (proven 26 Oct; top-level parameters return 400 `unknown parameter`): `tools: [{"type": "image_generation", "size": "1024x1536", "enable_image_search": false}]`. `"1080x1920"` and `"1024x1792"` are rejected; `"1024x1536"` returns 1280x1920, which the renderer crops to 1080x1920.
@@ -132,13 +132,13 @@ Every source outside the Meta API is free. They ask for good manners, which the 
 | Europeana | Historical reference images | Free personal key | A personal key is for "individual, non-production use": use it for building and for the demo films; the public web page uses Commons only unless a Europeana project key is granted. Key never shared or committed. All API use is logged; reasonable limits (429). Use each image only as its own `edm:rights` statement allows (public domain, CC0 or CC BY here), keep its rights URL and provider link with it, credit the provider, and remove an image on Europeana's request ([terms of use](https://www.europeana.eu/en/rights/terms-of-use)) |
 
 The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson/the-witness)`. Wikimedia's policy accepts a website as the contact, so no email address goes into public code.
-- **Consistency, measured 26 Oct:** between chained turns the object's centre moved 3 to 5 percent of the frame. Small enough for crossfades; the renderer can align eras on the SAM box of the object in each painting.
+- **Consistency, measured 28 Oct:** branching every era from the anchor holds the object's centre within 0.3 percent of the frame (3.6 percent for the serial chain).
 - A safety block returns 400 `content_policy_violation`; log it, soften the scene prompt once, otherwise skip the era.
 
 ## Step 5: Check each painting against the object's state (Muse Spark, vision)
 
-- Each painted era goes to `muse-spark-1.3` as `input_image` with the object's verified state for that year, and the question: does the painting show the object in that state? Answer `matches | differs`, with what differs.
-- `differs` triggers one repaint with the difference spelled out; a second `differs` drops the era and logs why.
+- Each painted era goes to `muse-spark-1.3` as `input_image` with the object's verified state for that year. One call judges the whole scene: the object in its state, no readable text or dates, nothing the year could not hold. Answer `matches | differs`, with what differs.
+- `differs` triggers a repaint with the difference spelled out, at most twice; then the era is dropped and logged.
 - This is the visual half of "no source, no claim": what the film shows of the object is checked, not only what it says.
 
 ## Step 5b: Spot the difference (children's version)

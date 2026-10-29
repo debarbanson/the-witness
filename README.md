@@ -15,8 +15,8 @@ Built for the Meta Global AI Developer Hackathon (27 October to 4 November 2026)
 | 0. Identify | The photo's location finds nearby known objects (OpenStreetMap); the right one is picked from the photo and confirmed by you | Muse Spark (vision) |
 | 1. Cut out | The object is segmented from today's photo, for the closing shot | SAM 3.1 |
 | 2. Research | One grounded web question per era, including what the object itself looked like then; every claim needs a URL | Muse Spark (web_search) |
-| 3. Verify | A second pass checks each claim against the source text; unsupported claims are dropped | Muse Spark / Muse Wonder |
-| 4. Paint eras | Each era is painted with the object in its verified state, chained to one anchor so it stays recognisably the same place | Muse Image |
+| 3. Verify | A second pass checks each claim against the source text; unsupported claims are dropped | Muse Spark |
+| 4. Paint eras | Each era is painted with the object in its verified state, branching in parallel from one anchor so it stays recognisably the same place | Muse Image |
 | 5. Check the painting | Each painted era is looked at and compared with the object's verified state; a mismatch is repainted | Muse Spark (vision) |
 | 6. Layers | People in each painted era are segmented into their own layer for depth | SAM 3.1 |
 | 7. Film | Layers, captions and citations are rendered to a 1080x1920 video, ending on your photo | (our renderer) |

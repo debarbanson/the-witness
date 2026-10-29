@@ -10,16 +10,15 @@ def test_opening_card_names_verified_year_only():
     card = stream.opening_card(
         "De Adriaan", "mill",
         [{"year": 1779, "anchor": "build"}, {"year": 1932}],
-        "samples/x.jpg",
     )
     assert card["name"] == "De Adriaan"
     assert card["since_year"] == 1779
     assert card["text"] == "I have stood here since 1779."
-    assert card["photo"] == "samples/x.jpg"
+    assert "photo" not in card
 
 
 def test_opening_card_without_anchor_omits_the_year():
-    card = stream.opening_card("Oak", "tree", [{"year": 1026}], "samples/x.jpg")
+    card = stream.opening_card("Oak", "tree", [{"year": 1026}])
     assert card["since_year"] is None
     assert card["text"] is None
     assert card["name"] == "Oak"

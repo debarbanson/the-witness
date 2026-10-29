@@ -17,12 +17,13 @@ def build_year_from_claims(claims):
     return min(anchored) if anchored else None
 
 
-def opening_card(name, kind, claims, photo):
+def opening_card(name, kind, claims):
     """The opening card: name, kind and the verified build year only.
 
     The year comes from Wikidata and is already verified, so the card
     needs no model call. Without an anchor the year line is omitted,
-    never guessed.
+    never guessed. The card names no photo: the stream is saved to
+    research.json, and local paths are personal data.
     """
     since_year = build_year_from_claims(claims)
     return {
@@ -31,7 +32,6 @@ def opening_card(name, kind, claims, photo):
         "kind": kind,
         "since_year": since_year,
         "text": f"I have stood here since {since_year}." if since_year else None,
-        "photo": photo,
     }
 
 

@@ -24,6 +24,7 @@ class ModelSpec:
     effort: str | None = None  # reasoning effort; None keeps the default
     temperature: float | None = None  # None keeps the default; 0 steadies checks
     workers: int = 6  # parallel calls; Baseten allows more (2M tokens/min)
+    timeout: float = 120  # per-call seconds; research and painting run longer
 
 
 RESEARCH = ModelSpec(
@@ -31,6 +32,7 @@ RESEARCH = ModelSpec(
     base_url="https://api.meta.ai/v1",
     model="muse-spark-1.3",
     key_name="MODEL_API_KEY",
+    timeout=300,  # web research with reasoning runs for minutes
 )
 
 VISION = ModelSpec(
@@ -60,6 +62,7 @@ PAINT = ModelSpec(
     base_url="https://api.meta.ai/v1",
     model="muse-image-1.0",
     key_name="MODEL_API_KEY",
+    timeout=600,  # chained image turns take minutes; observed over 200 s
 )
 
 # Steps 1 and 6: segmentation, same key as everything Meta.
@@ -82,6 +85,7 @@ VERIFY_OPEN = ModelSpec(
     # 2M tokens/min throughput: ~15k tokens per support call allows
     # about 130 calls/min, so 10 workers at ~3 s a call stays inside.
     workers=10,
+    timeout=180,  # the open model always reasons, so votes run longer
 )
 
 
@@ -93,7 +97,8 @@ def client_for(spec, environ=None):
     key = env.get(spec.key_name)
     if not key:
         raise ModelError(f"{spec.key_name} is not set (needed for {spec.provider}/{spec.model})")
-    return OpenAI(base_url=spec.base_url, api_key=key)
+    return OpenAI(base_url=spec.base_url, api_key=key,
+                  timeout=spec.timeout, max_retries=1)
 
 
 def respond(client, spec, **kwargs):

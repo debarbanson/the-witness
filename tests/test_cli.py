@@ -256,14 +256,17 @@ def test_cached_film_reused_within_a_week(tmp_path, monkeypatch):
     out = tmp_path / "out" / "q1-tower"
     out.mkdir(parents=True)
     fresh = {"outcome": {"outcome": "short_film"},
+             "object": {"lang": "en"},
              "saved_at": date.today().isoformat()}
     (out / "research.json").write_text(json.dumps(fresh))
-    assert cached_film("q1-tower") == fresh
+    assert cached_film("q1-tower", "en") == fresh
+    assert cached_film("q1-tower", "nl") is None
     stale = {"outcome": {"outcome": "short_film"},
+             "object": {"lang": "en"},
              "saved_at": (date.today() - timedelta(days=8)).isoformat()}
     (out / "research.json").write_text(json.dumps(stale))
-    assert cached_film("q1-tower") is None
-    assert cached_film("missing-slug") is None
+    assert cached_film("q1-tower", "en") is None
+    assert cached_film("missing-slug", "en") is None
 
 
 def test_describe_found_shows_kind_and_rejections():
@@ -704,6 +707,8 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     buf = io.BytesIO()
     Image.new("RGB", (16, 24), "red").save(buf, "PNG")
     (era_dir / "1850.png").write_bytes(buf.getvalue())
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"}, "claims": [],
@@ -736,6 +741,169 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     assert film["today_line"] == "And here I stand today."
     assert film["today_sub"] == ""
     assert film["scenes"][0]["caption"][0] == "1850"
+
+
+def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel_b1"
+    era_dir.mkdir(parents=True)
+    Image.new("RGB", (16, 24), "red").save(era_dir / "1850.png")
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.png"
+    exif = Image.Exif()
+    exif[34853] = {0: b"\x02\x03\x00\x00", 1: "N",
+                   2: (52.0, 9.0, 36.0), 3: "E", 4: (4.0, 21.0, 0.0)}
+    Image.new("RGB", (24, 16), "blue").save(photo, exif=exif)
+
+    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+                                 era_dir="eras_parallel_b1")
+    assert code == 0
+    film_dir = out_dir / "film"
+    film = json.loads((film_dir / "film.json").read_text())
+    assert film["photo"] == "today.jpg"
+    assert (film_dir / "today.jpg").read_bytes()[:2] == b"\xff\xd8"
+    assert dict(Image.open(film_dir / "today.jpg").getexif()) == {}
+
+
+def test_collect_paint_entries_marks_crashed_future_dropped():
+    from concurrent.futures import ThreadPoolExecutor
+    from witness import cli as cli_module
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        def boom():
+            raise RuntimeError("paint down")
+
+        entries = cli_module.collect_paint_entries({1932: pool.submit(boom)})
+        assert entries[1932]["verdict"] == "dropped"
+        assert "paint down" in entries[1932]["note"]
+    finally:
+        pool.shutdown(cancel_futures=True)
+
+
+def test_recover_or_retry_check_crash_keeps_dropped(tmp_path):
+    from witness import cli as cli_module
+
+    run_dir = tmp_path / "old"
+    run_dir.mkdir()
+    (run_dir / "1850.png").write_bytes(b"old-painting")
+    scene = {"from_year": 1850,
+             "state": {"condition": "damaged", "degree": "partial",
+                       "scope": "whole", "description": "Roof holed."},
+             "caption_lines": []}
+    dropped = {"year": 1850, "image": None, "response_id": None,
+               "verdict": "dropped", "attempts": 3, "note": "differed"}
+
+    def checker(*args, **kwargs):
+        raise RuntimeError("check down")
+
+    result = cli_module.recover_or_retry(
+        None, checker, scene, "Mill", "Town", None,
+        {"season": "summer"}, [run_dir], dropped)
+    assert result["verdict"] == "dropped"
+
+
+def _render_fixture(tmp_path, slug="q1-test", root=None):
+    import json
+    from PIL import Image
+
+    out_dir = (root or tmp_path / "out") / slug
+    era_dir = out_dir / "eras_parallel_b1"
+    era_dir.mkdir(parents=True)
+    Image.new("RGB", (16, 24), "red").save(era_dir / "1850.png")
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    Image.new("RGB", (24, 16), "blue").save(photo)
+    return out_dir, photo
+
+
+def test_render_without_manifest_refuses(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo = _render_fixture(tmp_path)
+    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+                                 era_dir="eras_parallel_b1")
+    assert code == 2
+    assert not (out_dir / "film").exists()
+
+
+def test_render_ignores_paintings_missing_from_manifest(tmp_path, monkeypatch):
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo = _render_fixture(tmp_path)
+    Image.new("RGB", (16, 24), "grey").save(
+        out_dir / "eras_parallel_b1" / "1900.png")
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1},
+                  {"year": 1900, "verdict": "dropped", "attempts": 3,
+                   "note": "differed"}]}))
+    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+                                 era_dir="eras_parallel_b1")
+    assert code == 0
+    film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert [s["year"] for s in film["scenes"]] == [1850]
+    assert not (out_dir / "film" / "era_1900.png").exists()
+
+
+def test_render_writes_into_job_folder(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "jobs" / "j1"
+    out_dir, photo = _render_fixture(tmp_path, root=root)
+    import json
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+                                 era_dir="eras_parallel_b1", out_dir=root)
+    assert code == 0
+    assert (root / "q1-test" / "film" / "film.html").exists()
+    assert not (tmp_path / "out" / "q1-test").exists()
+
+
+def test_report_and_save_writes_into_job_folder(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    found = SimpleNamespace(name="Test Mill", kind="mill", qid="Q1",
+                            articles={"en": "Test Mill"})
+    root = tmp_path / "jobs" / "j1"
+    slug = cli_module.report_and_save(
+        found, "en", ("en",), [], [], [],
+        {"outcome": "too_little", "reason": "x", "verified": 0, "eras": 0,
+         "good_sources": 0}, {}, "meta", [], None, out_root=root)
+    assert (root / slug / "research.json").exists()
+    assert not (tmp_path / "out").exists()
 
 
 def test_cmd_layers_tag_reads_tagged_eras(tmp_path, monkeypatch):
@@ -870,7 +1038,7 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
     buf = io.BytesIO()
     Image.new("RGB", (8, 8), "grey").save(buf, "PNG")
     (old_dir / "1932.png").write_bytes(buf.getvalue())
-    (tmp_path / "photo.jpg").write_bytes(b"photo")
+    Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
     (slug_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
         "claims": [],
@@ -910,7 +1078,7 @@ def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     slug_dir = tmp_path / "out" / "q1-test"
     slug_dir.mkdir(parents=True)
-    (tmp_path / "photo.jpg").write_bytes(b"photo")
+    Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
     (slug_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
         "claims": [], "timeline": [], "timings": {},

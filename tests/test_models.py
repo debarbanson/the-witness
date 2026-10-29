@@ -22,6 +22,21 @@ def test_client_uses_base_url_and_key_from_environment():
     assert client.api_key == "k-123"
 
 
+def test_reset_usage_starts_a_fresh_job_tally():
+    models.note_usage("meta", {"prompt_tokens": 5, "completion_tokens": 3,
+                               "total_tokens": 8})
+    assert models.usage_totals()["meta"]["total_tokens"] == 8
+    models.reset_usage()
+    assert models.usage_totals() == {}
+
+
+def test_client_bounds_timeout_and_retries_per_spec():
+    client = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
+    assert client.timeout == models.VERIFY.timeout
+    assert client.max_retries == 1
+    assert models.PAINT.timeout > models.VERIFY.timeout
+
+
 def test_missing_key_names_the_variable_not_a_value():
     with pytest.raises(models.ModelError) as exc_info:
         models.client_for(models.VERIFY, environ={})

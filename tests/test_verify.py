@@ -138,6 +138,20 @@ def test_fetch_plain_page_extracts_main_text():
     assert get.calls[0]["headers"]["User-Agent"] == verify.USER_AGENT
 
 
+def test_fetch_source_text_refuses_private_hosts():
+    from witness.web import WebError
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        raise AssertionError("must not fetch")
+
+    with pytest.raises(WebError):
+        verify.fetch_source_text("http://169.254.169.254/latest", get=get)
+    assert calls == []
+
+
 def test_fetch_source_text_cached():
     get = FakeGet([(200, fixture("wiki_extract_full.json"))])
     url = "https://nl.wikipedia.org/wiki/Testtoren"
@@ -845,6 +859,18 @@ def test_judge_stream_yields_each_claim_as_it_finishes():
     assert sorted(i for i, _ in seen) == [0, 1]
     assert all(r["verdict"] == "supported" for _, r in seen)
     assert seen[0][0] == 1  # the fast claim arrives first
+
+
+def test_judge_stream_marks_crashed_job_unsupported():
+    def boom(prompt):
+        raise RuntimeError("connection reset")
+
+    jobs = [job(claim="Claim zero 1779.", year=1779)]
+    seen = list(verify.judge_stream(
+        boom, jobs, max_workers=1,
+        completion_respond=lambda p: answered_with({"completed": True})))
+    assert seen[0][1]["verdict"] == "unsupported"
+    assert "connection reset" in seen[0][1]["note"]
 
 
 def test_judge_stream_progress_names_the_claim():

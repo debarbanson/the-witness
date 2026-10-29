@@ -103,25 +103,52 @@ def test_source_site_names_domain():
     assert builder.source_site("https://www.kaagenbraassempromotie.nl/x") == "kaagenbraassempromotie.nl"
 
 
+class DictCache:
+    def __init__(self, texts):
+        self.texts = texts
+
+    def get(self, key):
+        return self.texts.get(key)
+
+
+LONG_QUOTE = "The old mill burnt down completely on the evening in question."
+
+
 def test_end_sources_dedupe_urls():
     claims = [
-        {"url": "https://a.example/1", "quote": "q", "verdict": "supported"},
-        {"url": "https://a.example/1", "quote": "q", "verdict": "supported"},
-        {"url": "https://b.example/2", "quote": "q", "verdict": "partly"},
-        {"url": "https://c.example/3", "quote": "q", "verdict": "unsupported"},
+        {"url": "https://a.example/1", "quote": LONG_QUOTE, "verdict": "supported"},
+        {"url": "https://a.example/1", "quote": LONG_QUOTE, "verdict": "supported"},
+        {"url": "https://b.example/2", "quote": LONG_QUOTE, "verdict": "partly"},
+        {"url": "https://c.example/3", "quote": LONG_QUOTE, "verdict": "unsupported"},
     ]
-    assert [entry["url"] for entry in builder.end_sources(claims)] == [
+    cache = DictCache({"https://a.example/1": f"Intro. {LONG_QUOTE} Outro.",
+                       "https://b.example/2": f"Intro. {LONG_QUOTE} Outro."})
+    assert [entry["url"] for entry in builder.end_sources(claims, cache)] == [
         "https://a.example/1", "https://b.example/2"]
 
 
 def test_end_sources_carry_site_and_title():
     claims = [
         {"url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
-         "quote": "q", "verdict": "supported"},
+         "quote": LONG_QUOTE, "verdict": "supported"},
     ]
-    (entry,) = builder.end_sources(claims)
+    cache = DictCache({"https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem":
+                       f"Intro. {LONG_QUOTE} Outro."})
+    (entry,) = builder.end_sources(claims, cache)
     assert entry["site"] == "Wikipedia"
     assert entry["title"] == "De Adriaan, Haarlem"
+
+
+def test_end_sources_excludes_unprovenanced():
+    fab = "A completely fabricated sentence about nothing at all here."
+    claims = [
+        {"url": "https://a.example/1", "quote": LONG_QUOTE, "verdict": "supported"},
+        {"url": "https://b.example/2", "quote": fab, "verdict": "supported"},
+        {"url": "https://c.example/3", "quote": LONG_QUOTE, "verdict": "supported"},
+    ]
+    cache = DictCache({"https://b.example/2": "Unrelated fetched page text."})
+    assert builder.end_sources(claims, cache) == []
+    assert builder.end_sources(claims, None) == []
 
 
 def test_source_title_names_the_page():

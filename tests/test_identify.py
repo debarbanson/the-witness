@@ -313,16 +313,47 @@ def test_identify_reads_local_languages_for_sitelinks_and_labels(tmp_path):
     assert enrich_langs == ["ja|en"]
 
 
-def test_fetch_overpass_uses_short_timeout_and_disk_cache(tmp_path):
+def test_fetch_overpass_uses_short_timeout_and_memory_only(tmp_path):
     from witness.cache import Cache
 
-    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    post = FakeTransport([(200, fixture("overpass_nearby.json")),
+                          (200, fixture("overpass_nearby.json"))])
     first = identify.fetch_overpass(52.0, 4.0, post=post, cache=Cache(tmp_path))
     assert post.calls[0]["timeout"] == 5
+    assert list(tmp_path.iterdir()) == []
     identify.clear_cache()
     second = identify.fetch_overpass(52.0, 4.0, post=post, cache=Cache(tmp_path))
     assert second == first
-    assert len(post.calls) == 1
+    assert len(post.calls) == 2
+
+
+def test_geosearch_lookups_skip_disk_cache(tmp_path):
+    from witness.cache import Cache
+
+    cache = Cache(tmp_path)
+    get = FakeTransport([(200, fixture("wikidata_geosearch.json"))])
+    identify.fetch_wikidata_nearby(52.0, 4.0, get=get, cache=cache)
+    get = FakeTransport([(200, fixture("wp_geosearch.json"))])
+    identify.fetch_wp_nearby(52.0, 4.0, "nl", get=get, cache=cache)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_identify_run_leaves_no_coordinates_on_disk(tmp_path):
+    from witness.cache import Cache
+
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo, lat=(52, 0, 3), lon=(4, 0, 2), direction=201)
+    cache_dir = tmp_path / "cache"
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    found = identify.identify(photo, post=post, get=routed(),
+                              respond=vision_pick(), cache=Cache(cache_dir))
+    assert found.name == "Test Tower"
+    assert any(cache_dir.iterdir())
+    for path in cache_dir.rglob("*"):
+        if path.is_file():
+            text = path.read_text()
+            assert "52.00083" not in text
+            assert "4.00056" not in text
 
 
 def test_geocode_uses_nominatim_politely():

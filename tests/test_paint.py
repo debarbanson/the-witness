@@ -84,6 +84,62 @@ def test_paint_parallel_branches_every_era_from_anchor():
     assert sorted(seen[1:]) == ["r-anchor", "r-anchor"]
 
 
+def test_paint_parallel_marks_crashed_scene_dropped():
+    def call(prompt, prev_id, photo_bytes=None):
+        if prev_id is None:
+            return {"image": b"anchor", "response_id": "r-anchor"}
+        raise RuntimeError("timed out")
+
+    results = paint.paint_parallel(
+        call, None, [scene(1850)], "Mill", "Town")
+    assert results[0]["verdict"] == "dropped"
+    assert "timed out" in results[0]["note"]
+    assert results[0]["year"] == 1850
+
+
+def test_paint_parallel_anchor_crash_drops_all_scenes():
+    def call(prompt, prev_id, photo_bytes=None):
+        raise RuntimeError("down")
+
+    results = paint.paint_parallel(
+        call, None, [scene(1850), scene(1950)], "Mill", "Town")
+    assert [r["verdict"] for r in results] == ["dropped", "dropped"]
+    assert "down" in results[0]["note"]
+
+
+def test_paint_scene_check_crash_drops():
+    def call(prompt, prev_id, photo_bytes=None):
+        return {"image": b"img", "response_id": "r1"}
+
+    def check(*args, **kwargs):
+        raise RuntimeError("check down")
+
+    result = paint.paint_scene(call, check, scene(1850), "Mill", "Town", "r0")
+    assert result["verdict"] == "dropped"
+    assert "check down" in result["note"]
+
+
+def test_paint_chain_anchor_crash_drops_all_scenes():
+    def call(prompt, prev_id, photo_bytes=None):
+        raise RuntimeError("down")
+
+    results = paint.paint_chain(
+        call, None, [scene(1850)], "Mill", "Town")
+    assert results[0]["verdict"] == "dropped"
+    assert "down" in results[0]["note"]
+
+
+def test_paint_chain_crash_drops_one_scene_and_continues():
+    def call(prompt, prev_id, photo_bytes=None):
+        if "1850" in prompt:
+            raise RuntimeError("boom")
+        return {"image": b"img", "response_id": "r"}
+
+    results = paint.paint_chain(
+        call, None, [scene(1850), scene(1950)], "Mill", "Town")
+    assert [r["verdict"] for r in results] == ["dropped", "unchecked"]
+
+
 def test_parallel_anchor_id_returned_first():
     ids = iter(["r-anchor", "r1", "r2"])
 

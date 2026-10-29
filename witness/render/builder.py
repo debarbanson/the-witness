@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from witness import captions, states
+from witness.verify import normalise_text
 
 TITLE_S = 3
 ANCHOR_S = 2
@@ -49,18 +50,35 @@ def source_title(url) -> str:
     return parsed.netloc.lower().removeprefix("www.")
 
 
-def end_sources(claims) -> list:
+def end_sources(claims, cache=None) -> list:
     """Unique sources behind the verified claims: URL kept for the web
-    page, site plus title for the film end card."""
+    page, site plus title for the film end card. A URL reaches the end
+    card only when it was really fetched (it is in the cache) and its
+    quote appears literally in the fetched text."""
     seen = []
     entries = []
     for claim in claims:
         url = claim.get("url")
-        if url and url not in seen and claim.get("verdict") in ("supported", "partly"):
-            seen.append(url)
-            entries.append({"url": url, "site": source_site(url),
-                            "title": source_title(url)})
+        if not url or url in seen:
+            continue
+        if claim.get("verdict") not in ("supported", "partly"):
+            continue
+        if not _provenanced(claim.get("quote") or "", url, cache):
+            continue
+        seen.append(url)
+        entries.append({"url": url, "site": source_site(url),
+                        "title": source_title(url)})
     return entries
+
+
+def _provenanced(quote, url, cache) -> bool:
+    if cache is None:
+        return False
+    text = cache.get(url)
+    if not text:
+        return False
+    norm = normalise_text(quote)
+    return len(norm) >= 30 and norm in normalise_text(text)
 
 
 DEATH_EVENTS = frozenset({"died", "dead", "demolished", "destroyed"})
@@ -151,7 +169,7 @@ def build_timeline(scenes, images, claims=()) -> list:
 
 def write_film(out_dir, research, images, photo, photo_credit, layers,
                place="", era_files=None, layer_files=None, photo_file=None,
-               cutout_file=None, photo_year=None, own_photo=False):
+               cutout_file=None, photo_year=None, own_photo=False, cache=None):
     """film.json plus film.html plus copied assets under out_dir/film/."""
     out_dir = Path(out_dir)
     film_dir = out_dir / "film"
@@ -195,7 +213,7 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
             "anchor": anchor_card(first),
             "attribution": attribution,
             "ai_label": "Painted scenes are AI imagery, checked against verified sources.",
-            "sources": end_sources(research.get("claims", [])),
+            "sources": end_sources(research.get("claims", []), cache),
             "segments": plan, "scenes": film_scenes}
     (film_dir / "film.json").write_text(json.dumps(film, indent=1))
     template = (Path(__file__).parent / "film.html").read_text()

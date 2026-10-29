@@ -14,6 +14,7 @@ from pathlib import Path
 
 from witness import captions, check, children, identify, layers, models, outcome, paint, research, scenes, states, stream, verify
 from witness.cache import Cache
+from witness.photo import photo_bytes_clean, prepare_photo
 from witness.render import builder as render_builder
 
 
@@ -23,6 +24,8 @@ def main(argv=None):
     for name in ("identify", "research", "film"):
         cmd = sub.add_parser(name)
         cmd.add_argument("photo")
+        if name != "identify":
+            cmd.add_argument("--out-dir", default="out")
         cmd.add_argument("--place", default=None)
         cmd.add_argument("--lang", default="en")
         cmd.add_argument("--yes", action="store_true")
@@ -36,16 +39,21 @@ def main(argv=None):
             cmd.add_argument("--paint", action="store_true")
     keep = sub.add_parser("keep")
     keep.add_argument("slug")
+    keep.add_argument("--out-dir", default="out")
     child_cmd = sub.add_parser("children")
     child_cmd.add_argument("slug")
+    child_cmd.add_argument("--out-dir", default="out")
     caption_cmd = sub.add_parser("captions")
     caption_cmd.add_argument("slug")
+    caption_cmd.add_argument("--out-dir", default="out")
     layers_cmd = sub.add_parser("layers")
     layers_cmd.add_argument("slug")
+    layers_cmd.add_argument("--out-dir", default="out")
     layers_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel", "stream"))
     layers_cmd.add_argument("--tag", default=None)
     render_cmd = sub.add_parser("render")
     render_cmd.add_argument("slug")
+    render_cmd.add_argument("--out-dir", default="out")
     render_cmd.add_argument("--photo", required=True)
     render_cmd.add_argument("--subject", default=None)
     render_cmd.add_argument("--place", default="")
@@ -56,6 +64,7 @@ def main(argv=None):
     render_cmd.add_argument("--mp4", action="store_true")
     paint_cmd = sub.add_parser("paint")
     paint_cmd.add_argument("slug")
+    paint_cmd.add_argument("--out-dir", default="out")
     paint_cmd.add_argument("--photo", required=True)
     paint_cmd.add_argument("--place", required=True)
     paint_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel"))
@@ -66,42 +75,45 @@ def main(argv=None):
         return cmd_identify(args.photo, place=args.place, lang=args.lang,
                             yes=args.yes, no_cache=args.no_cache)
     if args.command == "keep":
-        return cmd_keep(args.slug)
+        return cmd_keep(args.slug, out_dir=args.out_dir)
     if args.command == "children":
-        return cmd_children(args.slug)
+        return cmd_children(args.slug, out_dir=args.out_dir)
     if args.command == "captions":
-        return cmd_captions(args.slug)
+        return cmd_captions(args.slug, out_dir=args.out_dir)
     if args.command == "layers":
-        return cmd_layers(args.slug, mode=args.mode, tag=args.tag)
+        return cmd_layers(args.slug, mode=args.mode, tag=args.tag,
+                            out_dir=args.out_dir)
     if args.command == "render":
         from witness.render import record as render_record
 
         code = cmd_render(args.slug, args.photo, subject=args.subject, place=args.place,
                           era_dir=args.era_dir, layers_dir=args.layers_dir,
                           photo_credit=args.photo_credit,
-                          own_photo=args.own_photo)
+                          own_photo=args.own_photo, out_dir=args.out_dir)
         if code == 0 and args.mp4:
-            film_html = Path("out") / args.slug / "film" / "film.html"
-            out_mp4 = Path("out") / args.slug / "film" / "film.mp4"
+            film_html = Path(args.out_dir) / args.slug / "film" / "film.html"
+            out_mp4 = Path(args.out_dir) / args.slug / "film" / "film.mp4"
             print("recording MP4 (needs an unsandboxed browser)...")
             render_record.record(film_html, out_mp4)
             print(f"MP4 at {out_mp4}")
         return code
     if args.command == "paint":
         return cmd_paint(args.slug, args.photo, place=args.place,
-                         mode=args.mode, scenes=args.scenes, tag=args.tag)
+                         mode=args.mode, scenes=args.scenes, tag=args.tag,
+                         out_dir=args.out_dir)
     if args.command == "film":
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
-                        verify_with=args.verify_with, paint_eras=args.paint)
+                        verify_with=args.verify_with, paint_eras=args.paint,
+                        out_dir=args.out_dir)
     return cmd_research(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
-                        verify_with=args.verify_with)
+                        verify_with=args.verify_with, out_dir=args.out_dir)
 
 
-def cmd_keep(slug):
+def cmd_keep(slug, out_dir="out"):
     """Owner-reviewed research for an object: kept, so demo films never flap."""
-    path = Path("out") / slug / "research.json"
+    path = Path(out_dir) / slug / "research.json"
     if not path.exists():
         print(f"no research at {path}")
         return 2
@@ -153,8 +165,30 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
 SPARES = 4  # extra claims verified outside the draft scenes
 
 
+def collect_paint_entries(paint_futures) -> dict:
+    """Manifest entries from paint futures; a crashed job becomes
+    a dropped entry instead of killing the film."""
+    entries = {}
+    for year, future in paint_futures.items():
+        try:
+            outcome_result = future.result()
+        except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
+            entries[year] = {"year": year, "verdict": "dropped", "attempts": 0,
+                             "note": f"paint crashed: {exc}"}
+            continue
+        entry = {"year": year, "verdict": outcome_result["verdict"],
+                 "attempts": outcome_result["attempts"]}
+        if outcome_result["image"] is not None:
+            entry["file"] = f"eras_stream/{year}.png"
+        else:
+            entry["note"] = outcome_result["note"]
+        entries[year] = entry
+    return entries
+
+
 def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
-             progress=None, paint_eras=False, paint_call=None, check_call=None):
+             progress=None, paint_eras=False, paint_call=None, check_call=None,
+             out_dir="out"):
     """The film as a stream: opening card within seconds, then one ready
     scene after another. Research starts while the user still confirms.
     With paint_eras, scene 1 paints from the anchor while research runs
@@ -190,14 +224,14 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         slug = slug_for(found.name, found.qid, found.articles, prefer=order)
         reviewed = cache.get_reviewed(found.qid, lang)
         if reviewed is not None:
-            out_path = Path("out") / slug / "research.json"
+            out_path = Path(out_dir) / slug / "research.json"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
             result = reviewed.get("outcome", {})
             print(f"film opens instantly (reviewed research reused; use --no-cache to redo)")
             print(f"outcome: {result.get('outcome')}")
             return 0
-        film = cached_film(slug)
+        film = cached_film(slug, lang, out_dir)
         if film is not None:
             result = film.get("outcome", {})
             print(f"film opens instantly (cached film from {film.get('saved_at')}; "
@@ -246,7 +280,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         return gather_rest(film_facts(found, lang, cache, timings))
 
     def show_card(claims):
-        card = stream.opening_card(found.name, found.kind, claims, photo)
+        card = stream.opening_card(found.name, found.kind, claims)
         filmed.emit("opening_card", card)
         print(f"\n---\n{card['name']} ({card['kind']})", flush=True)
         if card["text"]:
@@ -258,12 +292,12 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     anchor_future = None
     paint_fn = paint_call or paint_respond
     check_fn = check_call or check_respond
-    photo_bytes = Path(photo).read_bytes() if paint_eras else None
+    photo_bytes = photo_bytes_clean(photo) if paint_eras else None
     era_dir = None
     if paint_eras:
         paint_pool = ThreadPoolExecutor(max_workers=6)
-        era_dir = Path("out") / slug_for(found.name, found.qid, found.articles,
-                                         prefer=order) / "eras_stream"
+        era_dir = (Path(out_dir) / slug_for(found.name, found.qid, found.articles,
+                                                prefer=order) / "eras_stream")
         era_dir.mkdir(parents=True, exist_ok=True)
 
     def verify_anchor_early(card_claims):
@@ -420,17 +454,10 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                     paint_scene_worker, scene, final_numbers[year], False)
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
     if paint_eras:
-        entries = {}
-        for year, future in paint_futures.items():
-            outcome_result = future.result()
-            entry = {"year": year, "verdict": outcome_result["verdict"],
-                     "attempts": outcome_result["attempts"]}
-            if outcome_result["image"] is not None:
-                entry["file"] = f"eras_stream/{year}.png"
-            else:
-                entry["note"] = outcome_result["note"]
-            entries[year] = entry
-        paint_pool.shutdown()
+        try:
+            entries = collect_paint_entries(paint_futures)
+        finally:
+            paint_pool.shutdown(wait=True, cancel_futures=True)
         kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
         if kept_files:
             paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
@@ -441,7 +468,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     timings["total_s"] = round(time.perf_counter() - start, 1)
     report_and_save(found, lang, order, gathered["kept"], timeline, chosen, result,
                     timings, verify_with, fetched.failures, None,
-                    stream_events=filmed.events)
+                    stream_events=filmed.events, out_root=out_dir)
     first_scene = filmed.metric("scene_verified")
     line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
             f"first scene verified at {first_scene} s, "
@@ -463,7 +490,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
 
 
 def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
-                 progress=None):
+                 progress=None, out_dir="out"):
     cache = None if no_cache else Cache("out/cache")
     models.reset_usage()
     timings = {}
@@ -490,7 +517,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     if found.qid:
         print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")
     order = research.read_langs(found.country_code, lang)
-    with ThreadPoolExecutor(max_workers=1) as pool:
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
         facts_future = (
             pool.submit(research.fetch_facts, found.qid, None, time.sleep, lang, cache,
                         found.country_code)
@@ -502,24 +530,30 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
                 print("not confirmed; stopping")
                 return 2
         phase = time.perf_counter()
-        facts = facts_future.result() if facts_future else {"facts": []}
+        try:
+            facts = facts_future.result() if facts_future else {"facts": []}
+        except Exception as exc:  # noqa: BLE001 - facts are a head start, not a gate
+            print(f"wikidata facts failed ({exc}); continuing on web research")
+            facts = {"facts": []}
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     if cache is not None and found.qid:
         slug = slug_for(found.name, found.qid, found.articles, prefer=order)
         reviewed = cache.get_reviewed(found.qid, lang)
         if reviewed is not None:
-            out_path = Path("out") / slug / "research.json"
+            out_path = Path(out_dir) / slug / "research.json"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
             result = reviewed.get("outcome", {})
             print(f"outcome: {result.get('outcome')} (reviewed research reused; use --no-cache to redo)")
             print(f"saved: {out_path}")
             return 0
-        film = cached_film(slug)
+        film = cached_film(slug, lang, out_dir)
         if film is not None:
             result = film.get("outcome", {})
             print(f"outcome: {result.get('outcome')} (cached film from {film.get('saved_at')}; "
                   f"use --no-cache to check again)")
-            print(f"saved: {Path('out') / slug / 'research.json'}")
+            print(f"saved: {Path(out_dir) / slug / 'research.json'}")
             return 0
 
     claims = []
@@ -628,12 +662,13 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
 
     timings["total_s"] = round(time.perf_counter() - start, 1)
     report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
-                    verify_with, failures, comparison)
+                    verify_with, failures, comparison, out_root=out_dir)
     return 0
 
 
 def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
-                    verify_with, failures, comparison, stream_events=None) -> str:
+                    verify_with, failures, comparison, stream_events=None,
+                    out_root="out") -> str:
     """Print claims, scenes, timeline and outcome, then save research.json."""
     print("\nclaims:")
     for c in kept:
@@ -663,7 +698,7 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
           f"{result['verified']} verified, {result['eras']} eras, {result['good_sources']} good sources)")
 
     slug = slug_for(found.name, found.qid, found.articles, prefer=order)
-    out_dir = Path("out") / slug
+    out_dir = Path(out_root) / slug
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"timings (s): {json.dumps(timings)}")
     tokens = models.usage_totals()
@@ -875,11 +910,11 @@ def _votes_for(claim, detail, anchor_year=None) -> int:
 FILM_CACHE_DAYS = 7
 
 
-def cached_film(slug, max_age_days=FILM_CACHE_DAYS):
+def cached_film(slug, lang, out_root="out", max_age_days=FILM_CACHE_DAYS):
     """A second visit shows the same film: reuse this object's saved
-    research when it is fresh. Refreshed after a week, or any time
-    with --no-cache ("check again")."""
-    path = Path("out") / slug / "research.json"
+    research when it is fresh and in the same language. Refreshed
+    after a week, or any time with --no-cache ("check again")."""
+    path = Path(out_root) / slug / "research.json"
     if not path.exists():
         return None
     try:
@@ -888,6 +923,8 @@ def cached_film(slug, max_age_days=FILM_CACHE_DAYS):
     except (json.JSONDecodeError, OSError, ValueError):
         return None
     if (date.today() - saved).days > max_age_days:
+        return None
+    if data.get("object", {}).get("lang", "en") != lang:
         return None
     return data
 
@@ -1052,7 +1089,11 @@ def recover_or_retry(call, checker, scene, name, place, photo_bytes,
         candidate = run_dir / f"{year}.png"
         if candidate.exists():
             prior.append((str(candidate), candidate.read_bytes()))
-    hit = paint.recover_scene(checker, scene, name, prior)
+    try:
+        hit = paint.recover_scene(checker, scene, name, prior)
+    except Exception as exc:  # noqa: BLE001 - a dead check keeps the drop, not the crash
+        return {**dropped,
+                "note": f"{dropped.get('note', '')} (recovery check failed: {exc})"}
     if hit is not None:
         print(f"{year}: recovered from {hit['source']}")
         return {"year": year, "image": hit["image"], "response_id": None,
@@ -1068,16 +1109,16 @@ def recover_or_retry(call, checker, scene, name, place, photo_bytes,
 
 
 def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
-              paint_call=None, check_call=None, photo_call=None):
+              paint_call=None, check_call=None, photo_call=None, out_dir="out"):
     """Paint an object's eras from its research, checked per era."""
-    out_dir = Path("out") / slug
+    out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
         print(f"no research at {path}")
         return 2
     data = json.loads(path.read_text())
     name = data["object"]["name"]
-    photo_bytes = Path(photo).read_bytes()
+    photo_bytes = photo_bytes_clean(photo)
     wanted = {int(y) for y in scenes.split(",")} if scenes else None
     eras = [s for s in data.get("scenes", [])
             if isinstance(s.get("from_year"), int)
@@ -1196,9 +1237,9 @@ def caption_support_respond(sentence, quote):
     return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
 
 
-def cmd_captions(slug, rewrite_call=None, support_call=None):
+def cmd_captions(slug, rewrite_call=None, support_call=None, out_dir="out"):
     """Line-2 sentences from each scene's own verified claim."""
-    out_dir = Path("out") / slug
+    out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
         print(f"no research at {path}")
@@ -1238,9 +1279,9 @@ def cmd_captions(slug, rewrite_call=None, support_call=None):
     return 0
 
 
-def cmd_children(slug, rewrite_call=None, support_call=None):
+def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
     """Children's captions next to the adult ones, re-verified or dropped."""
-    out_dir = Path("out") / slug
+    out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
         print(f"no research at {path}")
@@ -1298,9 +1339,9 @@ def sam_respond(text, jpeg_bytes):
     return "\n".join(texts)
 
 
-def cmd_layers(slug, mode="parallel", tag=None, call_sam=None):
+def cmd_layers(slug, mode="parallel", tag=None, call_sam=None, out_dir="out"):
     """Figure layers for an object's painted eras (step 6)."""
-    out_dir = Path("out") / slug
+    out_dir = Path(out_dir) / slug
     suffix = f"{mode}_{tag}" if tag else mode
     era_dir = out_dir / f"eras_{suffix}"
     if not era_dir.exists():
@@ -1322,20 +1363,41 @@ def cmd_layers(slug, mode="parallel", tag=None, call_sam=None):
 
 def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
                layers_dir=None, photo_credit="", segment_call=None,
-               own_photo=False):
-    """Build the live film page from kept research plus paintings."""
+               own_photo=False, out_dir="out"):
+    """Build the live film page from kept research plus paintings.
+
+    Only manifest entries marked matches or recovered are filmed;
+    stray PNGs from older runs are ignored."""
     from witness import segment as segment_module
 
-    out_dir = Path("out") / slug
+    out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
         print(f"no research at {path}")
         return 2
     data = json.loads(path.read_text())
+    photo_year = identify.capture_year(photo)
+    photo = str(prepare_photo(photo, out_dir))
+    manifest_path = out_dir / f"paint_{era_dir.removeprefix('eras_')}.json"
+    if not manifest_path.exists():
+        print(f"no paint manifest at {manifest_path}; run paint first")
+        return 2
+    try:
+        manifest = json.loads(manifest_path.read_text()).get("eras", [])
+    except (json.JSONDecodeError, OSError):
+        print(f"unreadable paint manifest at {manifest_path}")
+        return 2
     era_path = out_dir / era_dir
-    era_files = {p.stem: str(p) for p in sorted(era_path.glob("[0-9]*.png"))}
+    era_files = {}
+    for entry in manifest:
+        if entry.get("verdict") not in ("matches", "recovered"):
+            continue
+        rel = entry.get("file") or f"{era_dir}/{entry['year']}.png"
+        candidate = out_dir / rel
+        if candidate.exists():
+            era_files[candidate.stem] = str(candidate)
     if not era_files:
-        print(f"no painted eras at {era_path}")
+        print(f"no kept paintings in {manifest_path}")
         return 2
     images = {key: f"era_{key}.png" for key in era_files}
     layer_files = {}
@@ -1353,12 +1415,12 @@ def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
         cut = seg(first, photo, subject)
         cutout_path = out_dir / "today_cutout.png"
         cut.image.save(cutout_path)
-    photo_dest = Path(photo).suffix or ".jpg"
     film_dir = render_builder.write_film(
-        out_dir, data, images, f"today{photo_dest}", photo_credit, layers,
+        out_dir, data, images, "today.jpg", photo_credit, layers,
         place=place, era_files=era_files, layer_files=layer_files,
         photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None,
-        photo_year=identify.capture_year(photo), own_photo=own_photo)
+        photo_year=photo_year, own_photo=own_photo,
+        cache=Cache("out/cache"))
     film = json.loads((film_dir / "film.json").read_text())
     total = film["segments"][-1]["end"]
     print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, {total} s)")

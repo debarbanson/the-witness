@@ -17,7 +17,7 @@ import requests
 
 from witness import states
 from witness.research import is_weak_source
-from witness.web import USER_AGENT, WebError, mediawiki_get
+from witness.web import USER_AGENT, WebError, assert_public_url, mediawiki_get
 
 VERDICTS = ("supported", "unsupported", "partly")
 
@@ -498,7 +498,7 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
             return judge_claim(support_respond, job, search_respond, completion_respond,
                                completion=completion,
                                dispute_check=dispute_check)
-        except VerifyError as exc:
+        except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {
                 "verdict": "unsupported", "quote": "", "url": None, "support": [],
                 "note": f"verify failed: {exc}", "completed": True,
@@ -507,7 +507,8 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
                 "fast_path": None,
             }
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         futures = {pool.submit(run, job, i): i for i, job in enumerate(jobs)}
         for done, future in enumerate(as_completed(futures), 1):
             index = futures[future]
@@ -516,6 +517,8 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
                 progress("verify", {"done": done, "total": len(jobs), "index": index,
                                     "year": jobs[index].get("year")})
             yield index, result
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def judge_all(support_respond, jobs, search_respond=None, completion_respond=None,
@@ -571,8 +574,12 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
             )
         )
     else:
+        assert_public_url(url)
         resp = get(url, headers={"User-Agent": USER_AGENT}, timeout=(5, 10), stream=True)
         resp.raise_for_status()
+        final = getattr(resp, "url", url) or url
+        if final != url:
+            assert_public_url(final)
         content_type = resp.headers.get("Content-Type", "") if hasattr(resp, "headers") else ""
         if content_type and "html" not in content_type.lower():
             raise VerifyError(f"not HTML ({content_type.split(';')[0]}), skipped")
@@ -634,7 +641,7 @@ def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=8, prog
     for url in wiki:
         try:
             texts[url] = fetch_source_text(url, get=get, sleep=sleep, cache=cache)
-        except (VerifyError, WebError, OSError) as exc:
+        except Exception as exc:  # noqa: BLE001 - one failing fetch never kills the film
             errors[url] = str(exc)
         note(url)
     plain = [u for u in urls if u not in texts and u not in errors]
@@ -650,11 +657,12 @@ def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=8, prog
         with host_lock(url):
             try:
                 return url, fetch_source_text(url, get=get, sleep=sleep, cache=cache), None
-            except (VerifyError, WebError, OSError) as exc:
+            except Exception as exc:  # noqa: BLE001 - one failing fetch never kills the film
                 return url, None, str(exc)
 
     if plain:
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        pool = ThreadPoolExecutor(max_workers=max_workers)
+        try:
             futures = {pool.submit(run, url): url for url in plain}
             for future in as_completed(futures):
                 url, text, error = future.result()
@@ -663,6 +671,8 @@ def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=8, prog
                 else:
                     errors[url] = error
                 note(url)
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
     return texts, errors
 
 
@@ -793,15 +803,18 @@ def verify_all(respond, jobs, max_workers=6) -> list:
         claim, evidence = job
         try:
             return verify_claim(respond, claim, evidence)
-        except VerifyError as exc:
+        except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {
                 "verdict": "unsupported", "quote": "", "url": None, "support": [],
                 "note": f"verify failed: {exc}", "completed": True,
                 "rewritten": None, "war_politics_only": False,
             }
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         return list(pool.map(run, jobs))
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def flag_content(text: str) -> set:

@@ -266,14 +266,19 @@ def paint_aftermath(call, check_call, scene, object_name, place,
                           photo_bytes if attempt == 0 else None)
         except PaintSafetyError:
             continue
-        except PaintError as exc:
+        except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {"year": year, "image": None, "response_id": None,
                     "verdict": "dropped", "attempts": attempt + 1,
                     "note": f"paint failed: {exc}"}
-        verdict = check_module.check_painting(
-            check_call, result["image"], object_name,
-            describe_state(object_name, scene.get("state", {})), year,
-            caption=caption)
+        try:
+            verdict = check_module.check_painting(
+                check_call, result["image"], object_name,
+                describe_state(object_name, scene.get("state", {})), year,
+                caption=caption)
+        except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
+            return {"year": year, "image": None, "response_id": None,
+                    "verdict": "dropped", "attempts": attempt + 1,
+                    "note": f"check failed: {exc}"}
         if verdict["verdict"] == "matches":
             return {"year": year, "image": result["image"],
                     "response_id": result["response_id"],
@@ -335,17 +340,22 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
                 continue  # flaky filter: same prompt once more
             prompt = f"{prompt} Keep the scene tasteful and non-graphic."
             continue
-        except PaintError as exc:
+        except Exception as exc:  # noqa: BLE001 - timeouts retry once like model errors
             if model_retried:
                 return {"year": year, "image": None, "response_id": None,
                         "verdict": "dropped", "attempts": attempt + 1,
                         "note": f"paint failed twice: {exc}"}
             model_retried = True
             continue
-        verdict = check_module.check_painting(
-            check_call, result["image"], object_name,
-            describe_state(object_name, scene.get("state", {})), year,
-            caption=caption)
+        try:
+            verdict = check_module.check_painting(
+                check_call, result["image"], object_name,
+                describe_state(object_name, scene.get("state", {})), year,
+                caption=caption)
+        except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
+            return {"year": year, "image": None, "response_id": None,
+                    "verdict": "dropped", "attempts": attempt + 1,
+                    "note": f"check failed: {exc}"}
         if verdict["verdict"] == "matches":
             return {"year": year, "image": result["image"],
                     "response_id": result["response_id"],
@@ -363,22 +373,32 @@ def paint_chain(call, photo_bytes, scenes, object_name, place,
                 check_call=None, season=None, excluded=None,
                 claims=()) -> list:
     """Eras one after another, each chained on the previous turn."""
-    anchor = paint_anchor(call, photo_bytes, object_name, place)
+    try:
+        anchor = paint_anchor(call, photo_bytes, object_name, place)
+    except Exception as exc:  # noqa: BLE001 - a dead anchor drops every era, not the run
+        return [{"year": scene.get("from_year"), "image": None,
+                 "response_id": None, "verdict": "dropped", "attempts": 0,
+                 "note": f"anchor failed: {exc}"} for scene in scenes]
     prev_id = anchor["response_id"]
     out = []
     for scene in scenes:
-        year_excluded = (excluded or {}).get(scene.get("from_year"), ())
-        if check_call is None:
-            result = call(scene_prompt(scene, object_name, place, season,
-                                       year_excluded, claims), prev_id)
-            out.append({"year": scene.get("from_year"),
-                        "image": result["image"],
-                        "response_id": result["response_id"],
-                        "verdict": "unchecked", "attempts": 1, "note": ""})
-        else:
-            out.append(paint_scene(call, check_call, scene, object_name,
-                                   place, prev_id, season=season,
-                                   excluded=year_excluded, claims=claims))
+        try:
+            year_excluded = (excluded or {}).get(scene.get("from_year"), ())
+            if check_call is None:
+                result = call(scene_prompt(scene, object_name, place, season,
+                                           year_excluded, claims), prev_id)
+                out.append({"year": scene.get("from_year"),
+                            "image": result["image"],
+                            "response_id": result["response_id"],
+                            "verdict": "unchecked", "attempts": 1, "note": ""})
+            else:
+                out.append(paint_scene(call, check_call, scene, object_name,
+                                       place, prev_id, season=season,
+                                       excluded=year_excluded, claims=claims))
+        except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
+            out.append({"year": scene.get("from_year"), "image": None,
+                        "response_id": None, "verdict": "dropped", "attempts": 1,
+                        "note": f"paint crashed: {exc}"})
         if out[-1]["response_id"]:
             prev_id = out[-1]["response_id"]
     return out
@@ -388,23 +408,36 @@ def paint_parallel(call, photo_bytes, scenes, object_name, place,
                    check_call=None, max_workers=6, season=None,
                    excluded=None, claims=()) -> list:
     """Every era branches from the anchor turn alone, painted at once."""
-    anchor = paint_anchor(call, photo_bytes, object_name, place)
+    try:
+        anchor = paint_anchor(call, photo_bytes, object_name, place)
+    except Exception as exc:  # noqa: BLE001 - a dead anchor drops every era, not the run
+        return [{"year": scene.get("from_year"), "image": None,
+                 "response_id": None, "verdict": "dropped", "attempts": 0,
+                 "note": f"anchor failed: {exc}"} for scene in scenes]
     anchor_id = anchor["response_id"]
 
     def one(scene):
-        year_excluded = (excluded or {}).get(scene.get("from_year"), ())
-        if check_call is None:
-            result = call(scene_prompt(scene, object_name, place, season,
-                                       year_excluded, claims), anchor_id)
-            return {"year": scene.get("from_year"), "image": result["image"],
-                    "response_id": result["response_id"],
-                    "verdict": "unchecked", "attempts": 1, "note": ""}
-        return paint_scene(call, check_call, scene, object_name, place,
-                           anchor_id, season=season, excluded=year_excluded,
-                           claims=claims)
+        try:
+            year_excluded = (excluded or {}).get(scene.get("from_year"), ())
+            if check_call is None:
+                result = call(scene_prompt(scene, object_name, place, season,
+                                           year_excluded, claims), anchor_id)
+                return {"year": scene.get("from_year"), "image": result["image"],
+                        "response_id": result["response_id"],
+                        "verdict": "unchecked", "attempts": 1, "note": ""}
+            return paint_scene(call, check_call, scene, object_name, place,
+                               anchor_id, season=season, excluded=year_excluded,
+                               claims=claims)
+        except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
+            return {"year": scene.get("from_year"), "image": None,
+                    "response_id": None, "verdict": "dropped", "attempts": 1,
+                    "note": f"paint crashed: {exc}"}
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         return list(pool.map(one, scenes))
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def contact_sheet(panels, path, label_height=28) -> None:

@@ -18,8 +18,9 @@ import requests
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, IFD
 
+from witness.photo import load_clean
 from witness.research import read_langs
-from witness.web import USER_AGENT, WebError, mediawiki_get
+from witness.web import USER_AGENT, WebError, mediawiki_get, scrub_query
 
 RADIUS_M = 250
 PLACE_RADIUS_M = 1000  # a typed place is a fuzzy start; ranking sorts it out
@@ -115,7 +116,7 @@ def _budgeted(key, budget, func, *args, progress=None, **kwargs):
         except Exception as exc:  # noqa: BLE001 - reported, never silent
             box["value"] = []
             if progress is not None:
-                progress("source_error", {"source": key, "error": str(exc)[:160]})
+                progress("source_error", {"source": key, "error": scrub_query(str(exc))[:160]})
         finally:
             box["elapsed"] = round(time.perf_counter() - started, 1)
 
@@ -177,8 +178,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         started = time.perf_counter()
         try:
             return func(*args, **kwargs)
-        except SourceError as exc:
-            emit("source_error", {"source": key, "error": str(exc)[:160]})
+        except Exception as exc:  # noqa: BLE001 - one failing source never kills the film
+            emit("source_error", {"source": key, "error": scrub_query(str(exc))[:160]})
             return default
         finally:
             steps[f"{key}_s"] = round(time.perf_counter() - started, 1)
@@ -211,7 +212,7 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
             osm_box["osm"] = fetch_overpass(lat, lon, post, sleep, cache, radius)
         except SourceError as exc:
             osm_box["osm"] = []
-            emit("source_error", {"source": "overpass", "error": str(exc)[:160]})
+            emit("source_error", {"source": "overpass", "error": scrub_query(str(exc))[:160]})
         finally:
             osm_box["overpass_s"] = round(time.perf_counter() - started, 1)
 
@@ -220,7 +221,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     if not from_place:
         country_code = guarded("reverse", None, reverse, lat, lon, get=get, sleep=sleep)
     order = read_langs(country_code, lang)
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
         wiki_future = pool.submit(_budgeted, "wikidata", WIKIDATA_BUDGET,
                                   fetch_wikidata_nearby, lat, lon, get, sleep, cache,
                                   radius, progress=progress)
@@ -228,6 +230,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
                                 fetch_wp_nearby, lat, lon, order[0], get, sleep, cache,
                                 radius, progress=progress)
         (_, wiki, wiki_s), (_, wpedia, wp_s) = wiki_future.result(), wp_future.result()
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     steps["wikidata_s"], steps["wpgeo_s"] = wiki_s, wp_s
     overpass_thread.join(OVERPASS_BUDGET)
     osm = osm_box.get("osm", [])
@@ -245,7 +249,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         raise NotIdentifiedError("no named candidates near the photo")
     emit("candidates", {"count": len(ranked), "names": [c.name for c in ranked]})
     photo_bytes = _reencoded(photo)
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
         short_qids = sorted({c.qid for c in ranked if c.qid})
         articles_future = (
             pool.submit(guarded, "sitelinks", {}, fetch_sitelinks,
@@ -283,10 +288,16 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
                 del pool_cands[number - 1]
                 if not pool_cands:
                     break
+        except NotIdentifiedError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a dead model reads as no match
+            raise NotIdentifiedError(f"vision pick failed: {exc}") from exc
         finally:
             steps["vision_s"] = round(vision_elapsed, 1)
             steps["second_look_s"] = round(look_elapsed, 1)
         articles = articles_future.result() if articles_future else {}
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     if chosen is None:
         raise NotIdentifiedError("second look rejected every pick")
     emit("pick", {"name": chosen.name, "rejected": rejected})
@@ -358,7 +369,7 @@ def _decimals(value) -> int:
 
 def _reencoded(photo) -> bytes:
     """JPEG bytes without EXIF, safe to upload."""
-    img = Image.open(photo).convert("RGB")
+    img = load_clean(photo)
     img.thumbnail((1024, 1024))
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=88)
@@ -366,16 +377,14 @@ def _reencoded(photo) -> bytes:
 
 
 def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RADIUS_M) -> list:
-    """Optional candidates: one fast try per instance, never a wait."""
+    """Optional candidates: one fast try per instance, never a wait.
+
+    The lookup key carries coordinates, so only the in-memory cache is
+    used; `cache` is accepted and ignored. Same for the geosearch calls.
+    """
     key = ("overpass", round(lat, 5), round(lon, 5), radius)
     if key in _cache:
         return _cache[key]
-    cache_key = f"overpass:{lat:.5f},{lon:.5f},{radius}"
-    if cache is not None:
-        hit = cache.get(cache_key)
-        if hit is not None:
-            _cache[key] = hit
-            return hit
     post = post or _post
     body = QUERY.format(radius=radius, lat=f"{lat:.6f}", lon=f"{lon:.6f}")
     last_error = ""
@@ -384,7 +393,7 @@ def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RAD
             resp = post(url, data={"data": body}, headers={"User-Agent": USER_AGENT},
                         timeout=OVERPASS_TIMEOUT)
         except Exception as exc:  # noqa: BLE001 - any transport error moves on
-            last_error = str(exc)[:120]
+            last_error = scrub_query(str(exc))[:120]
             continue
         if resp.status_code in (429, 502):
             last_error = f"HTTP {resp.status_code} at {url}"
@@ -392,8 +401,6 @@ def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RAD
         resp.raise_for_status()
         elements = resp.json().get("elements", [])
         _cache[key] = elements
-        if cache is not None:
-            cache.put(cache_key, elements)
         return elements
     raise SourceError(f"Overpass failed on all instances ({last_error})")
 
@@ -424,7 +431,7 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None,
             },
             sleep=sleep,
             timeout=WIKIDATA_TIMEOUT,
-            cache=cache,
+            cache=None,
             tries=3,
         )
     except WebError as exc:
@@ -459,7 +466,7 @@ def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None,
             },
             sleep=sleep,
             timeout=WP_TIMEOUT,
-            cache=cache,
+            cache=None,
             tries=3,
         )
     except WebError as exc:

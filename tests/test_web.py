@@ -141,3 +141,32 @@ def test_mediawiki_get_honours_explicit_timeout():
     get = FakeTransport([(200, {"query": {"ok": True}})])
     mediawiki_get(get, "https://example.com/w/api.php", {"a": "b"}, timeout=4)
     assert get.calls[0]["timeout"] == 4
+
+
+def test_assert_public_url_blocks_non_public_hosts():
+    from witness.web import assert_public_url
+
+    for bad in ("http://127.0.0.1/", "http://10.1.2.3/x", "http://192.168.0.1/",
+                "http://169.254.169.254/latest/meta-data", "http://[::1]/",
+                "http://[fd00::1]/", "file:///etc/passwd", "gopher://x/"):
+        with pytest.raises(WebError):
+            assert_public_url(bad)
+
+
+def test_assert_public_url_allows_public_and_unresolvable():
+    from witness.web import assert_public_url
+
+    assert_public_url("https://en.wikipedia.org/wiki/X")
+    assert_public_url("https://no-such-host-12345.invalid/")
+
+
+def test_web_error_strips_query_strings():
+    err = ConnectionError(
+        "failed for url: /w/api.php?ggscoord=52.15965|4.35321&format=json")
+    get = FakeTransport([err, err, err])
+    with pytest.raises(WebError) as excinfo:
+        mediawiki_get(get, "https://nl.wikipedia.org/w/api.php",
+                      {"ggscoord": "52.15965|4.35321"}, sleep=lambda s: None)
+    assert "nl.wikipedia.org" in str(excinfo.value)
+    assert "ggscoord" not in str(excinfo.value)
+    assert "52.15965" not in str(excinfo.value)

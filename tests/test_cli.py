@@ -867,7 +867,7 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
         Image.new("RGBA", (16, 24), (1, 2, 3, 255)))
 
     code = cli_module.cmd_render(
-        "q1-test", str(photo), subject="mill", place="Town",
+        "q1-test", str(photo), subject="mill",
         era_dir="eras_parallel_b1", photo_credit="me",
         segment_call=lambda call_sam, path, subject: cutout)
     assert code == 0
@@ -916,7 +916,7 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
                    2: (52.0, 9.0, 36.0), 3: "E", 4: (4.0, 21.0, 0.0)}
     Image.new("RGB", (24, 16), "blue").save(photo, exif=exif)
 
-    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+    code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1")
     assert code == 0
     film_dir = out_dir / "film"
@@ -936,7 +936,7 @@ def test_render_without_subject_removes_stale_cutout(tmp_path, monkeypatch):
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
     stale = out_dir / "today_cutout.png"
     stale.write_bytes(b"previous-visitor-cutout")
-    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+    code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1")
     assert code == 0
     assert not stale.exists()
@@ -1193,7 +1193,7 @@ def test_render_without_manifest_refuses(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     out_dir, photo = _render_fixture(tmp_path)
-    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+    code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1")
     assert code == 2
     assert not (out_dir / "film").exists()
@@ -1212,7 +1212,7 @@ def test_render_ignores_paintings_missing_from_manifest(tmp_path, monkeypatch):
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1},
                   {"year": 1900, "verdict": "dropped", "attempts": 3,
                    "note": "differed"}]}))
-    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+    code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1")
     assert code == 0
     film = json.loads((out_dir / "film" / "film.json").read_text())
@@ -1575,7 +1575,7 @@ def test_render_writes_into_job_folder(tmp_path, monkeypatch):
     import json
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
-    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+    code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1", out_dir=root)
     assert code == 0
     assert (root / "q1-test" / "film" / "film.html").exists()

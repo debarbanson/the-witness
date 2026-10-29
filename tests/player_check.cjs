@@ -39,7 +39,7 @@ vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
 
 sandbox.__DATA__ = {
-  object: "Mill", place: "Town", photo: "today.jpg",
+  object: "Mill", kind: "watermill", photo: "today.jpg",
   photo_credit: "me", cutout: null, attribution: [],
   ai_label: "AI",
   today_line: "The society announced I died.", today_sub: "Photographed in 1900.",
@@ -68,6 +68,13 @@ vm.runInContext("FILM = __DATA__;", sandbox);
 const render = vm.runInContext("render", sandbox);
 const imgA = () => sandbox.document.getElementById("imgA");
 const layersEl = () => sandbox.document.getElementById("layers");
+
+// The title card shows the verified kind, never a typed place.
+render(1.0);
+assert.strictEqual(sandbox.document.getElementById("cardTitle").textContent,
+  "Mill", "title names the object");
+assert.strictEqual(sandbox.document.getElementById("cardSub").textContent,
+  "watermill", "subtitle shows the verified kind");
 
 // The anchor card shows one year from the film data.
 render(4.0);

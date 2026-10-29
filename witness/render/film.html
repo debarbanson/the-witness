@@ -154,7 +154,7 @@ function render(t) {
     title.textContent = FILM.object;
     const sub = document.getElementById("cardSub");
     sub.className = "";
-    sub.textContent = FILM.place;
+    sub.textContent = FILM.kind || "";
     showClock(); return;
   }
   if (seg.kind === "anchor") {

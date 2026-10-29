@@ -95,7 +95,6 @@ def main(argv=None):
     render_cmd.add_argument("--out-dir", default="out")
     render_cmd.add_argument("--photo", required=True)
     render_cmd.add_argument("--subject", default=None)
-    render_cmd.add_argument("--place", default="")
     render_cmd.add_argument("--era-dir", default="eras_parallel")
     render_cmd.add_argument("--layers-dir", default=None)
     render_cmd.add_argument("--photo-credit", default="")
@@ -130,7 +129,7 @@ def main(argv=None):
     if args.command == "render":
         from witness.render import record as render_record
 
-        code = cmd_render(args.slug, args.photo, subject=args.subject, place=args.place,
+        code = cmd_render(args.slug, args.photo, subject=args.subject,
                           era_dir=args.era_dir, layers_dir=args.layers_dir,
                           photo_credit=args.photo_credit,
                           own_photo=args.own_photo, out_dir=args.out_dir)
@@ -677,12 +676,12 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         if result["cached"] == "reviewed":
             print("reviewed research reused (use --no-cache to redo)")
             print(f"outcome: {result['result'].get('outcome')}")
-            return refresh_cached_film(photo, result["slug"], out_dir, place or "")
+            return refresh_cached_film(photo, result["slug"], out_dir)
         if result["cached"] == "film":
             print(f"cached research from {result['saved_at']} "
                   f"(use --no-cache to check again)")
             print(f"outcome: {result['result'].get('outcome')}")
-            return refresh_cached_film(photo, result["slug"], out_dir, place or "")
+            return refresh_cached_film(photo, result["slug"], out_dir)
         if not result["confirmed"]:
             print(f"not confirmed; nothing spent beyond identify ({result['spent']} tokens)")
             return 2
@@ -1068,7 +1067,7 @@ def cached_film(slug, lang, out_root="out", max_age_days=FILM_CACHE_DAYS):
     return data
 
 
-def refresh_cached_film(photo, slug, out_dir="out", place="") -> int:
+def refresh_cached_film(photo, slug, out_dir="out") -> int:
     """Re-render a cached film with the current visitor's photo.
 
     Paintings and research are shared knowledge; the photo, its note
@@ -1078,7 +1077,7 @@ def refresh_cached_film(photo, slug, out_dir="out", place="") -> int:
                     if (root / name).is_dir()), "eras_parallel")
     suffix = era_dir.removeprefix("eras_")
     layers_dir = f"layers_{suffix}" if (root / f"layers_{suffix}").is_dir() else None
-    return cmd_render(slug, photo, place=place, era_dir=era_dir,
+    return cmd_render(slug, photo, era_dir=era_dir,
                       layers_dir=layers_dir, out_dir=out_dir)
 
 
@@ -1545,7 +1544,7 @@ def cmd_layers(slug, mode="parallel", tag=None, call_sam=None, out_dir="out"):
     return 0
 
 
-def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
+def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
                layers_dir=None, photo_credit="", segment_call=None,
                own_photo=False, out_dir="out"):
     """Build the live film page from kept research plus paintings.
@@ -1600,7 +1599,7 @@ def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
         (out_dir / "today_cutout.png").unlink(missing_ok=True)
     film_dir = render_builder.write_film(
         out_dir, data, images, "today.jpg", photo_credit, layers,
-        place=place, era_files=era_files, layer_files=layer_files,
+        era_files=era_files, layer_files=layer_files,
         photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None,
         photo_year=photo_year, own_photo=own_photo,
         cache=Cache("out/cache"))

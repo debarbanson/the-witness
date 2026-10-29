@@ -217,7 +217,7 @@ def save_jpeg(src, dest, quality=88) -> None:
 
 
 def write_film(out_dir, research, images, photo, photo_credit, layers,
-               place="", era_files=None, layer_files=None, photo_file=None,
+               era_files=None, layer_files=None, photo_file=None,
                cutout_file=None, photo_year=None, own_photo=False, cache=None):
     """film.json plus film.html plus copied assets under out_dir/film/.
     Paintings are served as JPEG; layers and the cut-out stay PNG for
@@ -258,8 +258,8 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
     last = painted[-1] if painted else {"from_year": "today", "state": {}}
     today_line, today_sub = today_card(photo_year, own_photo, last, claims)
     first = (research.get("scenes", []) or [{}])[0]
-    film = {"object": name, "place": place, "photo": photo,
-            "photo_credit": photo_credit,
+    film = {"object": name, "kind": research["object"].get("kind", ""),
+            "photo": photo, "photo_credit": photo_credit,
             "cutout": ("cutout.png" if cutout_file is not None else None),
             "today_line": today_line, "today_sub": today_sub,
             "anchor": anchor_card(first),

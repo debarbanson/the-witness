@@ -216,6 +216,23 @@ def test_film_json_carries_readiness_and_attribution(tmp_path):
     assert (out / "film.html").exists()
 
 
+def test_film_carries_verified_kind_never_typed_place(tmp_path):
+    research = {
+        "object": {"name": "Mill", "kind": "stellingmolen", "qid": "Q1",
+                  "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [scene(1779, sentence="I opened my doors to the town.")],
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
+                             photo="today.jpg", photo_credit="me", layers={})
+    film = json.loads((out / "film.json").read_text())
+    assert "place" not in film
+    assert film["kind"] == "stellingmolen"
+    import inspect
+    assert "place" not in inspect.signature(builder.write_film).parameters
+
+
 def test_film_without_stream_events_is_ready_at_once(tmp_path):
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},

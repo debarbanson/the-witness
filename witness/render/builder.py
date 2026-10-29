@@ -16,6 +16,26 @@ def caption_for(scene, is_first=False):
     """First-person caption in at most two lines, from verified words."""
     year = scene["from_year"]
     condition = (scene.get("state") or {}).get("condition", "standing")
+    first = _first_person(condition, year, is_first)
+    description = (scene.get("state") or {}).get("description", "")
+    if description and len(description) <= 56:
+        return (first, description)
+    lines = [line.get("line", "") for line in scene.get("caption_lines", [])]
+    if lines:
+        return (first, _shorten(lines[0]))
+    if description:
+        return (first, _shorten(description))
+    return (first, "")
+
+
+def _shorten(text, limit=56) -> str:
+    """Trim to a word boundary with an ellipsis."""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _first_person(condition, year, is_first):
     if condition == "standing":
         first = f"I stood here in {year}."
     elif condition == "rebuilt":
@@ -33,11 +53,7 @@ def caption_for(scene, is_first=False):
         first = f"I moved in {year}."
     else:
         first = f"I was here in {year}."
-    description = (scene.get("state") or {}).get("description", "")
-    if description and len(description) <= 80:
-        return (first, description)
-    lines = [line.get("line", "") for line in scene.get("caption_lines", [])]
-    return (first, lines[0][:80] if lines else "")
+    return first
 
 
 def source_site(url) -> str:
@@ -60,15 +76,21 @@ def end_sources(claims) -> list:
     return seen
 
 
-def scene_site(scene) -> str:
-    """On-screen source for one scene, from its caption lines."""
+def scene_site(scene, claims=()) -> str:
+    """On-screen source for one scene: its caption lines first, then
+    the verified claims of its year, so every scene names a source."""
     for line in scene.get("caption_lines", []):
         if line.get("url"):
             return source_site(line["url"])
+    for claim in claims:
+        if (claim.get("year") == scene.get("from_year")
+                and claim.get("url")
+                and claim.get("verdict") in ("supported", "partly")):
+            return source_site(claim["url"])
     return ""
 
 
-def build_timeline(scenes, images) -> list:
+def build_timeline(scenes, images, claims=()) -> list:
     """Contiguous segments: title, anchor, one era per painting, today, end."""
     plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
     plan.append({"kind": "anchor", "start": TITLE_S, "end": TITLE_S + ANCHOR_S})
@@ -81,7 +103,7 @@ def build_timeline(scenes, images) -> list:
         plan.append({"kind": "era", "year": year,
                      "date_label": scene.get("date_label", str(year)),
                      "image": images[str(year)], "start": t, "end": t + ERA_S,
-                     "caption": [line1, line2], "site": scene_site(scene)})
+                     "caption": [line1, line2], "site": scene_site(scene, claims)})
         t += ERA_S
     plan.append({"kind": "today", "start": t, "end": t + TODAY_S})
     plan.append({"kind": "end", "start": t + TODAY_S,
@@ -97,8 +119,9 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
     film_dir = out_dir / "film"
     film_dir.mkdir(parents=True, exist_ok=True)
     name = research["object"]["name"]
+    claims = research.get("claims", [])
     scenes = [s for s in research.get("scenes", []) if isinstance(s.get("from_year"), int)]
-    plan = build_timeline(research.get("scenes", []), images)
+    plan = build_timeline(research.get("scenes", []), images, claims)
     painted = {e["year"]: e["t"] for e in research.get("stream", [])
                if e["event"] == "scene_painted" and e.get("verdict") == "matches"}
     film_scenes = []
@@ -111,7 +134,7 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
         film_scenes.append({"year": scene["from_year"],
                             "date_label": scene.get("date_label", key),
                             "image": images[key], "caption": [line1, line2],
-                            "site": scene_site(scene),
+                            "site": scene_site(scene, claims),
                             "layers": (layers or {}).get(key, []),
                             "ready_at": painted.get(scene["from_year"], 0)})
     attribution = []

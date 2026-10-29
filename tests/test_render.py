@@ -111,3 +111,17 @@ def test_frame_count_covers_duration():
     assert record.frame_times(10.0, fps=30)[-1] < 10.0
     assert len(record.frame_times(10.0, fps=30)) == 300
     assert record.frame_times(10.0, fps=30)[0] == 0.0
+
+
+def test_scene_site_falls_back_to_year_claims():
+    assert builder.scene_site(
+        scene(1865), [{"year": 1865, "url": "https://nl.wikipedia.org/wiki/Y",
+                       "verdict": "supported"}]) == "Wikipedia"
+    assert builder.scene_site(scene(1865), [{"year": 1900, "url": "https://x.example/",
+                                             "verdict": "supported"}]) == ""
+
+
+def test_caption_trims_long_description_without_caption_lines():
+    _, line2 = builder.caption_for(scene(1865, "standing", "word " * 30))
+    assert len(line2) <= 57
+    assert line2.endswith("…")

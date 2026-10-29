@@ -15,7 +15,7 @@ def record(film_html, out_mp4, fps=30):
     """Playwright steps render(t); ffmpeg encodes H.264 1080x1920."""
     from playwright.sync_api import sync_playwright
 
-    film_html = Path(film_html)
+    film_html = Path(film_html).resolve()
     film = json.loads((film_html.parent / "film.json").read_text())
     duration = film["segments"][-1]["end"]
     times = frame_times(duration, fps)

@@ -44,8 +44,18 @@ def load_dotenv(path=".env.local") -> None:
         os.environ[name] = value
 
 
-def main(argv=None):
+def startup() -> None:
+    """Keys plus the spending cap: every entry point calls this first."""
     load_dotenv()
+    try:
+        cap = float(os.environ.get("WITNESS_DAILY_CAP_USD", "25"))
+    except ValueError:
+        cap = 25.0
+    models.configure_spending("out/spending", cap)
+
+
+def main(argv=None):
+    startup()
     parser = argparse.ArgumentParser(prog="witness")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("identify", "research", "film"):
@@ -301,24 +311,25 @@ def refresh_film(kept) -> tuple:
     return film_verified, film_timeline, film_chosen
 
 
+@models.with_job_ledger
 def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             cache=None, verify_with="baseten", progress=None, quiet=False,
-            speculative=False, compare_support=False,
+            compare_support=False,
             on_identified=None, on_facts=None, on_claim=None, on_scene=None,
             location=None, out_dir="out") -> dict:
     """One job for the web and both commands: identify, research,
     verify. No input; no print when quiet; milestones via progress.
-    `decide` confirms the identified object (facts fetch while it
-    asks; the whole gather runs ahead too when speculative). Hooks
-    fire per identify, facts, judged claim and ready scene. Returns
-    the result; callers save and report."""
+    Only free facts fetch while `decide` confirms the identified
+    object; paid research waits for yes, so a refusal spends nothing
+    beyond identify.
+    Hooks fire per identify, facts, judged claim and ready scene.
+    Returns the result; callers save and report."""
     if decide is None:
         decide = lambda found: True
     if progress is None:
         progress = (lambda event, data: None) if quiet else cli_progress
     if cache is None and not no_cache:
         cache = Cache("out/cache")
-    models.reset_usage()
     timings = {}
     start = time.perf_counter()
     wiring = verify_wiring(verify_with)
@@ -420,37 +431,15 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
                 "draft": draft, "jobs": jobs, "snippets": answer["snippets"]}
 
     before = models.usage_totals()
-    if speculative:
-        def begin():
-            first = get_first()
-            return first, gather_rest(first)
-
-        confirmed, both = stream.confirm_speculative(
-            f"Is this {found.name}?", begin, lambda: decide(found))
-        if not confirmed:
-            after = models.usage_totals()
-            spent = (sum(v.get("total_tokens", 0) for v in after.values())
-                     - sum(v.get("total_tokens", 0) for v in before.values()))
-            progress("declined", {"spent_tokens": spent})
-            return {"confirmed": False, "identified": True, "cached": False,
-                    "spent": spent}
-        first, gathered = both
-    else:
-        pool = ThreadPoolExecutor(max_workers=1)
-        try:
-            first_future = pool.submit(get_first)
-            confirmed = decide(found)
-            if not confirmed:
-                after = models.usage_totals()
-                spent = (sum(v.get("total_tokens", 0) for v in after.values())
-                         - sum(v.get("total_tokens", 0) for v in before.values()))
-                progress("declined", {"spent_tokens": spent})
-                return {"confirmed": False, "identified": True, "cached": False,
-                        "spent": spent}
-            first = first_future.result()
-            gathered = gather_rest(first)
-        finally:
-            pool.shutdown(wait=True, cancel_futures=True)
+    confirmed, first = stream.confirm_speculative(
+        f"Is this {found.name}?", get_first, lambda: decide(found))
+    if not confirmed:
+        after = models.usage_totals()
+        spent = (sum(v.get("total_tokens", 0) for v in after.values())
+                 - sum(v.get("total_tokens", 0) for v in before.values()))
+        progress("declined", {"spent_tokens": spent})
+        return {"confirmed": False, "identified": True, "cached": False,
+                "spent": spent}
     anchor_year = None
     anchor_claim = next((c for c in first["claims"] if c.get("anchor") == "build"), None)
     if anchor_claim is not None:
@@ -465,6 +454,13 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
     progress("facts", {"claims": len(first["claims"]), "anchor": anchor_year})
     if on_facts is not None:
         on_facts(first)
+    try:
+        gathered = gather_rest(first)
+    except models.SpendingCapExceeded as exc:
+        progress("capped", {"error": str(exc)})
+        return {"confirmed": True, "identified": True, "cached": False,
+                "capped": True, "error": str(exc), "slug": slug,
+                "found": found, "order": order, "timings": timings}
     to_check, draft, jobs = gathered["to_check"], gathered["draft"], gathered["jobs"]
     judged_years: list = []
     supported_years: list = []
@@ -532,12 +528,15 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         verified, timeline, chosen = refresh_film(gathered["kept"])
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
     timings["total_s"] = round(time.perf_counter() - start, 1)
-    progress("complete", {"outcome": result["outcome"], "slug": slug})
+    tokens = models.usage_totals()
+    cost = models.current_cost_usd()
+    progress("complete", {"outcome": result["outcome"], "slug": slug,
+                           "cost_usd": cost})
     return {"confirmed": True, "identified": True, "cached": False, "slug": slug,
             "found": found, "order": order, "kept": gathered["kept"],
             "timeline": timeline, "chosen": chosen, "result": result,
             "timings": timings, "failures": fetched.failures,
-            "comparison": comparison}
+            "comparison": comparison, "tokens": tokens, "cost_usd": cost}
 
 
 def report_not_identified(result) -> None:
@@ -624,12 +623,12 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         nonlocal base_future, report_future
         scene1_future = None
         looker = photo_call or check_fn
-        report_future = paint_pool.submit(paint.anchor_report, looker, photo_bytes)
+        report_future = models.submit_context(paint_pool, paint.anchor_report, looker, photo_bytes)
         if anchor_year is not None:
             print(f"scene 1 ({anchor_year}) verified from the anchor; "
                   f"painting while research runs", flush=True)
             scene1 = film_anchor_scene(found.name, anchor_year)
-            scene1_future = paint_pool.submit(
+            scene1_future = models.submit_context(paint_pool, 
                 paint_scene_worker, scene1, 1, True)
             paint_futures[anchor_year] = scene1_future
             painted_states[anchor_year] = dict(scene1.get("state") or {})
@@ -653,7 +652,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         emit_scene(scene_no, scene)
         if (paint_eras and isinstance(scene["from_year"], int)
                 and scene["from_year"] not in paint_futures):
-            paint_futures[scene["from_year"]] = paint_pool.submit(
+            paint_futures[scene["from_year"]] = models.submit_context(paint_pool, 
                 paint_scene_worker, scene, scene_no, False)
             painted_states[scene["from_year"]] = dict(scene.get("state") or {})
 
@@ -667,7 +666,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     try:
         result = run_job(photo, place=place, lang=lang, decide=decide,
                          no_cache=no_cache, verify_with=verify_with,
-                         progress=progress, quiet=False, speculative=True,
+                         progress=progress, quiet=False,
                          on_identified=on_identified, on_facts=on_facts,
                          on_claim=on_claim, on_scene=on_scene,
                          location=location, out_dir=out_dir)
@@ -684,7 +683,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             print(f"outcome: {result['result'].get('outcome')}")
             return 0
         if not result["confirmed"]:
-            print(f"not confirmed; speculative work discarded (cost: {result['spent']} tokens)")
+            print(f"not confirmed; nothing spent beyond identify ({result['spent']} tokens)")
             return 2
         chosen = result["chosen"]
         if paint_eras:
@@ -705,12 +704,12 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                                                    "date_label": scene.get("date_label")})
                     print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
                           f"verified (final choice)", flush=True)
-                    paint_futures[year] = paint_pool.submit(
+                    paint_futures[year] = models.submit_context(paint_pool, 
                         paint_scene_worker, scene, final_numbers[year], False)
                 else:
                     print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
                           f"repainted (final state differs)", flush=True)
-                    paint_futures[year] = paint_pool.submit(
+                    paint_futures[year] = models.submit_context(paint_pool, 
                         repaint_scene_worker, paint_futures[year], scene,
                         final_numbers[year])
                 painted_states[year] = dict(scene.get("state") or {})
@@ -759,7 +758,7 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
             return answer in ("", "y", "yes")
     result = run_job(photo, place=place, lang=lang, decide=decide,
                      no_cache=no_cache, verify_with=verify_with,
-                     progress=progress, quiet=False, speculative=False,
+                     progress=progress, quiet=False,
                      compare_support=(verify_with == "both"),
                      location=location, out_dir=out_dir)
     if not result["identified"]:
@@ -780,13 +779,14 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     report_and_save(result["found"], lang, result["order"], result["kept"],
                     result["timeline"], result["chosen"], result["result"],
                     result["timings"], verify_with, result["failures"],
-                    result["comparison"], out_root=out_dir)
+                    result["comparison"], out_root=out_dir,
+                    tokens=result["tokens"], cost_usd=result["cost_usd"])
     return 0
 
 
 def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
                     verify_with, failures, comparison, stream_events=None,
-                    out_root="out", quiet=False) -> str:
+                    out_root="out", quiet=False, tokens=None, cost_usd=None) -> str:
     """Print claims, scenes, timeline and outcome, then save research.json."""
     if not quiet:
         print("\nclaims:")
@@ -821,9 +821,13 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
     out_dir.mkdir(parents=True, exist_ok=True)
     if not quiet:
         print(f"timings (s): {json.dumps(timings)}")
-    tokens = models.usage_totals()
+    if tokens is None:
+        tokens = models.usage_totals()
+    if cost_usd is None:
+        cost_usd = models.current_cost_usd()
     if not quiet:
         print(f"tokens: {json.dumps(tokens)}")
+        print(f"cost: ${cost_usd:.2f}")
     sites = sorted({render_builder.source_site(c["url"]) for c in kept if c.get("url")})
     saved = {
         "saved_at": date.today().isoformat(),
@@ -835,6 +839,7 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
         "outcome": result,
         "timings": timings,
         "tokens": tokens,
+        "cost_usd": cost_usd,
         "verify_with": verify_with,
         "failures": failures,
         "comparison": comparison,
@@ -1406,9 +1411,14 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, out_dir="out"):
             print(f"{year}: no claim of its own; dropped from the film")
             continue
         others = captions.other_texts(claim, data.get("claims", []), year)
-        out = captions.write_sentence(
-            rewrite, support, claim, year, other_texts=others,
-            stamp=scene.get("date_label", "") or "")
+        try:
+            out = captions.write_sentence(
+                rewrite, support, claim, year, other_texts=others,
+                stamp=scene.get("date_label", "") or "")
+        except models.SpendingCapExceeded as exc:
+            path.write_text(json.dumps(data, indent=1))
+            print(f"stopping: spending cap reached ({exc})")
+            return 2
         if not out["verified"]:
             failed.append(year)
             print(f"{year}: sentence failed verification")
@@ -1444,7 +1454,12 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
                 entry["child"], entry["child_verified"] = None, False
                 dropped += 1
                 continue
-            out = children.child_caption(rewrite, support, entry["line"], claim["quote"])
+            try:
+                out = children.child_caption(rewrite, support, entry["line"], claim["quote"])
+            except models.SpendingCapExceeded as exc:
+                path.write_text(json.dumps(data, indent=1))
+                print(f"stopping: spending cap reached ({exc})")
+                return 2
             entry["child"], entry["child_verified"] = out["line"], out["verified"]
             kept, dropped = kept + out["verified"], dropped + (not out["verified"])
             print(f"{entry['year']}: {out['line'] or 'dropped'}"[:140])
@@ -1497,7 +1512,11 @@ def cmd_layers(slug, mode="parallel", tag=None, call_sam=None, out_dir="out"):
     shutil.rmtree(layers_root, ignore_errors=True)
     total = 0
     for path in sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem):
-        found = layers.figures(call, str(path))
+        try:
+            found = layers.figures(call, str(path))
+        except models.SpendingCapExceeded as exc:
+            print(f"stopping: spending cap reached ({exc})")
+            return 2
         layer_dir = layers_root / path.stem
         layer_dir.mkdir(parents=True, exist_ok=True)
         for i, layer in enumerate(found):

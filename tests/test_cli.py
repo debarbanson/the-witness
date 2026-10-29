@@ -232,6 +232,27 @@ def test_report_and_save_writes_research_json(tmp_path, monkeypatch):
     assert '"outcome": "short_film"' in saved
 
 
+def test_report_and_save_prints_cost(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from witness.cli import report_and_save
+
+    monkeypatch.chdir(tmp_path)
+    found = SimpleNamespace(name="Test Mill", kind="mill", qid="Q1",
+                            articles={"en": "Test_Mill"})
+    result = {"outcome": "too_little", "reason": "test", "verified": 0,
+              "eras": 0, "good_sources": 0}
+    report_and_save(found, "en", ["en"], [], [], [], result, {}, "baseten", [],
+                    None,
+                    tokens={"meta": {"prompt_tokens": 8000, "completion_tokens": 0,
+                                     "total_tokens": 8000}},
+                    cost_usd=0.01)
+    out, _ = capsys.readouterr()
+    assert "cost: $0.01" in out
+    saved = (tmp_path / "out" / "q1-test-mill" / "research.json").read_text()
+    assert '"cost_usd": 0.01' in saved
+
+
 def test_spare_needs_counts_lineless_scenes():
     from witness.cli import spare_needs
 
@@ -321,6 +342,31 @@ def test_dotenv_never_overrides_set_variables(tmp_path, monkeypatch, capsys):
     assert os.environ["WITNESS_TEST_KEY"] == "keep"
     assert os.environ["OTHER"] == "hush"
     assert capsys.readouterr().out == ""
+
+
+def test_startup_arms_daily_cap(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("WITNESS_DAILY_CAP_USD", raising=False)
+    models.configure_spending(None)
+    cli_module.startup()
+    assert models._DAILY is not None
+    assert models._DAILY.cap_usd == 25.0
+    models.configure_spending(None)
+
+
+def test_startup_cap_amount_from_env(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WITNESS_DAILY_CAP_USD", "5")
+    models.configure_spending(None)
+    cli_module.startup()
+    assert models._DAILY.cap_usd == 5.0
+    models.configure_spending(None)
 
 
 def test_build_jobs_runs_in_film_order():
@@ -1321,6 +1367,59 @@ def test_run_job_declined_runs_no_research(tmp_path, monkeypatch):
         out_dir=str(tmp_path / "out"))
     assert result["confirmed"] is False
     assert calls == []
+    assert result["spent"] == 0
+
+
+def test_run_job_research_waits_for_confirm(tmp_path, monkeypatch):
+    import time
+
+    from witness import cli as cli_module
+
+    calls = []
+    _stub_job(monkeypatch, calls=calls)
+
+    def slow_decide(found):
+        time.sleep(0.5)
+        assert calls == []  # nothing paid started during hesitation
+        return True
+
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=slow_decide, no_cache=True,
+        verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    assert result["confirmed"] is True
+    assert len(calls) == 1
+
+
+def test_run_job_returns_capped_when_cap_hit(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    _stub_job(monkeypatch)
+
+    def capped(respond, question):
+        raise models.SpendingCapExceeded(
+            "daily spending cap reached ($1.00); try again tomorrow")
+
+    monkeypatch.setattr(cli_module.research, "ask_lifespan", capped)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=lambda found: True, no_cache=True,
+        verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    assert result.get("capped") is True
+    assert "cap reached" in result["error"]
+
+
+def test_run_job_result_carries_tokens_and_cost(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    _stub_job(monkeypatch)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=lambda found: True, no_cache=True,
+        verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    assert result["tokens"] == {}
+    assert result["cost_usd"] == 0  # stubs bypass paid calls
 
 
 def test_run_job_maps_missing_location(tmp_path, monkeypatch):
@@ -1541,6 +1640,52 @@ def test_cmd_captions_writes_sentence_and_skips_claimless(tmp_path, monkeypatch,
         "text": "I opened my doors to the town.",
         "claim_year": 1779, "claim_url": "https://a.example/x"}
     assert "caption_sentence" not in second
+
+
+def test_cmd_captions_stops_cleanly_on_cap(tmp_path, monkeypatch, capsys):
+    import json
+    from pathlib import Path
+    from witness import cli as cli_module
+    from witness import models
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
+
+    def capped(*args, **kwargs):
+        raise models.SpendingCapExceeded("daily spending cap reached")
+
+    code = cli_module.cmd_captions(
+        "q1-test", rewrite_call=capped,
+        support_call=lambda sentence, quote: "supported")
+    assert code == 2
+    out, _ = capsys.readouterr()
+    assert "spending cap" in out
+    assert (slug_dir / "research.json").exists()
+
+
+def test_cmd_layers_stops_cleanly_on_cap(tmp_path, monkeypatch, capsys):
+    import io
+    from PIL import Image
+    from witness import cli as cli_module
+    from witness import models
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
+    (era_dir / "1850.png").write_bytes(buf.getvalue())
+
+    def capped(text, jpg):
+        raise models.SpendingCapExceeded("daily spending cap reached")
+
+    code = cli_module.cmd_layers("q1-test", mode="parallel", call_sam=capped)
+    assert code == 2
+    out, _ = capsys.readouterr()
+    assert "spending cap" in out
 
 
 def test_cmd_captions_skips_captioned_scenes(tmp_path, monkeypatch, capsys):

@@ -42,3 +42,24 @@ def test_clean_bytes_are_upright_and_bare(tmp_path):
     img = Image.open(io.BytesIO(photo.photo_bytes_clean(src)))
     assert img.size == (80, 40)
     assert dict(img.getexif()) == {}
+
+
+def test_ingest_reads_gps_cleans_and_deletes_original(tmp_path):
+    from witness import identify as identify_module
+
+    src = _portrait_jpeg(tmp_path / "upload.jpg")
+    location, today = photo.ingest_upload(src, tmp_path / "job")
+    assert isinstance(location, identify_module.PhotoLocation)
+    assert "m" in location.precision  # a real reading, kept in memory only
+    assert today.name == "today.jpg"
+    assert dict(Image.open(today).getexif()) == {}
+    assert not src.exists()
+
+
+def test_ingest_without_gps_still_cleans_and_deletes(tmp_path):
+    src = tmp_path / "upload.jpg"
+    Image.new("RGB", (30, 20), (10, 200, 30)).save(src)
+    location, today = photo.ingest_upload(src, tmp_path / "job")
+    assert location is None
+    assert today.name == "today.jpg"
+    assert not src.exists()

@@ -31,3 +31,19 @@ def photo_bytes_clean(photo) -> bytes:
     buf = io.BytesIO()
     load_clean(photo).save(buf, format="JPEG", quality=92)
     return buf.getvalue()
+
+
+def ingest_upload(src, job_dir):
+    """Take a web upload: read its GPS first, lay the clean today.jpg,
+    then delete the original with its location. Returns (location or
+    None, today.jpg path). The location stays in memory for the lookup
+    and is never written anywhere."""
+    from witness import identify as identify_module
+
+    try:
+        location = identify_module.read_location(src)
+    except identify_module.NoGpsError:
+        location = None
+    today = prepare_photo(src, job_dir)
+    Path(src).unlink(missing_ok=True)
+    return location, today

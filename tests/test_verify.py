@@ -499,7 +499,7 @@ def test_verify_all_captures_job_errors():
 
     results = verify.verify_all(respond, [("good", ["s"]), ("bad", ["s"])], max_workers=2)
     assert results[0]["verdict"] == "supported"
-    assert results[1]["verdict"] == "unsupported"
+    assert results[1]["verdict"] == "unverified"
     assert "no messages" in results[1]["note"]
 
 
@@ -952,7 +952,7 @@ def test_winning_quote_with_year_stays_supported():
     assert result["verdict"] == "supported"
 
 
-def test_judge_stream_marks_crashed_job_unsupported():
+def test_judge_stream_marks_crashed_job_unverified():
     def boom(prompt):
         raise RuntimeError("connection reset")
 
@@ -960,7 +960,7 @@ def test_judge_stream_marks_crashed_job_unsupported():
     seen = list(verify.judge_stream(
         boom, jobs, max_workers=1,
         completion_respond=lambda p: answered_with({"completed": True})))
-    assert seen[0][1]["verdict"] == "unsupported"
+    assert seen[0][1]["verdict"] == "unverified"
     assert "connection reset" in seen[0][1]["note"]
 
 
@@ -1016,7 +1016,80 @@ def test_judge_all_captures_job_errors():
 
     results = verify.judge_all(respond, [job(), job(claim="bad claim")], max_workers=2)
     assert results[0]["verdict"] == "supported"
-    assert results[1]["verdict"] == "unsupported"
+    # A transport failure is not a refutation: retried once, then
+    # unverified, never silently unsupported.
+    assert results[1]["verdict"] == "unverified"
+    assert results[1]["votes"] == 2
+
+
+def test_judge_retries_once_when_every_round_errors():
+    calls = []
+
+    def respond(prompt):
+        calls.append(prompt)
+        if len(calls) <= 1:
+            raise verify.VerifyError("timed out")
+        return answered_with(
+            {"verdict": "supported", "quote": "Built in 1932 here.",
+             "url": "https://en.wikipedia.org/wiki/X",
+             "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                          "supports": True,
+                          "quote": "Built in 1932 here."}]})
+
+    result = verify.judge_claim(
+        respond, job(votes=1),
+        completion_respond=lambda prompt: answered_with({"completed": True}))
+    assert result["verdict"] == "supported"
+    assert len(calls) == 2
+
+
+def test_judge_marks_persistent_errors_unverified():
+    calls = []
+
+    def respond(prompt):
+        calls.append(prompt)
+        raise verify.VerifyError("timed out")
+
+    result = verify.judge_claim(respond, job(votes=3))
+    assert result["verdict"] == "unverified"
+    assert len(calls) == 3  # two rounds plus one retry
+    assert "timed out" in result["note"]
+
+
+def test_judge_stream_marks_exploding_jobs_unverified():
+    def boom(*args, **kwargs):
+        raise RuntimeError("connection reset")
+
+    results = verify.judge_all(
+        scripted_support("supported"), [job()], max_workers=1,
+        dispute_check=boom)
+    assert results[0]["verdict"] == "unverified"
+    assert "connection reset" in results[0]["note"]
+
+
+def test_judge_completion_explosion_stands_with_note():
+    def boom(prompt):
+        raise RuntimeError("connection reset")
+
+    result = verify.judge_claim(
+        scripted_support("supported"), job(),
+        completion_respond=boom)
+    assert result["verdict"] == "supported"
+    assert "connection reset" in result["completion_note"]
+
+
+def test_judge_search_errors_retry_then_unverified():
+    calls = []
+
+    def search(prompt):
+        calls.append(prompt)
+        raise verify.VerifyError("timed out")
+
+    result = verify.judge_claim(
+        lambda prompt: (_ for _ in ()).throw(verify.VerifyError("unused")),
+        job(votes=1, passages=[]), search_respond=search)
+    assert result["verdict"] == "unverified"
+    assert len(calls) == 2
 
 
 def test_regression_tower_1986_supported_1990_weak_only():

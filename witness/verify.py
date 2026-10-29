@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlparse
 
 import requests
 
+from witness import models
 from witness import states
 from witness.research import is_weak_source
 from witness.web import USER_AGENT, WebError, assert_public_url, mediawiki_get
@@ -345,9 +346,8 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
                                      job.get("year"), job.get("keywords") or [])
             )
 
-        rounds = _vote_rounds(
-            lambda: _support_round(support_respond, job["claim"], passages),
-            votes, stop=quoted_supported)
+        one_more = lambda: _support_round(support_respond, job["claim"], passages)
+        rounds = _vote_rounds(one_more, votes, stop=quoted_supported)
         stopper = next((found for found in rounds if quoted_supported(found)), None)
         if stopper is not None:
             fast_path = "literal_quote"
@@ -359,8 +359,8 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
         ):
             rounds.append(_second_judgement(support_respond, job, passages))
     elif search_respond is not None:
-        rounds = _vote_rounds(
-            lambda: _search_round(search_respond, job["claim"], urls), votes)
+        one_more = lambda: _search_round(search_respond, job["claim"], urls)
+        rounds = _vote_rounds(one_more, votes)
     else:
         return {
             "verdict": "unsupported", "quote": "", "url": None, "support": [],
@@ -369,13 +369,17 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
             "votes": 0, "fast_path": None,
         }
     decided = [r for r in rounds if r["verdict"] != "error"]
+    if not decided and len(rounds) < 3:
+        rounds.append(one_more())  # transport errors are not verdicts: one retry
+        decided = [r for r in rounds if r["verdict"] != "error"]
     if not decided:
         note = rounds[0].get("note", "verify failed") if rounds else "verify failed"
         return {
-            "verdict": "unsupported", "quote": "", "url": None, "support": [],
-            "note": note, "completed": True, "completion_note": None,
-            "rewritten": None, "war_politics_only": False,
-            "rounds": _slim(rounds), "votes": len(rounds), "fast_path": None,
+            "verdict": "unverified", "quote": "", "url": None, "support": [],
+            "note": f"{note}; no verdict after a retry", "completed": True,
+            "completion_note": None, "rewritten": None,
+            "war_politics_only": False, "rounds": _slim(rounds),
+            "votes": len(rounds), "fast_path": None,
         }
     if fast_path == "literal_quote":
         winner = stopper
@@ -424,7 +428,7 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
             completed = check_completion(
                 completion_respond or support_respond, job["claim"], winner.get("quote", "")
             )["completed"]
-        except VerifyError as exc:
+        except Exception as exc:  # noqa: BLE001 - completion qualifies; support decides
             completion_note = f"completion check failed: {exc}"
     return {
         "verdict": winner["verdict"],
@@ -450,8 +454,8 @@ def _vote_rounds(one_round, votes: int, stop=None) -> list:
     if votes <= 1:
         return [one_round()]
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="vote") as pool:
-        first = pool.submit(one_round)
-        second = pool.submit(one_round)
+        first = models.submit_context(pool, one_round)
+        second = models.submit_context(pool, one_round)
         rounds = [first.result(), second.result()]
     if votes <= 2:
         return rounds
@@ -465,14 +469,14 @@ def _vote_rounds(one_round, votes: int, stop=None) -> list:
 def _support_round(respond, claim, passages) -> dict:
     try:
         return verify_claim(respond, claim, passages)
-    except VerifyError as exc:
+    except Exception as exc:  # noqa: BLE001 - one bad round never kills its siblings
         return {"verdict": "error", "note": f"verify failed: {exc}"}
 
 
 def _search_round(respond, claim, urls) -> dict:
     try:
         return verify_with_search(respond, claim, urls)
-    except VerifyError as exc:
+    except Exception as exc:  # noqa: BLE001 - one bad round never kills its siblings
         return {"verdict": "error", "note": f"verify failed: {exc}"}
 
 
@@ -513,7 +517,7 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
                  max_workers=6, completion=True, progress=None,
                  dispute_check=None):
     """Judge several claims at once, yielding (index, result) per claim
-    as it finishes. A failing job becomes unsupported with a note
+    as it finishes. A failing job becomes unverified with a note
     instead of killing the run. `progress("verifying", ...)` names the
     claim a worker picks up; `progress("verify", ...)` fires per
     finished claim, in completion order."""
@@ -529,7 +533,7 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
                                dispute_check=dispute_check)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {
-                "verdict": "unsupported", "quote": "", "url": None, "support": [],
+                "verdict": "unverified", "quote": "", "url": None, "support": [],
                 "note": f"verify failed: {exc}", "completed": True,
                 "completion_note": None, "rewritten": None,
                 "war_politics_only": False, "rounds": [], "votes": 0,
@@ -538,7 +542,8 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
 
     pool = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        futures = {pool.submit(run, job, i): i for i, job in enumerate(jobs)}
+        futures = {models.submit_context(pool, run, job, i): i
+                   for i, job in enumerate(jobs)}
         for done, future in enumerate(as_completed(futures), 1):
             index = futures[future]
             result = future.result()
@@ -854,7 +859,7 @@ def select_paragraphs(text: str, year=None, keywords=(), max_paras=6) -> list:
 
 def verify_all(respond, jobs, max_workers=6) -> list:
     """Verify several claims at once (Meta calls parallelise; a failing job
-    becomes unsupported with a note instead of killing the run)."""
+    becomes unverified with a note instead of killing the run)."""
     from concurrent.futures import ThreadPoolExecutor
 
     def run(job):
@@ -863,14 +868,15 @@ def verify_all(respond, jobs, max_workers=6) -> list:
             return verify_claim(respond, claim, evidence)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {
-                "verdict": "unsupported", "quote": "", "url": None, "support": [],
+                "verdict": "unverified", "quote": "", "url": None, "support": [],
                 "note": f"verify failed: {exc}", "completed": True,
                 "rewritten": None, "war_politics_only": False,
             }
 
     pool = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        return list(pool.map(run, jobs))
+        futures = [models.submit_context(pool, run, job) for job in jobs]
+        return [future.result() for future in futures]
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
 

@@ -38,6 +38,27 @@ def test_reviewed_research_roundtrip(tmp_path):
     assert cache.get_reviewed("Q2487636", "nl") is None
 
 
+def test_reviewed_keeps_knowledge_only(tmp_path):
+    cache = Cache(tmp_path)
+    cache.put_reviewed("Q1", "en", {
+        "object": {"name": "Mill", "qid": "Q1"}, "claims": [], "timeline": [],
+        "scenes": [], "outcome": {"outcome": "short_film"},
+        "tokens": {"meta": {"total_tokens": 5}}, "cost_usd": 0.01,
+        "timings": {"total_s": 9.0}, "stream": [{"event": "x"}],
+        "failures": [], "comparison": None, "photo_file": "samples/x.jpg"})
+    assert cache.get_reviewed("Q1", "en") == {
+        "object": {"name": "Mill", "qid": "Q1"}, "claims": [], "timeline": [],
+        "scenes": [], "outcome": {"outcome": "short_film"}}
+
+
+def test_reviewed_get_filters_old_entries(tmp_path):
+    cache = Cache(tmp_path)
+    path = tmp_path / "reviewed" / "Q1-en.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"outcome": {}, "tokens": {}, "stream": []}))
+    assert cache.get_reviewed("Q1", "en") == {"outcome": {}}
+
+
 def test_mediawiki_get_reads_and_writes_cache(tmp_path):
     from witness.web import mediawiki_get
 

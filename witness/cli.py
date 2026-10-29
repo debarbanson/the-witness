@@ -556,7 +556,8 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
              progress=None, paint_eras=False, paint_call=None, check_call=None,
              photo_call=None, location=None, out_dir="out"):
     """The film as a stream: opening card within seconds, then one ready
-    scene after another. Research starts while the user still confirms.
+    scene after another. Only free facts fetch while the user confirms;
+    paid research waits for yes.
     With paint_eras, scene 1 paints from the anchor while research runs
     and later scenes paint as they verify."""
     filmed = stream.FilmStream()
@@ -674,14 +675,14 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             report_not_identified(result)
             return 2
         if result["cached"] == "reviewed":
-            print("film opens instantly (reviewed research reused; use --no-cache to redo)")
+            print("reviewed research reused (use --no-cache to redo)")
             print(f"outcome: {result['result'].get('outcome')}")
-            return 0
+            return refresh_cached_film(photo, result["slug"], out_dir, place or "")
         if result["cached"] == "film":
-            print(f"film opens instantly (cached film from {result['saved_at']}; "
-                  f"use --no-cache to check again)")
+            print(f"cached research from {result['saved_at']} "
+                  f"(use --no-cache to check again)")
             print(f"outcome: {result['result'].get('outcome')}")
-            return 0
+            return refresh_cached_film(photo, result["slug"], out_dir, place or "")
         if not result["confirmed"]:
             print(f"not confirmed; nothing spent beyond identify ({result['spent']} tokens)")
             return 2
@@ -1065,6 +1066,20 @@ def cached_film(slug, lang, out_root="out", max_age_days=FILM_CACHE_DAYS):
     if data.get("object", {}).get("lang", "en") != lang:
         return None
     return data
+
+
+def refresh_cached_film(photo, slug, out_dir="out", place="") -> int:
+    """Re-render a cached film with the current visitor's photo.
+
+    Paintings and research are shared knowledge; the photo, its note
+    and the film page are always the visitor's, never served stale."""
+    root = Path(out_dir) / slug
+    era_dir = next((name for name in ("eras_stream", "eras_parallel")
+                    if (root / name).is_dir()), "eras_parallel")
+    suffix = era_dir.removeprefix("eras_")
+    layers_dir = f"layers_{suffix}" if (root / f"layers_{suffix}").is_dir() else None
+    return cmd_render(slug, photo, place=place, era_dir=era_dir,
+                      layers_dir=layers_dir, out_dir=out_dir)
 
 
 def describe_found(found) -> str:
@@ -1581,6 +1596,8 @@ def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
         cut = seg(first, photo, subject)
         cutout_path = out_dir / "today_cutout.png"
         cut.image.save(cutout_path)
+    else:
+        (out_dir / "today_cutout.png").unlink(missing_ok=True)
     film_dir = render_builder.write_film(
         out_dir, data, images, "today.jpg", photo_credit, layers,
         place=place, era_files=era_files, layer_files=layer_files,

@@ -926,6 +926,73 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
     assert dict(Image.open(film_dir / "today.jpg").getexif()) == {}
 
 
+def test_render_without_subject_removes_stale_cutout(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo = _render_fixture(tmp_path)
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+    stale = out_dir / "today_cutout.png"
+    stale.write_bytes(b"previous-visitor-cutout")
+    code = cli_module.cmd_render("q1-test", str(photo), place="Town",
+                                 era_dir="eras_parallel_b1")
+    assert code == 0
+    assert not stale.exists()
+    assert not (out_dir / "film" / "cutout.png").exists()
+
+
+def test_film_cached_relay_current_photo(tmp_path, monkeypatch):
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo = _render_fixture(tmp_path)
+    era_stream = out_dir / "eras_stream"
+    era_stream.mkdir()
+    Image.new("RGB", (16, 24), "red").save(era_stream / "1850.png")
+    (out_dir / "paint_stream.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+    film_dir = out_dir / "film"
+    film_dir.mkdir()
+    Image.new("RGB", (24, 16), "red").save(film_dir / "today.jpg")
+    (film_dir / "film.html").write_text("<html>stale</html>")
+    Image.new("RGB", (24, 16), "blue").save(photo)
+    monkeypatch.setattr(cli_module, "run_job", lambda *a, **k: {
+        "confirmed": True, "identified": True, "cached": "film",
+        "slug": "q1-test", "result": {"outcome": "full_film"},
+        "saved_at": "2026-10-29"})
+    code = cli_module.cmd_film(str(photo), yes=True, out_dir=str(tmp_path / "out"))
+    assert code == 0
+    today = Image.open(film_dir / "today.jpg")
+    assert today.getpixel((0, 0))[:3] != (255, 0, 0)
+    assert (film_dir / "film.html").read_text() != "<html>stale</html>"
+
+
+def test_film_cached_without_paintings_refuses(tmp_path, monkeypatch, capsys):
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    out_dir.mkdir(parents=True)
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [], "scenes": [],
+        "timeline": []}))
+    photo = tmp_path / "photo.jpg"
+    Image.new("RGB", (24, 16), "blue").save(photo)
+    monkeypatch.setattr(cli_module, "run_job", lambda *a, **k: {
+        "confirmed": True, "identified": True, "cached": "reviewed",
+        "slug": "q1-test", "result": {"outcome": "full_film"}})
+    code = cli_module.cmd_film(str(photo), yes=True, out_dir=str(tmp_path / "out"))
+    assert code == 2
+    assert "opens instantly" not in capsys.readouterr().out
+
+
 def test_collect_paint_entries_marks_crashed_future_dropped():
     from concurrent.futures import ThreadPoolExecutor
     from witness import cli as cli_module

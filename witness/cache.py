@@ -10,6 +10,15 @@ from datetime import date
 from pathlib import Path
 
 
+REVIEWED_KEYS = ("object", "claims", "timeline", "scenes", "outcome",
+                 "source_note")
+
+
+def reviewed_knowledge(data: dict) -> dict:
+    """Knowledge a later visitor may reuse: no run totals, no photos."""
+    return {key: data[key] for key in REVIEWED_KEYS if key in data}
+
+
 class Cache:
     def __init__(self, root):
         self.root = Path(root)
@@ -37,17 +46,18 @@ class Cache:
         return self.root / f"{digest}.json"
 
     def put_reviewed(self, qid: str, lang: str, data: dict) -> None:
-        """Owner-reviewed research for an object: reused as is, never expires."""
+        """Owner-reviewed research for an object: knowledge only, never
+        expires. Run totals and anything visitor-specific stay out."""
         path = self._reviewed_path(qid, lang)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False))
+        path.write_text(json.dumps(reviewed_knowledge(data), ensure_ascii=False))
 
     def get_reviewed(self, qid: str, lang: str):
         path = self._reviewed_path(qid, lang)
         if not path.exists():
             return None
         try:
-            return json.loads(path.read_text())
+            return reviewed_knowledge(json.loads(path.read_text()))
         except (json.JSONDecodeError, OSError):
             return None
 

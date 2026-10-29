@@ -125,3 +125,23 @@ def test_caption_trims_long_description_without_caption_lines():
     _, line2 = builder.caption_for(scene(1865, "standing", "word " * 30))
     assert len(line2) <= 57
     assert line2.endswith("…")
+
+
+def test_film_html_plays_without_fetch(tmp_path):
+    """film.json fetch is blocked on file:// pages, so the data is
+    embedded in film.html and the page prefers it over fetch."""
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [scene(1779, "standing", "opened in 1779")],
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
+                             photo="today.jpg", photo_credit="me", layers={})
+    html = (out / "film.html").read_text()
+    assert '<script id="film-data" type="application/json">' in html
+    blob = html.split('<script id="film-data" type="application/json">')[1]
+    blob = blob.split("</script>")[0]
+    assert json.loads(blob)["object"] == "Mill"
+    # The unbuilt-template guard in the player script must survive injection.
+    assert html.count("__FILM_JSON__") == 1

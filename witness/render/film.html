@@ -55,6 +55,7 @@
   <div id="progress" style="display:none"></div>
   <div id="clock"></div>
 </div>
+<script id="film-data" type="application/json">__FILM_JSON__</script>
 <script>
 "use strict";
 let FILM = null;
@@ -202,7 +203,7 @@ function fit() {
   stage.style.transform = "scale(" + s + ")";
 }
 
-fetch("film.json").then(r => r.json()).then(film => {
+function start(film) {
   FILM = film;
   fit();
   addEventListener("resize", fit);
@@ -215,7 +216,27 @@ fetch("film.json").then(r => r.json()).then(film => {
     if ((now - t0) / 1000 < total) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-});
+}
+
+function fail(msg) {
+  const progress = document.getElementById("progress");
+  progress.style.display = "block";
+  progress.textContent = msg;
+}
+
+const embedded = document.getElementById("film-data");
+if (embedded && embedded.textContent.trim() &&
+    !embedded.textContent.includes("__FILM_JSON__")) {
+  try {
+    start(JSON.parse(embedded.textContent));
+  } catch (e) {
+    fail("This film file is damaged and cannot play.");
+  }
+} else {
+  // Fallback for pages built before the data was embedded.
+  fetch("film.json").then(r => r.json()).then(start).catch(() =>
+    fail("This film needs film.json next to it to play."));
+}
 </script>
 </body>
 </html>

@@ -149,7 +149,12 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
             "segments": plan, "scenes": film_scenes}
     (film_dir / "film.json").write_text(json.dumps(film, indent=1))
     template = (Path(__file__).parent / "film.html").read_text()
-    (film_dir / "film.html").write_text(template)
+    embedded = json.dumps(film).replace("</", "<\\/")
+    tag = ('<script id="film-data" type="application/json">'
+           "__FILM_JSON__</script>")
+    assert tag in template
+    (film_dir / "film.html").write_text(
+        template.replace(tag, tag.replace("__FILM_JSON__", embedded)))
     for dest, src in [("today.jpg", photo_file)] + [
             (f"era_{key}.png", src) for key, src in (era_files or {}).items()]:
         if src is not None:

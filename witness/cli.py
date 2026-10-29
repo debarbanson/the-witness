@@ -14,6 +14,7 @@ from pathlib import Path
 
 from witness import check, children, identify, layers, models, outcome, paint, research, scenes, states, stream, verify
 from witness.cache import Cache
+from witness.render import builder as render_builder
 
 
 def main(argv=None):
@@ -40,6 +41,16 @@ def main(argv=None):
     layers_cmd = sub.add_parser("layers")
     layers_cmd.add_argument("slug")
     layers_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel", "stream"))
+    layers_cmd.add_argument("--tag", default=None)
+    render_cmd = sub.add_parser("render")
+    render_cmd.add_argument("slug")
+    render_cmd.add_argument("--photo", required=True)
+    render_cmd.add_argument("--subject", default=None)
+    render_cmd.add_argument("--place", default="")
+    render_cmd.add_argument("--era-dir", default="eras_parallel")
+    render_cmd.add_argument("--layers-dir", default=None)
+    render_cmd.add_argument("--photo-credit", default="")
+    render_cmd.add_argument("--mp4", action="store_true")
     paint_cmd = sub.add_parser("paint")
     paint_cmd.add_argument("slug")
     paint_cmd.add_argument("--photo", required=True)
@@ -56,7 +67,20 @@ def main(argv=None):
     if args.command == "children":
         return cmd_children(args.slug)
     if args.command == "layers":
-        return cmd_layers(args.slug, mode=args.mode)
+        return cmd_layers(args.slug, mode=args.mode, tag=args.tag)
+    if args.command == "render":
+        from witness.render import record as render_record
+
+        code = cmd_render(args.slug, args.photo, subject=args.subject, place=args.place,
+                          era_dir=args.era_dir, layers_dir=args.layers_dir,
+                          photo_credit=args.photo_credit)
+        if code == 0 and args.mp4:
+            film_html = Path("out") / args.slug / "film" / "film.html"
+            out_mp4 = Path("out") / args.slug / "film" / "film.mp4"
+            print("recording MP4 (needs an unsandboxed browser)...")
+            render_record.record(film_html, out_mp4)
+            print(f"MP4 at {out_mp4}")
+        return code
     if args.command == "paint":
         return cmd_paint(args.slug, args.photo, place=args.place,
                          mode=args.mode, scenes=args.scenes, tag=args.tag)
@@ -1157,10 +1181,11 @@ def sam_respond(text, jpeg_bytes):
     return "\n".join(texts)
 
 
-def cmd_layers(slug, mode="parallel", call_sam=None):
+def cmd_layers(slug, mode="parallel", tag=None, call_sam=None):
     """Figure layers for an object's painted eras (step 6)."""
     out_dir = Path("out") / slug
-    era_dir = out_dir / f"eras_{mode}"
+    suffix = f"{mode}_{tag}" if tag else mode
+    era_dir = out_dir / f"eras_{suffix}"
     if not era_dir.exists():
         print(f"no painted eras at {era_dir}")
         return 2
@@ -1168,13 +1193,56 @@ def cmd_layers(slug, mode="parallel", call_sam=None):
     total = 0
     for path in sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem):
         found = layers.figures(call, str(path))
-        layer_dir = out_dir / f"layers_{mode}" / path.stem
+        layer_dir = out_dir / f"layers_{suffix}" / path.stem
         layer_dir.mkdir(parents=True, exist_ok=True)
         for i, layer in enumerate(found):
             layer["image"].save(layer_dir / f"figure_{i}.png")
         total += len(found)
         print(f"{path.stem}: {len(found)} figures")
-    print(f"saved {total} figure layers under layers_{mode}/")
+    print(f"saved {total} figure layers under layers_{suffix}/")
+    return 0
+
+
+def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
+               layers_dir=None, photo_credit="", segment_call=None):
+    """Build the live film page from kept research plus paintings."""
+    from witness import segment as segment_module
+
+    out_dir = Path("out") / slug
+    path = out_dir / "research.json"
+    if not path.exists():
+        print(f"no research at {path}")
+        return 2
+    data = json.loads(path.read_text())
+    era_path = out_dir / era_dir
+    era_files = {p.stem: str(p) for p in sorted(era_path.glob("[0-9]*.png"))}
+    if not era_files:
+        print(f"no painted eras at {era_path}")
+        return 2
+    images = {key: f"era_{key}.png" for key in era_files}
+    layer_files = {}
+    if layers_dir is not None and (out_dir / layers_dir).exists():
+        for year_dir in sorted((out_dir / layers_dir).iterdir()):
+            found = sorted(year_dir.glob("figure_*.png"))
+            if found:
+                layer_files[year_dir.name] = [str(p) for p in found]
+    layers = {key: [f"layers_{key}/figure_{i}.png" for i in range(len(files))]
+              for key, files in layer_files.items()}
+    cutout_path = None
+    if subject:
+        seg = segment_call if segment_call is not None else segment_module.segment
+        first = None if segment_call is not None else sam_respond
+        cut = seg(first, photo, subject)
+        cutout_path = out_dir / "today_cutout.png"
+        cut.image.save(cutout_path)
+    photo_dest = Path(photo).suffix or ".jpg"
+    film_dir = render_builder.write_film(
+        out_dir, data, images, f"today{photo_dest}", photo_credit, layers,
+        place=place, era_files=era_files, layer_files=layer_files,
+        photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None)
+    film = json.loads((film_dir / "film.json").read_text())
+    total = film["segments"][-1]["end"]
+    print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, {total} s)")
     return 0
 
 

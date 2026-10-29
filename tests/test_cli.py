@@ -662,3 +662,69 @@ def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
     assert (out_dir / "eras_parallel_b1" / "1850.png").exists()
     assert (out_dir / "paint_parallel_b1.json").exists()
     assert not (out_dir / "paint_parallel.json").exists()
+
+
+def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+    from witness import segment as segment_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel_b1"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "red").save(buf, "PNG")
+    (era_dir / "1850.png").write_bytes(buf.getvalue())
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(buf.getvalue())
+    cutout = segment_module.Cutout(
+        (0, 0, 8, 8), 0.5, Image.new("L", (16, 24)),
+        Image.new("RGBA", (16, 24), (1, 2, 3, 255)))
+
+    code = cli_module.cmd_render(
+        "q1-test", str(photo), subject="mill", place="Town",
+        era_dir="eras_parallel_b1", photo_credit="me",
+        segment_call=lambda call_sam, path, subject: cutout)
+    assert code == 0
+    film_dir = out_dir / "film"
+    assert (film_dir / "film.html").exists()
+    assert (film_dir / "film.json").exists()
+    assert (film_dir / "era_1850.png").exists()
+    assert (film_dir / "today.jpg").exists()
+    assert (film_dir / "cutout.png").exists()
+    film = json.loads((film_dir / "film.json").read_text())
+    assert film["object"] == "Test Mill"
+    assert film["scenes"][0]["caption"][0] == "I stood here in 1850."
+
+
+def test_cmd_layers_tag_reads_tagged_eras(tmp_path, monkeypatch):
+    import io
+    from pathlib import Path
+    from PIL import Image
+    from witness import cli as cli_module
+
+    raw = (Path(__file__).parent / "fixtures" / "sam_persons.txt").read_text()
+    monkeypatch.chdir(tmp_path)
+    era_dir = tmp_path / "out" / "q1-test" / "eras_parallel_b1"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
+    (era_dir / "1850.png").write_bytes(buf.getvalue())
+
+    code = cli_module.cmd_layers("q1-test", mode="parallel", tag="b1",
+                                 call_sam=lambda text, jpg: raw)
+    assert code == 0
+    assert len(list((tmp_path / "out" / "q1-test" / "layers_parallel_b1" / "1850").glob("*.png"))) == 2

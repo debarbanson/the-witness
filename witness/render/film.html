@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Witness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; }
+  body { display: flex; align-items: center; justify-content: center; }
+  #stage { position: relative; width: 1080px; height: 1920px;
+           transform-origin: center center; overflow: hidden;
+           background: #000; font-family: Georgia, serif; color: #fff; }
+  #stage img.bg { position: absolute; inset: 0; width: 100%; height: 100%;
+                  object-fit: cover; }
+  #stage img.layer { position: absolute; inset: 0; width: 100%; height: 100%;
+                     object-fit: cover; }
+  .card { position: absolute; inset: 0; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; text-align: center;
+          background: rgba(0,0,0,.55); padding: 0 120px; }
+  .card h1 { font-size: 96px; margin: 0 0 24px; font-weight: normal; }
+  .card p { font-size: 54px; margin: 12px 0; font-style: italic; }
+  .card .big { font-size: 220px; font-style: normal; }
+  .card h1.big { font-size: 220px; }
+  #caption { position: absolute; left: 0; right: 0; bottom: 0;
+             padding: 40px 80px 120px; background: linear-gradient(transparent, rgba(0,0,0,.78));
+             font-size: 52px; line-height: 1.35; }
+  #caption .site { display: block; font-size: 38px; font-style: italic;
+                   color: #ffd98a; margin-top: 14px; }
+  #progress { position: absolute; left: 0; right: 0; bottom: 60px;
+              text-align: center; font-size: 44px; font-style: italic;
+              color: #ffd98a; }
+  #clock { position: absolute; top: 36px; right: 48px; font-size: 44px;
+           font-family: monospace; color: #fff; opacity: .85; display: none; }
+  #sources { font-size: 30px; text-align: left; max-width: 860px;
+             word-break: break-all; max-height: 900px; overflow: hidden; }
+  #sources li { margin: 10px 0; }
+  .label { font-size: 34px; color: #ffd98a; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img class="bg" id="imgA" alt="">
+  <img class="bg" id="imgB" alt="">
+  <div id="layers"></div>
+  <div class="card" id="card" style="display:none"><h1 id="cardTitle"></h1><p id="cardSub"></p></div>
+  <div class="card" id="endcard" style="display:none">
+    <h1>Sources</h1>
+    <ul id="sources"></ul>
+    <p class="label" id="ailabel"></p>
+    <p class="label" id="credit"></p>
+  </div>
+  <div id="caption" style="display:none"><span id="cap1"></span><br><span id="cap2"></span><span class="site" id="capsite"></span></div>
+  <div id="progress" style="display:none"></div>
+  <div id="clock"></div>
+</div>
+<script>
+"use strict";
+let FILM = null;
+const params = new URLSearchParams(location.search);
+const REPLAY = params.has("replay");
+const SHOW_CLOCK = params.has("clock");
+const FADE = 1.0;
+
+function segAt(t) {
+  const segs = FILM.segments;
+  for (let i = 0; i < segs.length; i++) {
+    if (t < segs[i].end || i === segs.length - 1) return [segs[i], i];
+  }
+}
+
+function readyAt(scene) { return REPLAY ? scene.ready_at : 0; }
+
+function render(t) {
+  const [seg, idx] = segAt(t);
+  const stage = document.getElementById("stage");
+  const imgA = document.getElementById("imgA");
+  const imgB = document.getElementById("imgB");
+  const layers = document.getElementById("layers");
+  const card = document.getElementById("card");
+  const endcard = document.getElementById("endcard");
+  const caption = document.getElementById("caption");
+  const progress = document.getElementById("progress");
+  card.style.display = "none"; endcard.style.display = "none";
+  caption.style.display = "none"; progress.style.display = "none";
+  layers.innerHTML = "";
+  imgA.style.opacity = 0; imgB.style.opacity = 0;
+  imgA.style.transform = ""; imgB.style.transform = "";
+
+  const showClock = () => {
+    if (!SHOW_CLOCK) return;
+    const el = document.getElementById("clock");
+    el.style.display = "block";
+    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+    el.textContent = m + ":" + String(s).padStart(2, "0");
+  };
+
+  const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (seg.kind === "title") {
+    card.style.display = "flex";
+    const title = document.getElementById("cardTitle");
+    title.className = "";
+    title.textContent = FILM.object;
+    const sub = document.getElementById("cardSub");
+    sub.className = "";
+    sub.textContent = FILM.place;
+    showClock(); return;
+  }
+  if (seg.kind === "anchor") {
+    const first = FILM.scenes[0];
+    card.style.display = "flex";
+    const title = document.getElementById("cardTitle");
+    title.className = "";
+    title.textContent = "I have stood here since";
+    const sub = document.getElementById("cardSub");
+    sub.className = "big";
+    sub.textContent = first ? first.date_label : "";
+    showClock(); return;
+  }
+  if (seg.kind === "end") {
+    endcard.style.display = "flex";
+    const ul = document.getElementById("sources");
+    ul.innerHTML = "";
+    FILM.sources.forEach(u => {
+      const li = document.createElement("li");
+      li.textContent = u;
+      ul.appendChild(li);
+    });
+    document.getElementById("ailabel").textContent = FILM.ai_label;
+    document.getElementById("credit").textContent =
+      [FILM.photo_credit].concat(FILM.attribution).filter(Boolean).join(" · ");
+    showClock(); return;
+  }
+  if (seg.kind === "today") {
+    const p = (t - seg.start) / (seg.end - seg.start);
+    imgA.src = FILM.photo; imgA.style.opacity = Math.min(1, Math.max(0, (p * (seg.end - seg.start) - 1) / 1.5));
+    if (FILM.cutout) {
+      imgB.src = FILM.cutout;
+      const cp = Math.min(1, p * (seg.end - seg.start) / 1.5);
+      imgB.style.opacity = cp;
+      imgB.style.transform = "scale(" + (1.05 - 0.05 * cp) + ")";
+    }
+    caption.style.display = "block";
+    document.getElementById("cap1").textContent = "And here I stand today.";
+    document.getElementById("cap2").textContent = "";
+    document.getElementById("capsite").textContent = FILM.photo_credit || "";
+    showClock(); return;
+  }
+  // Era: find scene, honour readiness, push-in plus crossfade plus parallax.
+  const scene = FILM.scenes.find(s => s.year === seg.year);
+  const local = t - seg.start, dur = seg.end - seg.start;
+  if (t < readyAt(scene)) {
+    const prev = FILM.segments[idx - 1];
+    const prevScene = prev && prev.kind === "era"
+      ? FILM.scenes.find(s => s.year === prev.year) : null;
+    imgA.src = prevScene ? prevScene.image : FILM.photo;
+    imgA.style.opacity = 1;
+    progress.style.display = "block";
+    progress.textContent = "Checking " + seg.year + " against the sources...";
+    showClock(); return;
+  }
+  imgA.src = scene.image;
+  imgA.style.opacity = 1;
+  imgA.style.transform = REDUCED ? "" : "scale(" + (1 + 0.08 * (local / dur)) + ")";
+  if (local > dur - FADE && idx + 1 < FILM.segments.length) {
+    const next = FILM.segments[idx + 1];
+    const f = (local - (dur - FADE)) / FADE;
+    let src = null;
+    if (next.kind === "era") {
+      const ns = FILM.scenes.find(s => s.year === next.year);
+      if (t < readyAt(ns)) {
+        progress.style.display = "block";
+        progress.textContent = "Checking " + next.year + " against the sources...";
+      } else src = ns.image;
+    } else if (next.kind === "today") src = FILM.photo;
+    if (src) {
+      imgB.src = src; imgB.style.opacity = f;
+      imgA.style.opacity = 1 - f;
+    }
+  }
+  scene.layers.forEach((src, i) => {
+    const img = document.createElement("img");
+    img.className = "layer"; img.src = src;
+    img.style.opacity = imgA.style.opacity;
+    img.style.transform = REDUCED ? "" :
+      "translateX(" + ((local / dur - 0.5) * 24 * (i + 1)) + "px) " + imgA.style.transform;
+    layers.appendChild(img);
+  });
+  caption.style.display = "block";
+  document.getElementById("cap1").textContent = scene.caption[0];
+  document.getElementById("cap2").textContent = scene.caption[1];
+  document.getElementById("capsite").textContent = scene.site;
+  showClock();
+}
+
+function fit() {
+  const stage = document.getElementById("stage");
+  const s = Math.min(innerWidth / 1080, innerHeight / 1920);
+  stage.style.transform = "scale(" + s + ")";
+}
+
+fetch("film.json").then(r => r.json()).then(film => {
+  FILM = film;
+  fit();
+  addEventListener("resize", fit);
+  const fixed = params.get("t");
+  if (fixed !== null) { render(parseFloat(fixed)); return; }
+  const t0 = performance.now();
+  const total = film.segments[film.segments.length - 1].end;
+  function frame(now) {
+    render(Math.min((now - t0) / 1000, total));
+    if ((now - t0) / 1000 < total) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

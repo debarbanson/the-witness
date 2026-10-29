@@ -45,6 +45,111 @@ def test_client_for_separates_specs_and_keys():
     assert other_key is not meta
 
 
+def test_client_for_separates_timeouts():
+    quick = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
+    slow = models.client_for(models.PAINT, environ={"MODEL_API_KEY": "k-123"})
+    assert slow is not quick  # paint's 600 s must not inherit 120 s
+
+
+def test_job_ledgers_isolate_visitors():
+    models.reset_usage()
+    with models.job_ledger() as first:
+        models.note_usage("meta", {"prompt_tokens": 100, "completion_tokens": 0,
+                                   "total_tokens": 100})
+    with models.job_ledger() as second:
+        models.note_usage("meta", {"prompt_tokens": 10, "completion_tokens": 0,
+                                   "total_tokens": 10})
+    assert first.totals["meta"]["total_tokens"] == 100
+    assert second.totals["meta"]["total_tokens"] == 10
+    assert models.usage_totals() == {}
+
+
+def test_submit_context_carries_job_ledger():
+    from concurrent.futures import ThreadPoolExecutor
+
+    models.reset_usage()
+    with models.job_ledger() as ledger:
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = models.submit_context(
+                pool, models.note_usage, "meta",
+                {"prompt_tokens": 10, "completion_tokens": 5,
+                 "total_tokens": 15})
+            future.result()
+        finally:
+            pool.shutdown(wait=True)
+        assert ledger.totals["meta"]["total_tokens"] == 15
+
+
+def test_ledger_prices_tokens_and_calls():
+    ledger = models.SpendingLedger()
+    ledger.note("meta", "muse-spark-1.3",
+                {"prompt_tokens": 1000, "completion_tokens": 500,
+                 "total_tokens": 1500})
+    ledger.note("meta", "muse-image-1.0", None)
+    ledger.note("meta", "sam-3.1", None)
+    ledger.note("meta", "muse-spark-1.3",
+                {"prompt_tokens": 0, "completion_tokens": 0,
+                 "total_tokens": 0}, searches=2)
+    assert ledger.cost_usd == pytest.approx(
+        1.25 / 1000 + 4.25 / 2000 + 0.01 + 0.0025 + 2 * 0.0025)
+    assert ledger.totals["meta"]["total_tokens"] == 1500
+
+
+def test_daily_cap_blocks_before_call(tmp_path):
+    calls = []
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return {"usage": {"prompt_tokens": 10000, "completion_tokens": 0,
+                             "total_tokens": 10000}}
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    models.configure_spending(str(tmp_path), daily_cap_usd=0.01)
+    try:
+        models.respond(FakeClient(), models.VERIFY, input="hi")
+        with pytest.raises(models.SpendingCapExceeded):
+            models.respond(FakeClient(), models.VERIFY, input="hi again")
+        assert len(calls) == 1  # the second call never ran
+    finally:
+        models.configure_spending(None)
+
+
+def test_daily_ledger_persists_per_day(tmp_path):
+    first = models.DailyCap(str(tmp_path), cap_usd=10.0)
+    first.record(0.25)
+    second = models.DailyCap(str(tmp_path), cap_usd=10.0)
+    assert second.total_usd() == pytest.approx(0.25)
+
+
+def test_cap_error_is_a_model_error():
+    assert issubclass(models.SpendingCapExceeded, models.ModelError)
+
+
+def test_respond_counts_web_searches(tmp_path):
+    from types import SimpleNamespace
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                usage={"prompt_tokens": 0, "completion_tokens": 0,
+                       "total_tokens": 0},
+                output=[SimpleNamespace(type="web_search_call"),
+                        SimpleNamespace(type="web_search_call"),
+                        SimpleNamespace(type="message")])
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    models.reset_usage()
+    with models.job_ledger() as ledger:
+        models.respond(FakeClient(), models.RESEARCH, input="hi")
+    assert ledger.cost_usd == pytest.approx(2 * 0.0025)
+
+
 def test_client_bounds_timeout_and_retries_per_spec():
     client = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
     assert client.timeout == models.VERIFY.timeout

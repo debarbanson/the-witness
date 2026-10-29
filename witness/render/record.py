@@ -17,6 +17,21 @@ def page_url(film_html) -> str:
     return Path(film_html).resolve().as_uri() + "?t=0"
 
 
+READY_JS = "window.__READY === true"
+FRAME_JS = ("[...document.querySelectorAll('#stage img')]"
+            ".filter(i => i.src)"
+            ".every(i => i.complete && i.naturalWidth > 0)")
+
+
+def finish_ffmpeg(proc):
+    """Close the pipe and fail loudly when ffmpeg did."""
+    proc.stdin.close()
+    code = proc.wait()
+    if code != 0:
+        raise subprocess.CalledProcessError(code, "ffmpeg")
+    return code
+
+
 def edges_lit(frame, width=100, threshold=12) -> bool:
     """The leftmost and rightmost columns hold picture, not black bars."""
     grey = frame.convert("L")
@@ -47,11 +62,11 @@ def record(film_html, out_mp4, fps=30):
         page = browser.new_page(viewport={"width": 540, "height": 960},
                                 device_scale_factor=2)
         page.goto(page_url(film_html))
-        page.wait_for_function("typeof FILM !== 'undefined' && FILM !== null")
+        page.wait_for_function(READY_JS)
         for t in times:
             page.evaluate(f"render({t})")
+            page.wait_for_function(FRAME_JS)
             ffmpeg.stdin.write(page.screenshot())
         browser.close()
-    ffmpeg.stdin.close()
-    ffmpeg.wait()
+    finish_ffmpeg(ffmpeg)
     return out_mp4

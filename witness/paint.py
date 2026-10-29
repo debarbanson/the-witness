@@ -128,16 +128,6 @@ def _describes_harm(line) -> bool:
     return False
 
 
-def anchor_instruction(object_name, place) -> str:
-    """The anchor turn: keep the viewpoint, establish the style."""
-    return (
-        f"This photo shows {object_name} in {place} and anchors a series "
-        f"of historical illustrations of the same place. Keep its viewpoint "
-        f"and composition exactly, and establish this painted style for the "
-        f"series: {STYLE} {NO_TEXT}"
-    )
-
-
 def _governs_canopy(state) -> bool:
     """A state describing foliage overrules the series season."""
     words = set(re.findall(r"[a-z]+", str(state.get("description", "")).lower()))
@@ -217,11 +207,6 @@ def extract_image_b64(response) -> str | None:
             if found:
                 return found
     return None
-
-
-def paint_anchor(call, photo_bytes, object_name, place) -> dict:
-    """The anchor turn carries the photo; eras branch from its id."""
-    return call(anchor_instruction(object_name, place), None, photo_bytes)
 
 
 def scene_caption(scene) -> str:
@@ -362,8 +347,8 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
                     "verdict": "matches", "attempts": attempt + 1,
                     "note": verdict["note"]}
         prev_id = result["response_id"]
-        prompt = (f"{scene_prompt(scene, object_name, place, season, excluded)} The previous "
-                  f"attempt differed: {verdict['note']} Fix exactly that.")
+        prompt = (f"{scene_prompt(scene, object_name, place, season, excluded, claims)} "
+                  f"The previous attempt differed: {verdict['note']} Fix exactly that.")
     return {"year": year, "image": None, "response_id": None,
             "verdict": "dropped", "attempts": 1 + max_repaints,
             "note": verdict["note"]}
@@ -372,21 +357,18 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
 def paint_chain(call, photo_bytes, scenes, object_name, place,
                 check_call=None, season=None, excluded=None,
                 claims=()) -> list:
-    """Eras one after another, each chained on the previous turn."""
-    try:
-        anchor = paint_anchor(call, photo_bytes, object_name, place)
-    except Exception as exc:  # noqa: BLE001 - a dead anchor drops every era, not the run
-        return [{"year": scene.get("from_year"), "image": None,
-                 "response_id": None, "verdict": "dropped", "attempts": 0,
-                 "note": f"anchor failed: {exc}"} for scene in scenes]
-    prev_id = anchor["response_id"]
+    """Eras one after another, each chained on the previous turn. The
+    first scene carries the photo; a scene with no predecessor id
+    does too."""
+    prev_id = None
     out = []
     for scene in scenes:
         try:
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
+            photo = photo_bytes if prev_id is None else None
             if check_call is None:
                 result = call(scene_prompt(scene, object_name, place, season,
-                                           year_excluded, claims), prev_id)
+                                           year_excluded, claims), prev_id, photo)
                 out.append({"year": scene.get("from_year"),
                             "image": result["image"],
                             "response_id": result["response_id"],
@@ -394,7 +376,8 @@ def paint_chain(call, photo_bytes, scenes, object_name, place,
             else:
                 out.append(paint_scene(call, check_call, scene, object_name,
                                        place, prev_id, season=season,
-                                       excluded=year_excluded, claims=claims))
+                                       excluded=year_excluded, claims=claims,
+                                       photo_bytes=photo))
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             out.append({"year": scene.get("from_year"), "image": None,
                         "response_id": None, "verdict": "dropped", "attempts": 1,
@@ -407,37 +390,40 @@ def paint_chain(call, photo_bytes, scenes, object_name, place,
 def paint_parallel(call, photo_bytes, scenes, object_name, place,
                    check_call=None, max_workers=6, season=None,
                    excluded=None, claims=()) -> list:
-    """Every era branches from the anchor turn alone, painted at once."""
-    try:
-        anchor = paint_anchor(call, photo_bytes, object_name, place)
-    except Exception as exc:  # noqa: BLE001 - a dead anchor drops every era, not the run
-        return [{"year": scene.get("from_year"), "image": None,
-                 "response_id": None, "verdict": "dropped", "attempts": 0,
-                 "note": f"anchor failed: {exc}"} for scene in scenes]
-    anchor_id = anchor["response_id"]
+    """The first scene carries the photo; the rest branch from its
+    turn, painted at once. No spare anchor turn: its image was always
+    discarded."""
+    if not scenes:
+        return []
 
-    def one(scene):
+    def one(scene, prev_id, photo):
         try:
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
             if check_call is None:
                 result = call(scene_prompt(scene, object_name, place, season,
-                                           year_excluded, claims), anchor_id)
+                                           year_excluded, claims), prev_id, photo)
                 return {"year": scene.get("from_year"), "image": result["image"],
                         "response_id": result["response_id"],
                         "verdict": "unchecked", "attempts": 1, "note": ""}
             return paint_scene(call, check_call, scene, object_name, place,
-                               anchor_id, season=season, excluded=year_excluded,
-                               claims=claims)
+                               prev_id, season=season, excluded=year_excluded,
+                               claims=claims, photo_bytes=photo)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {"year": scene.get("from_year"), "image": None,
                     "response_id": None, "verdict": "dropped", "attempts": 1,
                     "note": f"paint crashed: {exc}"}
 
+    base = one(scenes[0], None, photo_bytes)
+    if len(scenes) == 1:
+        return [base]
+    base_id = base["response_id"]
+    photo = photo_bytes if base_id is None else None
     pool = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        return list(pool.map(one, scenes))
+        rest = list(pool.map(lambda scene: one(scene, base_id, photo), scenes[1:]))
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+    return [base, *rest]
 
 
 def contact_sheet(panels, path, label_height=28) -> None:

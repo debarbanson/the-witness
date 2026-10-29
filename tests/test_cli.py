@@ -582,7 +582,7 @@ def test_cmd_paint_filters_scenes(tmp_path, monkeypatch):
     assert code == 0
     assert (out_dir / "eras_chain" / "1950.png").exists()
     assert not (out_dir / "eras_chain" / "1850.png").exists()
-    assert len(seen) == 2  # anchor plus the one era
+    assert len(seen) == 1  # the one era carries the photo, no spare turn
 
 
 def test_cmd_paint_merges_manifest_and_contact_across_runs(tmp_path, monkeypatch):
@@ -710,6 +710,38 @@ def test_cmd_layers_saves_figure_layers(tmp_path, monkeypatch):
     assert len(saved) == 2
 
 
+def test_cmd_layers_clears_stale_and_records_source(tmp_path, monkeypatch):
+    import hashlib
+    import io
+    import json
+    from pathlib import Path
+    from PIL import Image
+    from witness import cli as cli_module
+
+    raw = (Path(__file__).parent / "fixtures" / "sam_persons.txt").read_text()
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
+    painting = buf.getvalue()
+    (era_dir / "1850.png").write_bytes(painting)
+    stale_root = out_dir / "layers_parallel"
+    (stale_root / "1850").mkdir(parents=True)
+    (stale_root / "1850" / "figure_9.png").write_bytes(b"stale")
+    (stale_root / "1950").mkdir(parents=True)
+    (stale_root / "1950" / "figure_0.png").write_bytes(b"stale")
+
+    code = cli_module.cmd_layers("q1-test", mode="parallel",
+                                 call_sam=lambda text, jpg: raw)
+    assert code == 0
+    assert not (stale_root / "1950").exists()
+    assert not (stale_root / "1850" / "figure_9.png").exists()
+    source = json.loads((stale_root / "1850" / "source.json").read_text())
+    assert source["sha256"] == hashlib.sha256(painting).hexdigest()
+
+
 def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
     import io
     import json
@@ -796,7 +828,8 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     film_dir = out_dir / "film"
     assert (film_dir / "film.html").exists()
     assert (film_dir / "film.json").exists()
-    assert (film_dir / "era_1850.png").exists()
+    assert (film_dir / "era_1850.jpg").exists()
+    assert Image.open(film_dir / "era_1850.jpg").format == "JPEG"
     assert (film_dir / "today.jpg").exists()
     assert (film_dir / "cutout.png").exists()
     film = json.loads((film_dir / "film.json").read_text())
@@ -885,6 +918,137 @@ def test_recover_or_retry_check_crash_keeps_dropped(tmp_path):
     assert result["verdict"] == "dropped"
 
 
+def test_recover_or_retry_checks_only_two_newest_runs(tmp_path):
+    from witness import cli as cli_module
+
+    prior_dirs = []
+    for tag in ("oldest", "middle", "newest"):
+        run_dir = tmp_path / tag
+        run_dir.mkdir()
+        (run_dir / "1850.png").write_bytes(f"{tag}-painting".encode())
+        prior_dirs.append(run_dir)
+    prior_dirs.reverse()  # newest first, as cmd_paint passes them
+    scene = {"from_year": 1850,
+             "state": {"condition": "damaged", "degree": "partial",
+                       "scope": "whole", "description": "Roof holed."},
+             "caption_lines": []}
+    dropped = {"year": 1850, "image": None, "response_id": None,
+               "verdict": "dropped", "attempts": 3, "note": "differed"}
+    seen = []
+
+    def checker(image, prompt):
+        seen.append(image)
+        return "DIFFERS still."
+
+    result = cli_module.recover_or_retry(
+        None, checker, scene, "Mill", "Town", None,
+        {"season": "summer"}, prior_dirs, dropped)
+    assert result["verdict"] == "dropped"
+    assert seen == [b"newest-painting", b"middle-painting"]
+
+
+def test_stream_scene_kwargs_holds_back_unnamed_elements():
+    from witness import cli as cli_module
+
+    report = {"season": "summer", "elements": ["red car", "oak tree"]}
+    claims = [{"year": 1900, "verdict": "supported",
+               "claim": "A red car stood by the mill in 1900."},
+              {"year": 1900, "verdict": "unsupported",
+               "claim": "An oak tree shaded the yard."}]
+    kwargs = cli_module.stream_scene_kwargs(
+        report, claims, {"from_year": 1920})
+    assert kwargs["season"] == "summer"
+    assert kwargs["excluded"] == ("oak tree",)  # the car is verified named
+    assert kwargs["claims"] == tuple(claims)
+
+
+def test_stream_scene_kwargs_holds_back_everything_undated():
+    from witness import cli as cli_module
+
+    report = {"season": None, "elements": ["red car"]}
+    kwargs = cli_module.stream_scene_kwargs(report, [], {})
+    assert kwargs["season"] is None
+    assert kwargs["excluded"] == ("red car",)
+
+
+def test_future_response_id_none_when_scene_failed():
+    from concurrent.futures import Future
+
+    from witness import cli as cli_module
+
+    good = Future()
+    good.set_result({"response_id": "r1"})
+    assert cli_module._future_response_id(good) == "r1"
+    bad = Future()
+    bad.set_exception(RuntimeError("paint down"))
+    assert cli_module._future_response_id(bad) is None
+    assert cli_module._future_response_id(None) is None  # no scene 1
+
+
+class _UsageResponse:
+    def __init__(self, payload, prompt, completion):
+        self._payload = payload
+        self.usage = {"prompt_tokens": prompt, "completion_tokens": completion,
+                      "total_tokens": prompt + completion}
+
+    def model_dump_json(self):
+        import json
+
+        return json.dumps(self._payload)
+
+
+class _UsageClient:
+    def __init__(self, payload, prompt=100, completion=50):
+        self.payload = payload
+        self.prompt = prompt
+        self.completion = completion
+        self.seen = {}
+
+    @property
+    def responses(self):
+        return self
+
+    def create(self, **kwargs):
+        self.seen.update(kwargs)
+        return _UsageResponse(self.payload, self.prompt, self.completion)
+
+
+def test_sam_respond_adds_segmentation_to_job_tally(monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    payload = {"output": [{"type": "message", "content": [
+        {"type": "output_text", "text": "mask here"}]}]}
+    monkeypatch.setattr(cli_module, "_respond_for",
+                        lambda spec: _UsageClient(payload))
+    models.reset_usage()
+    try:
+        assert cli_module.sam_respond("cut out the mill", b"jpeg") == "mask here"
+        assert models.usage_totals()["meta"]["total_tokens"] == 150
+    finally:
+        models.reset_usage()
+
+
+def test_paint_respond_adds_image_to_job_tally(monkeypatch):
+    import base64
+
+    from witness import cli as cli_module
+    from witness import models
+
+    payload = {"id": "r1", "output": [
+        {"type": "image_generation_call",
+         "result": base64.b64encode(b"png").decode("ascii")}]}
+    monkeypatch.setattr(cli_module, "_respond_for",
+                        lambda spec: _UsageClient(payload))
+    models.reset_usage()
+    try:
+        out = cli_module.paint_respond("paint it", None)
+        assert out == {"image": b"png", "response_id": "r1"}
+        assert models.usage_totals()["meta"]["total_tokens"] == 150
+    finally:
+        models.reset_usage()
+
+
 def _render_fixture(tmp_path, slug="q1-test", root=None):
     import json
     from PIL import Image
@@ -940,7 +1104,300 @@ def test_render_ignores_paintings_missing_from_manifest(tmp_path, monkeypatch):
     assert code == 0
     film = json.loads((out_dir / "film" / "film.json").read_text())
     assert [s["year"] for s in film["scenes"]] == [1850]
-    assert not (out_dir / "film" / "era_1900.png").exists()
+    assert not (out_dir / "film" / "era_1900.jpg").exists()
+
+
+def test_verify_wiring_baseten_votes_completion_stays_meta():
+    from witness import cli as cli_module
+    from witness import models
+
+    wiring = cli_module.verify_wiring("baseten")
+    assert wiring["support"] is cli_module.baseten_support_respond
+    assert wiring["completion"] is cli_module.support_respond
+    assert wiring["workers"] == models.VERIFY_OPEN.workers
+
+
+def test_verify_wiring_meta_and_both():
+    from witness import cli as cli_module
+    from witness import models
+
+    meta = cli_module.verify_wiring("meta")
+    assert meta["support"] is cli_module.support_respond
+    assert meta["completion"] is cli_module.support_respond
+    assert meta["workers"] == models.VERIFY.workers
+    both = cli_module.verify_wiring("both")
+    assert both["support"] is cli_module.support_respond
+    assert both["completion"] is cli_module.support_respond
+
+
+def test_judge_batch_uses_wiring_completion():
+    import json as _json
+
+    from witness import cli as cli_module
+
+    seen = []
+
+    def support(prompt):
+        seen.append("support")
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text",
+             "text": _json.dumps(
+                 {"verdict": "supported", "quote": "Built in 1850 here.",
+                  "url": "https://en.wikipedia.org/wiki/X",
+                  "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                               "supports": True,
+                               "quote": "Built in 1850 here."}]}),
+             "annotations": []}]}]}
+
+    def completion(prompt):
+        seen.append("completion")
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": _json.dumps({"completed": True}),
+             "annotations": []}]}]}
+
+    wiring = {"support": support, "search": support,
+              "completion": completion, "workers": 1}
+    job = {"claim": "Built in 1850.", "event": "built",
+           "detail": "Built in 1850.", "year": 1850, "date_text": "in 1850",
+           "keywords": ["built"], "passages": ["Built in 1850 here."],
+           "urls": ["https://en.wikipedia.org/wiki/X"], "votes": 1,
+           "anchor": "build", "claim_index": 0}
+    (judged,) = cli_module.judge_batch(wiring, [job], progress=None)
+    assert judged["verdict"] == "supported"
+    assert "support" in seen
+    assert "completion" in seen
+
+
+_JOB_WIKI = "https://en.wikipedia.org/wiki/Test_Mill"
+
+
+def _job_found():
+    from witness import identify
+
+    return identify.Identification(
+        name="Test Mill", kind="windmill", qid="Q1",
+        articles={"en": "Test Mill"}, distance_m=10, confidence="high",
+        candidates=(), country_code="NL")
+
+
+def _job_first():
+    return {"facts": {"facts": []},
+            "claims": [{"year": 1850, "event": "built", "kind": "object",
+                        "claim": "Built in 1850.",
+                        "quote_span": "built in 1850",
+                        "date_text": "in 1850", "visible_change": "",
+                        "sources": [_JOB_WIKI], "anchor": "build"}],
+            "build_anchor_year": 1850}
+
+
+def _job_answer():
+    return {"events": [{"year": 1900, "event": "damaged",
+                        "detail": "roof holed in a storm",
+                        "date_text": "in 1900", "visible_change": ""},
+                       {"year": 1920, "event": "rebuilt",
+                        "detail": "rebuilt after the storm",
+                        "date_text": "in 1920", "visible_change": ""}],
+            "sources": [],
+            "citations": [{"url": _JOB_WIKI, "title": "Test Mill"}],
+            "snippets": []}
+
+
+def _answered(obj):
+    import json as _json
+
+    return {"output": [{"type": "message", "content": [
+        {"type": "output_text", "text": _json.dumps(obj),
+         "annotations": []}]}]}
+
+
+def _job_respond(prompt):
+    if prompt.startswith("Claim:\n"):
+        return _answered({"completed": True})
+    claim_line = prompt.split("\n")[1] if prompt.startswith("Claim to check:") else prompt
+    if "1850" in claim_line:
+        quote = "Built in 1850 here."
+    elif "1900" in claim_line:
+        quote = "Roof holed in 1900."
+    else:
+        quote = "Rebuilt in 1920."
+    return _answered(
+        {"verdict": "supported", "quote": quote, "url": _JOB_WIKI,
+         "support": [{"url": _JOB_WIKI, "supports": True,
+                      "quote": quote}]})
+
+
+class _JobTexts:
+    def __init__(self, cache=None, progress=None):
+        self.texts = {_JOB_WIKI: ("Built in 1850 here. Roof holed in 1900. "
+                                        "Rebuilt in 1920.")}
+        self.failures = []
+
+    def fetch(self, claims, urls, verify_with, quiet=False):
+        pass
+
+
+def _stub_job(monkeypatch, calls=None):
+    import types
+
+    from witness import cli as cli_module
+    from witness import identify as identify_module
+
+    fake_identify = types.SimpleNamespace(
+        identify=lambda *a, **k: _job_found(),
+        capture_year=identify_module.capture_year,
+        NoGpsError=identify_module.NoGpsError,
+        NotIdentifiedError=identify_module.NotIdentifiedError,
+        SourceError=identify_module.SourceError)
+    monkeypatch.setattr(cli_module, "identify", fake_identify)
+    monkeypatch.setattr(cli_module, "film_facts",
+                        lambda *a, **k: _job_first())
+
+    def ask(respond, question):
+        if calls is not None:
+            calls.append(question)
+        return _job_answer()
+
+    monkeypatch.setattr(cli_module.research, "ask_lifespan", ask)
+    monkeypatch.setattr(cli_module, "SourceTexts", _JobTexts)
+    monkeypatch.setattr(cli_module, "support_respond", _job_respond)
+    monkeypatch.setattr(cli_module, "baseten_support_respond", _job_respond)
+    monkeypatch.setattr(cli_module, "verify_respond", _job_respond)
+
+
+def test_run_job_research_style_returns_filmable_result(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    _stub_job(monkeypatch)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"))
+    assert result["confirmed"] is True
+    assert result["cached"] is False
+    assert [c["verdict"] for c in result["kept"]] == ["supported"] * 3
+    assert [s["from_year"] for s in result["chosen"]] == [1850, 1900, 1920, "today"]
+    assert result["result"]["outcome"] == "short_film"
+
+
+def test_run_job_film_hooks_see_same_result(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    _stub_job(monkeypatch)
+    seen = {"facts": [], "claims": [], "scenes": []}
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"),
+        on_facts=lambda first: seen["facts"].append(first),
+        on_claim=lambda index, claim: seen["claims"].append(claim["year"]),
+        on_scene=lambda scene, number: seen["scenes"].append(scene["from_year"]))
+    assert [s["from_year"] for s in result["chosen"]] == [1850, 1900, 1920, "today"]
+    assert result["result"]["outcome"] == "short_film"
+    assert seen["facts"] and seen["facts"][0]["build_anchor_year"] == 1850
+    assert sorted(seen["claims"]) == [1850, 1900, 1920]
+    assert seen["scenes"]  # draft scenes verified towards
+
+
+def test_run_job_quiet_prints_nothing(tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+
+    _stub_job(monkeypatch)
+    cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=lambda found: True, no_cache=True,
+        verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    out, _ = capsys.readouterr()
+    assert out == ""
+
+
+def test_run_job_declined_runs_no_research(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    calls = []
+    _stub_job(monkeypatch, calls=calls)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=lambda found: False, no_cache=True,
+        verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    assert result["confirmed"] is False
+    assert calls == []
+
+
+def test_run_job_maps_missing_location(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import identify as identify_module
+
+    _stub_job(monkeypatch)
+
+    def no_gps(*args, **kwargs):
+        raise identify_module.NoGpsError("the photo carries no GPS data")
+
+    monkeypatch.setattr(cli_module.identify, "identify", no_gps)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=lambda found: True, no_cache=True,
+        verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    assert result["identified"] is False
+    assert result["error_kind"] == "no_location"
+
+
+def test_lat_lon_flags_reach_identify_as_location(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    seen = {}
+    monkeypatch.setattr(cli_module, "cmd_identify",
+                        lambda *a, **k: seen.update(k) or 0)
+    code = cli_module.main(["identify", "p.jpg", "--lat", "52.1",
+                            "--lon", "4.2"])
+    assert code == 0
+    assert seen["location"] == (52.1, 4.2)
+
+
+def test_lat_without_lon_is_rejected(capsys):
+    import pytest
+
+    from witness import cli as cli_module
+
+    with pytest.raises(SystemExit):
+        cli_module.main(["identify", "p.jpg", "--lat", "52.1"])
+
+
+def test_run_job_reuses_reviewed_cache(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness.cache import Cache
+
+    calls = []
+    _stub_job(monkeypatch, calls=calls)
+    cache = Cache(str(tmp_path / "cache"))
+    reviewed = {"outcome": {"outcome": "full_film"}, "claims": []}
+    cache.put_reviewed("Q1", "en", reviewed)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=lambda found: True, no_cache=False,
+        cache=cache, verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    assert result["confirmed"] is True
+    assert result["cached"] == "reviewed"
+    assert calls == []
+    saved = tmp_path / "out" / result["slug"] / "research.json"
+    assert saved.exists()
+
+
+def test_render_mp4_failure_returns_error(tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+    from witness.render import record as render_record
+
+    monkeypatch.setattr(cli_module, "cmd_render", lambda *a, **k: 0)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("ffmpeg died")
+
+    monkeypatch.setattr(render_record, "record", fail)
+    code = cli_module.main(["render", "q1-test", "--photo", "p.jpg", "--mp4",
+                            "--out-dir", str(tmp_path)])
+    assert code == 1
+    out, _ = capsys.readouterr()
+    assert "MP4 recording failed" in out
+    assert "MP4 at" not in out
 
 
 def test_render_writes_into_job_folder(tmp_path, monkeypatch):
@@ -1165,8 +1622,6 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
     }))
 
     def blocked(prompt, prev_id, photo_bytes=None):
-        if photo_bytes is not None:
-            return {"image": b"anchor", "response_id": "r0"}
         raise paint_module.PaintSafetyError("content_policy_violation")
 
     code = cli_module.cmd_paint(
@@ -1209,8 +1664,6 @@ def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
     painted = []
 
     def call(prompt, prev_id, photo_bytes=None):
-        if photo_bytes is not None:
-            return {"image": b"anchor", "response_id": "r0"}
         painted.append("1790" in prompt)
         buf = io.BytesIO()
         Image.new("RGB", (8, 8), "green").save(buf, "PNG")
@@ -1256,8 +1709,6 @@ def test_cmd_paint_skips_scenes_without_supported_claims(tmp_path, monkeypatch):
     painted = []
 
     def call(prompt, prev_id, photo_bytes=None):
-        if photo_bytes is not None:
-            return {"image": b"anchor", "response_id": "r0"}
         painted.append("1970" in prompt)
         buf = io.BytesIO()
         Image.new("RGB", (8, 8), "green").save(buf, "PNG")

@@ -104,11 +104,12 @@ def other_texts(assigned, claims, year) -> list:
     return list(dict.fromkeys(texts))
 
 
-def sentence_ok(sentence, year, stamp="") -> bool:
-    """Code gate: first person, own year at most, fits, never cut.
+def sentence_ok(sentence) -> bool:
+    """Code gate: first person, never a date, fits, never cut.
 
-    When the scene's date stamp is given, a day and month named in
-    the sentence must be the stamp's: stamp and sentence never differ.
+    The gold stamp already shows the date, so the sentence leaves it
+    out: no 4-digit years, no day and month. Durations ("70 years",
+    "800 years old") are not dates and stay allowed.
     """
     if not sentence or "…" in sentence or len(sentence) > MAX_CHARS:
         return False
@@ -116,15 +117,10 @@ def sentence_ok(sentence, year, stamp="") -> bool:
         return False
     if _WRONG_VOICE.search(sentence):
         return False
-    if not all(int(found) == year for found in _YEAR.findall(sentence)):
+    if _YEAR.search(sentence):
         return False
-    if stamp:
-        lowered = stamp.lower()
-        for day, month in _DAY_MONTH.findall(sentence):
-            if month.lower() not in lowered:
-                return False
-            if not re.search(rf"\b0*{int(day)}\b", stamp):
-                return False
+    if _DAY_MONTH.search(sentence):
+        return False
     return True
 
 
@@ -145,7 +141,7 @@ def write_sentence(rewrite_call, support_call, claim, year,
     for attempt, plain in enumerate((False, True), 1):
         sentence = (rewrite_call(detail, source, year, plain, stamp)
                     or "").strip()
-        if (sentence and sentence_ok(sentence, year, stamp)
+        if (sentence and sentence_ok(sentence)
                 and support_call(sentence, combined)
                 in ("supported", "partly")):
             return {"sentence": sentence, "verified": True, "attempts": attempt}

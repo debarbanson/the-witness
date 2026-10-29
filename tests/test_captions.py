@@ -121,17 +121,18 @@ def test_write_sentence_rejects_borrowed_years_and_cutting():
 
 
 def test_sentence_ok_checks_person_year_and_length():
-    assert captions.sentence_ok("I ground corn for the town.", 1865)
-    assert captions.sentence_ok("My sails turned all day.", 1865)
-    assert not captions.sentence_ok("The mill ground corn.", 1865)
-    assert not captions.sentence_ok("I saw the mill burn.", 1865)
-    assert not captions.sentence_ok("We put the first pole down.", 1865)
-    assert not captions.sentence_ok("Our sails turned all day.", 1865)
-    assert not captions.sentence_ok("I was saved in 1925.", 1920)
-    assert not captions.sentence_ok("I stood here…", 1865)
-    assert not captions.sentence_ok("", 1865)
-    assert not captions.sentence_ok("I " + "x" * 200, 1865)
-    assert captions.sentence_ok("I stood here in 1865.", 1865)
+    assert captions.sentence_ok("I ground corn for the town.")
+    assert captions.sentence_ok("My sails turned all day.")
+    assert not captions.sentence_ok("The mill ground corn.")
+    assert not captions.sentence_ok("I saw the mill burn.")
+    assert not captions.sentence_ok("We put the first pole down.")
+    assert not captions.sentence_ok("Our sails turned all day.")
+    assert not captions.sentence_ok("I was saved in 1925.")
+    assert not captions.sentence_ok("I stood here…")
+    assert not captions.sentence_ok("")
+    assert not captions.sentence_ok("I " + "x" * 200)
+    assert not captions.sentence_ok("I stood here in 1865.")
+    assert captions.sentence_ok("I was reopened 70 years after the fire.")
 
 
 def test_sentence_prompt_forbids_years_and_cutting():
@@ -189,15 +190,12 @@ def test_sentence_prompt_names_the_stamp_and_asks_for_natural_numbers():
     assert "22 October 2019" not in captions.sentence_prompt("d", "q", 2019)
 
 
-def test_sentence_ok_rejects_a_different_date():
-    assert captions.sentence_ok("I burnt down on 23 April 1932.", 1932,
-                                stamp="23 April 1932")
-    assert not captions.sentence_ok("I burnt down on 21 April 1932.", 1932,
-                                    stamp="23 April 1932")
-    assert captions.sentence_ok("I stood here quietly.", 1932,
-                                stamp="23 April 1932")
-    assert captions.sentence_ok("I stood 23 metres from the cliff.", 2002,
-                                stamp="2002")
+def test_sentence_ok_rejects_any_date():
+    assert not captions.sentence_ok("I burnt down on 23 April 1932.")
+    assert not captions.sentence_ok("I burnt down in 1932.")
+    assert captions.sentence_ok("I burnt down.")
+    assert captions.sentence_ok("I stood here quietly.")
+    assert captions.sentence_ok("I stood 23 metres from the cliff.")
 
 
 def test_write_sentence_forwards_the_stamp():
@@ -220,7 +218,7 @@ def test_write_sentence_checks_the_combined_evidence():
 
     def rewrite(detail, quote, year, plain, stamp=""):
         seen["source"] = quote
-        return "I burnt down on 23 April 1932."
+        return "I burnt down."
 
     def support(sentence, quote):
         return "supported" if "23 April 1932" in quote else "unsupported"
@@ -240,7 +238,7 @@ def test_write_sentence_retries_without_the_contested_detail():
         seen.append(plain)
         if not plain:
             return "I burnt down in the evening."
-        return "I burnt down on 23 April 1932."
+        return "I burnt down."
 
     def support(sentence, quote):
         if "evening" in sentence:
@@ -251,6 +249,6 @@ def test_write_sentence_retries_without_the_contested_detail():
         rewrite_call=rewrite, support_call=support,
         claim=claim(1932, quote="The brigade could not prevent it."), year=1932,
         other_texts=["On Saturday afternoon, April 23rd, 1932 it burnt."])
-    assert out == {"sentence": "I burnt down on 23 April 1932.",
+    assert out == {"sentence": "I burnt down.",
                    "verified": True, "attempts": 2}
     assert seen == [False, True]

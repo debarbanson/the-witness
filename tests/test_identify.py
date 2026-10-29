@@ -558,16 +558,19 @@ def test_merge_dedupes_wikipedia_by_qid():
     assert ranked[0].source == "wikidata+wikipedia"
 
 
-def test_second_look_parses_yes_no_and_ramblers():
+def test_second_look_parses_yes_no_and_unparseable():
     yes = {"output": [{"type": "message", "content": [
         {"type": "output_text", "text": "YES\nShows the tower."}]}]}
     no = {"output": [{"type": "message", "content": [
         {"type": "output_text", "text": "NO\nShows the square."}]}]}
     ramble = {"output": [{"type": "message", "content": [
         {"type": "output_text", "text": "It looks like the tower."}]}]}
+    empty = {"output": [{"type": "message", "content": [
+        {"type": "output_text", "text": ""}]}]}
     assert identify.parse_second_look(yes) is True
     assert identify.parse_second_look(no) is False
-    assert identify.parse_second_look(ramble) is True
+    assert identify.parse_second_look(ramble) is None
+    assert identify.parse_second_look(empty) is None
 
 
 def test_second_look_no_retries_next_candidate(tmp_path):
@@ -577,7 +580,6 @@ def test_second_look_no_retries_next_candidate(tmp_path):
     script = [
         "2 Test Memorial\nLooks memorial-ish.",
         "NO\nShows the tower, not the memorial.",
-        "NO\nStill not the memorial.",
         "1 Test Tower\nClearly the tower.",
         "YES\nThe photo shows the tower.",
     ]
@@ -598,8 +600,8 @@ def test_second_look_rejecting_everything_raises(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
-    script = ["1 Test Tower\nMaybe.", "NO\nNot the tower.", "NO\nStill not the tower.",
-              "2 Test Memorial\nMaybe.", "NO\nNot the memorial.", "NO\nStill not the memorial."]
+    script = ["1 Test Tower\nMaybe.", "NO\nNot the tower.",
+              "2 Test Memorial\nMaybe.", "NO\nNot the memorial."]
 
     def respond(prompt, image_bytes):
         text = script.pop(0)
@@ -844,26 +846,132 @@ def _look_script(second_answers):
     return respond, calls
 
 
-def test_second_look_veto_needs_two_noes(tmp_path):
+def plain_photo(path):
+    Image.new("RGB", (32, 32), (9, 9, 9)).save(path)
+
+
+def test_browser_location_finds_candidate_without_gps(tmp_path):
+    photo = tmp_path / "p.jpg"
+    plain_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    found = identify.identify(photo, post=post, get=routed(),
+                              respond=vision_pick(),
+                              location=(52.0, 4.0), sleep=lambda s: None)
+    assert found.name == "Test Tower"
+
+
+def test_exif_wins_over_browser_location(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo, lat=(52, 0, 1), lon=(4, 0, 1))
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    found = identify.identify(photo, post=post, get=routed(),
+                              respond=vision_pick(),
+                              location=(48.85, 2.35), sleep=lambda s: None)
+    assert found.name == "Test Tower"
+    body = post.calls[0]["data"]["data"]
+    assert "52.000278" in body
+    assert "48.85" not in body
+
+
+def test_invalid_browser_location_raises(tmp_path):
+    photo = tmp_path / "p.jpg"
+    plain_photo(photo)
+    with pytest.raises(identify.IdentifyError):
+        identify.identify(photo, respond=vision_pick(), location=("x", None))
+    with pytest.raises(identify.IdentifyError):
+        identify.identify(photo, respond=vision_pick(), location=(100.0, 0.0))
+
+
+def _scan_for_needles(strings, root, events):
+    for path in Path(root).rglob("*"):
+        if path.is_file():
+            text = path.read_text(errors="replace")
+            for needle in strings:
+                assert needle not in text, f"{needle} leaked into {path}"
+    blob = json.dumps(events, default=str)
+    for needle in strings:
+        assert needle not in blob, f"{needle} leaked into a progress event"
+
+
+def test_browser_location_never_reaches_disk_or_page(tmp_path):
+    from witness.cache import Cache
+
+    photo = tmp_path / "p.jpg"
+    plain_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    events = []
+    found = identify.identify(
+        photo, post=post, get=routed(), respond=vision_pick(),
+        location=(52.000231, 4.000137), sleep=lambda s: None,
+        cache=Cache(str(tmp_path / "cache")),
+        progress=lambda event, data: events.append((event, data)))
+    assert found.name == "Test Tower"
+    _scan_for_needles(["52.000231", "4.000137"], tmp_path / "cache", events)
+
+
+def test_typed_place_never_reaches_disk_or_page(tmp_path):
+    from witness.cache import Cache
+
+    photo = tmp_path / "p.jpg"
+    plain_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    events = []
+    found = identify.identify(
+        photo, place="Test Tower", post=post, get=routed(),
+        respond=vision_pick(), sleep=lambda s: None,
+        cache=Cache(str(tmp_path / "cache")),
+        progress=lambda event, data: events.append((event, data)))
+    assert found.name == "Test Tower"
+    _scan_for_needles(["52.0002", "4.0001"], tmp_path / "cache", events)
+
+
+def test_second_look_no_rejects_without_retry(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
-    respond, calls = _look_script(["NO", "YES"])
+    script = ["1 Test Tower\nMaybe.", "NO\nNot the tower.",
+              "1 Test Memorial\nLikely.", "YES\nClearly the memorial."]
+
+    def respond(prompt, image_bytes):
+        text = script.pop(0)
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    found = identify.identify(photo, post=post, get=routed(), respond=respond,
+                              sleep=lambda s: None)
+    assert found.name == "Test Memorial"
+    assert found.rejected == ("Test Tower",)
+    assert script == []  # the NO was not repeated
+
+
+def test_second_look_retries_unparseable_answer(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    script = ["1 Test Tower\nMaybe.", "Hard to say from here.",
+              "YES\nClearly the tower."]
+
+    def respond(prompt, image_bytes):
+        text = script.pop(0)
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
     found = identify.identify(photo, post=post, get=routed(), respond=respond,
                               sleep=lambda s: None)
     assert found.name == "Test Tower"
-    assert sum(1 for c in calls if c.startswith("Second look")) == 2
+    assert script == []
 
 
-def test_two_noes_reject_and_move_on(tmp_path):
+def test_single_no_per_pick_rejects_everything(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
-    respond, _ = _look_script(["NO", "NO", "NO", "NO"])
+    respond, calls = _look_script(["NO", "NO"])
     with pytest.raises(identify.NotIdentifiedError) as exc_info:
         identify.identify(photo, post=post, get=routed(), respond=respond,
                           sleep=lambda s: None)
     assert "rejected every pick" in str(exc_info.value)
+    assert sum(1 for c in calls if c.startswith("Second look")) == 2
 
 
 def test_failed_sources_emit_error_events(tmp_path):

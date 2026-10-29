@@ -129,35 +129,55 @@ def _budgeted(key, budget, func, *args, progress=None, **kwargs):
     return key, box.get("value", []), box.get("elapsed", budget)
 
 
+def checked_location(location) -> tuple:
+    """Browser geolocation as floats, or an error that names the rule."""
+    try:
+        lat, lon = float(location[0]), float(location[1])
+    except (TypeError, ValueError, IndexError):
+        raise IdentifyError("location must be two numbers (latitude, longitude)")
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise IdentifyError("location is out of range")
+    return lat, lon
+
+
 def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
-             cache=None, lang="en", timings=None, progress=None):
+             cache=None, lang="en", timings=None, progress=None, location=None):
     """Run step 0. Transports and the vision call are injectable for tests.
 
     EXIF GPS can lie (a placeholder far from the object), so when the
     GPS run matches nothing and a typed place was given, one retry runs
     from the place. The vision pick still gates it: no match, no film.
+    Browser geolocation stands in only when the photo has no GPS; EXIF
+    always wins, since it marks where the photo was taken.
     """
+    if location is not None:
+        location = checked_location(location)
     try:
         return _identify_once(photo, place=place, post=post, get=get, respond=respond,
                               sleep=sleep, cache=cache, lang=lang, timings=timings,
-                              progress=progress)
+                              progress=progress, location=location)
     except NotIdentifiedError as failed:
         if not place:
             raise
         try:
             read_location(photo)
+            had_precise = True
         except NoGpsError:
+            had_precise = location is not None
+        if not had_precise:
             raise failed
         if progress is not None:
             progress("fallback", {"to": "typed place"})
         return _identify_once(photo, place=place, post=post, get=get, respond=respond,
                               sleep=sleep, cache=cache, lang=lang, timings=timings,
-                              progress=progress, _gps_ok=False)
+                              progress=progress, _gps_ok=False, location=None)
 
 
 def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
-                   cache=None, lang="en", timings=None, progress=None, _gps_ok=True):
-    """One identify attempt, from EXIF GPS or from the typed place.
+                   cache=None, lang="en", timings=None, progress=None, _gps_ok=True,
+                   location=None):
+    """One identify attempt: EXIF GPS first, then browser geolocation,
+    then the typed place.
 
     Reverse geocoding runs first (labels and articles need the country);
     then Overpass and Wikidata nearby in parallel, then sitelinks and the
@@ -187,18 +207,26 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     try:
         if not _gps_ok:
             raise NoGpsError("GPS ignored after the GPS run matched nothing")
-        location = read_location(photo)
+        loc = read_location(photo)
         from_place = False
     except NoGpsError:
-        if not place:
-            raise
-        started = time.perf_counter()
-        lat, lon, country_code, place_name = geocode(place, get=get, sleep=sleep)
-        steps["geocode_s"] = round(time.perf_counter() - started, 1)
-        location = PhotoLocation(lat=lat, lon=lon, direction=None, precision="typed place")
-        from_place = True
+        if location is not None:
+            lat, lon = location
+            loc = PhotoLocation(lat=lat, lon=lon, direction=None,
+                                precision="browser geolocation")
+            from_place = False
+            place_name = None
+        else:
+            if not place:
+                raise
+            started = time.perf_counter()
+            lat, lon, country_code, place_name = geocode(place, get=get, sleep=sleep)
+            steps["geocode_s"] = round(time.perf_counter() - started, 1)
+            loc = PhotoLocation(lat=lat, lon=lon, direction=None, precision="typed place")
+            from_place = True
     else:
         place_name = None
+    location = loc
     lat, lon = location.lat, location.lon
     radius = PLACE_RADIUS_M if from_place else RADIUS_M
     near = place_name or place
@@ -278,8 +306,10 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
                 candidate = pool_cands[number - 1]
                 started = time.perf_counter()
                 confirmed = parse_second_look(respond(_look_prompt(candidate, near), photo_bytes))
-                if not confirmed:
+                if confirmed is None:
                     confirmed = parse_second_look(respond(_look_prompt(candidate, near), photo_bytes))
+                    if confirmed is None:
+                        confirmed = True  # chatter never rejects, as before
                 look_elapsed += time.perf_counter() - started
                 if confirmed:
                     chosen, confidence = candidate, pick.get("confidence", "")
@@ -821,8 +851,9 @@ def _look_prompt(candidate: Candidate, near=None) -> str:
             "Answer YES or NO first, then one short sentence.")
 
 
-def parse_second_look(response: dict) -> bool:
-    """YES confirms the pick; only an explicit NO rejects it."""
+def parse_second_look(response: dict) -> bool | None:
+    """YES confirms the pick, NO rejects it, anything else is
+    unparseable and earns one retry."""
     text = ""
     for item in response.get("output", []):
         if item.get("type") == "message":
@@ -830,9 +861,11 @@ def parse_second_look(response: dict) -> bool:
                 if block.get("type") == "output_text":
                     text = block.get("text", "")
     first = text.strip().split("\n")[0].strip().upper() if text.strip() else ""
+    if first.startswith("YES"):
+        return True
     if first.startswith("NO"):
         return False
-    return True
+    return None
 
 
 def parse_pick(response: dict) -> dict:

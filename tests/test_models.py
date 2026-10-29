@@ -30,6 +30,21 @@ def test_reset_usage_starts_a_fresh_job_tally():
     assert models.usage_totals() == {}
 
 
+def test_client_for_reuses_one_client_per_spec():
+    first = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
+    second = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
+    assert first is second
+
+
+def test_client_for_separates_specs_and_keys():
+    meta = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
+    baseten = models.client_for(
+        models.VERIFY_OPEN, environ={"BASETEN_API_KEY": "b-456"})
+    other_key = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-999"})
+    assert baseten is not meta
+    assert other_key is not meta
+
+
 def test_client_bounds_timeout_and_retries_per_spec():
     client = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
     assert client.timeout == models.VERIFY.timeout

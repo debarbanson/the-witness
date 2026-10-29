@@ -1,6 +1,7 @@
 """Step 3: check each claim against its source snippets. No live calls."""
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -150,6 +151,18 @@ def test_fetch_source_text_refuses_private_hosts():
     with pytest.raises(WebError):
         verify.fetch_source_text("http://169.254.169.254/latest", get=get)
     assert calls == []
+
+
+def test_fetch_plain_page_caches_its_title(tmp_path):
+    from witness.cache import Cache
+
+    html = ("<html><head><title>Tours &amp; Services | De Adriaan</title></head>"
+            "<body><p>Enough words here to form a paragraph for the extractor.</p>"
+            "</body></html>")
+    get = FakeGet([(200, html)])
+    cache = Cache(tmp_path)
+    verify.fetch_source_text("https://example.com/tours/", get=get, cache=cache)
+    assert cache.get("https://example.com/tours/#title") == "Tours & Services | De Adriaan"
 
 
 def test_fetch_source_text_cached():
@@ -532,10 +545,12 @@ def test_quote_prefers_best_source_rank():
 
 def scripted_support(*verdicts, year=1932):
     calls = []
+    lock = threading.Lock()
 
     def respond(prompt):
-        calls.append(prompt)
-        verdict = verdicts[min(len(calls) - 1, len(verdicts) - 1)]
+        with lock:
+            calls.append(prompt)
+            verdict = verdicts[min(len(calls) - 1, len(verdicts) - 1)]
         quote = f"{verdict} quote in {year}."
         return answered_with(
             {"verdict": verdict, "quote": quote,
@@ -680,6 +695,45 @@ def test_best_of_three_runs_third_on_disagreement():
     assert len(respond.calls) == 3
 
 
+def test_first_two_votes_overlap_in_time():
+    first_started = threading.Event()
+    second_started = threading.Event()
+    lock = threading.Lock()
+    order = []
+
+    def one_round():
+        with lock:
+            order.append(1)
+            mine = len(order)
+        if mine == 1:
+            first_started.set()
+            assert second_started.wait(timeout=10)
+        else:
+            second_started.set()
+            assert first_started.wait(timeout=10)
+        return {"verdict": "supported", "quote": "", "url": None,
+                "support": [], "note": None}
+
+    rounds = verify._vote_rounds(one_round, 3)
+    assert len(rounds) == 2  # agree, so no third round
+
+
+def test_disagreeing_first_two_get_a_third():
+    calls = []
+    lock = threading.Lock()
+
+    def one_round():
+        with lock:
+            calls.append(1)
+            mine = len(calls)
+        return {"verdict": "supported" if mine != 2 else "unsupported",
+                "quote": "", "url": None, "support": [], "note": None}
+
+    rounds = verify._vote_rounds(one_round, 3)
+    assert len(rounds) == 3
+    assert [r["verdict"] for r in rounds].count("supported") == 2
+
+
 def test_early_stop_keeps_second_judgement():
     passages = ["De watertoren is sinds 1986 opgesierd met een metershoge tulp."]
     respond = scripted_support("unsupported", "unsupported", "supported")
@@ -693,10 +747,12 @@ def test_early_stop_keeps_second_judgement():
 def quoted_support(*rounds):
     """Scripted (verdict, quote) answers with good-source support."""
     calls = []
+    lock = threading.Lock()
 
     def respond(prompt):
-        calls.append(prompt)
-        verdict, quote = rounds[min(len(calls) - 1, len(rounds) - 1)]
+        with lock:
+            calls.append(prompt)
+            verdict, quote = rounds[min(len(calls) - 1, len(rounds) - 1)]
         return answered_with(
             {"verdict": verdict, "quote": quote,
              "url": "https://en.wikipedia.org/wiki/X",
@@ -718,8 +774,11 @@ def test_literal_quote_skips_the_vote():
                      claim="The mill was built in 1779."),
         completion_respond=lambda prompt: answered_with({"completed": True}))
     assert result["verdict"] == "supported"
-    assert len(respond.calls) == 1
+    # Both first rounds run even when the quote already decides it; the
+    # quote still wins, and no third round runs.
+    assert len(respond.calls) == 2
     assert result["fast_path"] == "literal_quote"
+    assert result["quote"] == "The old mill was built in 1779 to grind corn for the village."
 
 
 def test_literal_quote_tolerates_whitespace_and_quotes():
@@ -730,7 +789,7 @@ def test_literal_quote_tolerates_whitespace_and_quotes():
                      claim="The mill was built in 1779."),
         completion_respond=lambda prompt: answered_with({"completed": True}))
     assert result["verdict"] == "supported"
-    assert len(respond.calls) == 1
+    assert len(respond.calls) == 2
 
 
 def test_quoteless_round_then_quoted_wins_and_stops():

@@ -151,6 +151,24 @@ def test_end_sources_carry_site_and_title():
     assert entry["title"] == "De Adriaan, Haarlem"
 
 
+def test_end_sources_prefers_the_pages_real_title():
+    url = "https://example.com/tours-services/"
+    claims = [{"url": url, "quote": LONG_QUOTE, "verdict": "supported"}]
+    cache = DictCache({url: f"Intro. {LONG_QUOTE} Outro.",
+                       url + "#title": "Tours & Services | Mill"})
+    (entry,) = builder.end_sources(claims, cache)
+    assert entry["title"] == "Tours & Services | Mill"
+
+
+def test_end_sources_keeps_wikipedia_titles_from_the_url():
+    url = "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+    claims = [{"url": url, "quote": LONG_QUOTE, "verdict": "supported"}]
+    cache = DictCache({url: f"Intro. {LONG_QUOTE} Outro.",
+                       url + "#title": "De Adriaan, Haarlem - Wikipedia"})
+    (entry,) = builder.end_sources(claims, cache)
+    assert entry["title"] == "De Adriaan, Haarlem"
+
+
 def test_end_sources_excludes_unprovenanced():
     fab = "A completely fabricated sentence about nothing at all here."
     claims = [
@@ -238,6 +256,105 @@ def test_frame_edges_detect_black_bars(tmp_path):
     assert record.edges_lit(lit) is True
 
 
+class _FakePage:
+    def __init__(self):
+        self.calls = []
+
+    def goto(self, url):
+        self.calls.append(("goto", url))
+
+    def wait_for_function(self, js):
+        self.calls.append(("wait", js))
+
+    def evaluate(self, js):
+        self.calls.append(("eval", js))
+
+    def screenshot(self):
+        return b"png"
+
+
+class _FakePlaywright:
+    def __init__(self, page):
+        self.page = page
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    @property
+    def chromium(self):
+        return self
+
+    def launch(self, **kwargs):
+        return self
+
+    def new_page(self, **kwargs):
+        return self.page
+
+    def close(self):
+        pass
+
+
+class _FakeProc:
+    def __init__(self, code=0):
+        self.frames = []
+        self.closed = False
+        self.code = code
+        self.stdin = self
+
+    def write(self, data):
+        self.frames.append(data)
+
+    def close(self):
+        self.closed = True
+
+    def wait(self):
+        return self.code
+
+
+def _stub_recording(monkeypatch, page, proc):
+    import playwright.sync_api
+    from witness.render import record
+
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright",
+                        lambda: _FakePlaywright(page))
+    monkeypatch.setattr(record.subprocess, "Popen", lambda *a, **k: proc)
+
+
+def test_record_waits_for_ready_and_decoded_frames(tmp_path, monkeypatch):
+    from witness.render import record
+
+    (tmp_path / "film.html").write_text("<html></html>")
+    (tmp_path / "film.json").write_text(json.dumps(
+        {"segments": [{"kind": "end", "start": 0, "end": 0.1}]}))
+    page, proc = _FakePage(), _FakeProc()
+    _stub_recording(monkeypatch, page, proc)
+    out = record.record(tmp_path / "film.html", tmp_path / "film.mp4")
+    assert out == tmp_path / "film.mp4"
+    waits = [js for kind, js in page.calls if kind == "wait"]
+    assert waits[0] == record.READY_JS
+    assert waits[1:] == [record.FRAME_JS] * 3  # one decoded frame each
+    assert len(proc.frames) == 3
+    assert proc.closed is True
+
+
+def test_record_raises_when_ffmpeg_fails(tmp_path, monkeypatch):
+    import subprocess
+
+    import pytest
+
+    from witness.render import record
+
+    (tmp_path / "film.html").write_text("<html></html>")
+    (tmp_path / "film.json").write_text(json.dumps(
+        {"segments": [{"kind": "end", "start": 0, "end": 0.03}]}))
+    _stub_recording(monkeypatch, _FakePage(), _FakeProc(code=1))
+    with pytest.raises(subprocess.CalledProcessError):
+        record.record(tmp_path / "film.html", tmp_path / "film.mp4")
+
+
 def test_scene_site_falls_back_to_year_claims():
     assert builder.scene_site(
         scene(1865), [{"year": 1865, "url": "https://nl.wikipedia.org/wiki/Y",
@@ -293,21 +410,17 @@ def test_today_card_silent_for_fresh_or_own_photos():
         "And here I stand today.", "")
 
 
-def test_today_card_uses_last_words_when_dead_or_gone():
+def test_today_card_never_repeats_the_last_line():
     died = scene(2026, "standing", "canopy leafless",
                  sentence="The RSPB announced I died.")
     claims = [{"year": 2026, "url": "https://a.example/x", "event": "died",
                "verdict": "supported"}]
-    line, sub = builder.today_card(2006, False, died, claims)
-    assert line == "The RSPB announced I died."
-    assert sub == "Photographed in 2006."
+    assert builder.today_card(2006, False, died, claims) == (
+        "", "Photographed in 2006.")
     gone = scene(1990, "demolished", "torn down",
                  sentence="I was torn down.")
-    line, _ = builder.today_card(None, False, gone, [])
-    assert line == "I was torn down."
-    bare = scene(1990, "demolished", "torn down")
-    line, _ = builder.today_card(None, False, bare, [])
-    assert line == "And here I stood."
+    assert builder.today_card(None, False, gone, []) == (
+        "And here I stood.", "")
 
 
 def test_film_drops_scenes_without_written_sentences(tmp_path):
@@ -362,3 +475,54 @@ def test_film_html_plays_without_fetch(tmp_path):
     assert json.loads(blob)["object"] == "Mill"
     # The unbuilt-template guard in the player script must survive injection.
     assert html.count("__FILM_JSON__") == 1
+
+
+def test_write_film_serves_jpeg_paintings(tmp_path):
+    from PIL import Image
+
+    era = tmp_path / "1850.png"
+    Image.new("RGB", (16, 24), "red").save(era)
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [scene(1850, "standing", "opened in 1779",
+                         sentence="I opened my doors.")],
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1850": "era_1850.jpg"},
+                             photo="today.jpg", photo_credit="me", layers={},
+                             era_files={"1850": str(era)})
+    assert Image.open(out / "era_1850.jpg").format == "JPEG"
+    assert not (out / "era_1850.png").exists()
+    film = json.loads((out / "film.json").read_text())
+    assert film["scenes"][0]["image"] == "era_1850.jpg"
+
+
+def test_kept_layers_skips_mismatched_and_missing_source(tmp_path):
+    import hashlib
+
+    eras = tmp_path / "eras"
+    eras.mkdir()
+    (eras / "1850.png").write_bytes(b"painting-1850")
+    (eras / "1950.png").write_bytes(b"painting-1950-new")
+    (eras / "2000.png").write_bytes(b"painting-2000")
+    root = tmp_path / "layers_parallel"
+    match = root / "1850"
+    match.mkdir(parents=True)
+    (match / "figure_0.png").write_bytes(b"fig")
+    (match / "source.json").write_text(json.dumps(
+        {"sha256": hashlib.sha256(b"painting-1850").hexdigest()}))
+    stale = root / "1950"
+    stale.mkdir()
+    (stale / "figure_0.png").write_bytes(b"fig")
+    (stale / "source.json").write_text(json.dumps(
+        {"sha256": "0" * 64}))
+    nosource = root / "2000"
+    nosource.mkdir()
+    (nosource / "figure_0.png").write_bytes(b"fig")
+    era_files = {"1850": str(eras / "1850.png"),
+                 "1950": str(eras / "1950.png"),
+                 "2000": str(eras / "2000.png")}
+    kept = builder.kept_layers(root, era_files)
+    assert list(kept) == ["1850"]
+    assert kept["1850"] == [str(match / "figure_0.png")]

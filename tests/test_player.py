@@ -34,6 +34,23 @@ def test_end_card_shows_site_and_title():
     assert 's.site + ": " + s.title' in TEMPLATE.read_text()
 
 
+def test_page_preloads_and_decodes_before_playing():
+    template = TEMPLATE.read_text()
+    assert "collectImages" in template
+    assert "preload(" in template
+    assert ".decode(" in template
+    assert "__READY" in template
+
+
+def test_image_load_failure_uses_progress_line():
+    template = TEMPLATE.read_text()
+    assert "cannot load its pictures" in template
+
+
+def test_empty_today_line_gets_no_default():
+    assert 'FILM.today_line ?? "And here I stand today."' in TEMPLATE.read_text()
+
+
 def test_player_behavior_in_node():
     node = shutil.which("node")
     if node is None:

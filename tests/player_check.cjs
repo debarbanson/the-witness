@@ -101,8 +101,18 @@ assert.strictEqual(layersEl().children.length, 0, "layers cleared");
 render(1.0);
 assert.strictEqual(layersEl().children.length, 0, "layers cleared on title");
 
+// Dissolving into today hides the era caption; era-to-era keeps it.
+render(11.5);
+assert.strictEqual(sandbox.document.getElementById("caption").style.display,
+  "block", "era caption stays during era dissolves");
+render(18.5);
+assert.strictEqual(sandbox.document.getElementById("caption").style.display,
+  "none", "no stamp rides onto the photo");
+
 // Today opens on the photo, never on black.
 render(19.0);
+assert.strictEqual(sandbox.document.getElementById("caption").style.display,
+  "block", "today caption appears");
 assert.strictEqual(imgA().src, "today.jpg", "photo under the cut-out");
 assert.strictEqual(imgA().style.opacity, 1, "photo visible from the start");
 assert.strictEqual(sandbox.document.getElementById("cap1").textContent,
@@ -112,10 +122,24 @@ assert.strictEqual(sandbox.document.getElementById("cap2").textContent,
 render(22.0);
 assert.strictEqual(imgA().style.opacity, 1, "photo stays up");
 
+// An empty today line stays empty: no default line lands on the photo.
+vm.runInContext("FILM.today_line = '';", sandbox);
+render(19.0);
+assert.strictEqual(sandbox.document.getElementById("cap1").textContent,
+  "", "empty today line honored");
+vm.runInContext("FILM.today_line = __DATA__.today_line;", sandbox);
+
 // The end card names sites and pages, not raw URLs.
 render(26.0);
 const items = sandbox.document.getElementById("sources").children;
 assert.strictEqual(items.length, 1, "one source listed");
 assert.strictEqual(items[0].textContent, "Wikipedia: Mill");
+
+// Preload covers the photo, the cut-out, every painting and its layers.
+const collectImages = vm.runInContext("collectImages", sandbox);
+const withCutout = Object.assign({}, sandbox.__DATA__, { cutout: "cutout.png" });
+assert.deepStrictEqual([...collectImages(withCutout)],
+  ["today.jpg", "cutout.png", "era_1865.png", "l0.png", "l1.png", "era_1920.png"],
+  "every frame image, deduplicated");
 
 console.log("player check OK: flat layers, photo-first today, titled sources");

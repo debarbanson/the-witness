@@ -103,6 +103,25 @@ function syncLayers(scene) {
   return layerImgs;
 }
 
+function collectImages(film) {
+  const urls = [film.photo];
+  if (film.cutout) urls.push(film.cutout);
+  film.scenes.forEach(s => {
+    urls.push(s.image);
+    (s.layers || []).forEach(l => urls.push(l));
+  });
+  return [...new Set(urls)];
+}
+
+function preload(film) {
+  return Promise.all(collectImages(film).map(src => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => (img.decode ? img.decode().then(resolve, reject) : resolve());
+    img.onerror = () => reject(new Error(src));
+    img.src = src;
+  })));
+}
+
 function render(t) {
   const [seg, idx] = segAt(t);
   const stage = document.getElementById("stage");
@@ -181,7 +200,7 @@ function render(t) {
     caption.style.display = "block";
     document.getElementById("cap1").className = "";
     document.getElementById("cap1").textContent =
-      FILM.today_line || "And here I stand today.";
+      FILM.today_line ?? "And here I stand today.";
     document.getElementById("cap2").textContent = FILM.today_sub || "";
     document.getElementById("capsite").textContent = FILM.photo_credit || "";
     showClock(); return;
@@ -203,6 +222,7 @@ function render(t) {
   imgA.src = scene.image;
   imgA.style.opacity = 1;
   imgA.style.transform = REDUCED ? "" : "scale(" + (1 + 0.08 * (local / dur)) + ")";
+  let quiet = false;
   if (local > dur - FADE && idx + 1 < FILM.segments.length) {
     const next = FILM.segments[idx + 1];
     const f = (local - (dur - FADE)) / FADE;
@@ -218,16 +238,19 @@ function render(t) {
       imgB.src = src; imgB.style.opacity = f;
       imgA.style.opacity = 1 - f;
     }
+    quiet = next.kind === "today" && !!src;
   }
   syncLayers(scene).forEach(img => {
     img.style.opacity = imgA.style.opacity;
     img.style.transform = imgA.style.transform;
   });
-  caption.style.display = "block";
-  document.getElementById("cap1").className = "stamp";
-  document.getElementById("cap1").textContent = scene.caption[0];
-  document.getElementById("cap2").textContent = scene.caption[1];
-  document.getElementById("capsite").textContent = scene.site;
+  if (!quiet) {
+    caption.style.display = "block";
+    document.getElementById("cap1").className = "stamp";
+    document.getElementById("cap1").textContent = scene.caption[0];
+    document.getElementById("cap2").textContent = scene.caption[1];
+    document.getElementById("capsite").textContent = scene.site;
+  }
   showClock();
 }
 
@@ -241,15 +264,18 @@ function start(film) {
   FILM = film;
   fit();
   addEventListener("resize", fit);
-  const fixed = params.get("t");
-  if (fixed !== null) { render(parseFloat(fixed)); return; }
-  const t0 = performance.now();
-  const total = film.segments[film.segments.length - 1].end;
-  function frame(now) {
-    render(Math.min((now - t0) / 1000, total));
-    if ((now - t0) / 1000 < total) requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
+  preload(film).then(() => {
+    window.__READY = true;
+    const fixed = params.get("t");
+    if (fixed !== null) { render(parseFloat(fixed)); return; }
+    const t0 = performance.now();
+    const total = film.segments[film.segments.length - 1].end;
+    function frame(now) {
+      render(Math.min((now - t0) / 1000, total));
+      if ((now - t0) / 1000 < total) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }).catch(() => fail("This film cannot load its pictures."));
 }
 
 function fail(msg) {

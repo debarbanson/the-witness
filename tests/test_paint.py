@@ -55,7 +55,7 @@ def test_image_tools_match_proven_settings():
          "enable_image_search": False}]
 
 
-def test_paint_chain_threads_previous_ids_in_order():
+def test_paint_chain_first_scene_carries_the_photo():
     seen = []
 
     def call(prompt, prev_id, photo_bytes=None):
@@ -64,40 +64,45 @@ def test_paint_chain_threads_previous_ids_in_order():
 
     results = paint.paint_chain(
         call, b"photo", [scene(1850), scene(1950)], "De Adriaan", "Haarlem")
-    assert [r["response_id"] for r in results] == ["r2", "r3"]
-    assert seen == [(None, b"photo"), ("r1", None), ("r2", None)]  # photo only on anchor
+    assert [r["response_id"] for r in results] == ["r1", "r2"]
+    assert seen == [(None, b"photo"), ("r1", None)]
     assert results[0]["year"] == 1850
 
 
-def test_paint_parallel_branches_every_era_from_anchor():
+def test_paint_parallel_branches_every_era_from_first_scene():
     seen = []
+    prompts = []
 
     def call(prompt, prev_id, photo_bytes=None):
-        seen.append(prev_id)
+        seen.append((prev_id, photo_bytes))
+        prompts.append(prompt)
         if prev_id is None:
-            return {"image": b"anchor", "response_id": "r-anchor"}
+            return {"image": b"base", "response_id": "r-base"}
         return {"image": b"img", "response_id": "rx"}
 
     paint.paint_parallel(
-        call, None, [scene(1850), scene(1950)], "De Adriaan", "Haarlem")
-    assert seen[0] is None  # the anchor turn
-    assert sorted(seen[1:]) == ["r-anchor", "r-anchor"]
+        call, b"photo", [scene(1850), scene(1950)], "De Adriaan", "Haarlem")
+    assert seen[0] == (None, b"photo")  # the first scene, not a spare turn
+    assert "1850" in prompts[0]
+    assert seen[1:] == [("r-base", None)]
 
 
 def test_paint_parallel_marks_crashed_scene_dropped():
     def call(prompt, prev_id, photo_bytes=None):
         if prev_id is None:
-            return {"image": b"anchor", "response_id": "r-anchor"}
-        raise RuntimeError("timed out")
+            return {"image": b"base", "response_id": "r-base"}
+        if "1950" in prompt:
+            raise RuntimeError("timed out")
+        return {"image": b"img", "response_id": "rx"}
 
     results = paint.paint_parallel(
-        call, None, [scene(1850)], "Mill", "Town")
-    assert results[0]["verdict"] == "dropped"
-    assert "timed out" in results[0]["note"]
-    assert results[0]["year"] == 1850
+        call, None, [scene(1850), scene(1950)], "Mill", "Town")
+    assert [r["verdict"] for r in results] == ["unchecked", "dropped"]
+    assert "timed out" in results[1]["note"]
+    assert results[1]["year"] == 1950
 
 
-def test_paint_parallel_anchor_crash_drops_all_scenes():
+def test_paint_parallel_base_crash_drops_all_scenes():
     def call(prompt, prev_id, photo_bytes=None):
         raise RuntimeError("down")
 
@@ -105,6 +110,22 @@ def test_paint_parallel_anchor_crash_drops_all_scenes():
         call, None, [scene(1850), scene(1950)], "Mill", "Town")
     assert [r["verdict"] for r in results] == ["dropped", "dropped"]
     assert "down" in results[0]["note"]
+
+
+def test_paint_parallel_dropped_base_regrounds_rest_on_photo():
+    seen = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        seen.append((prev_id, photo_bytes))
+        if prev_id is None and len(seen) == 1:
+            raise RuntimeError("base down")
+        return {"image": b"img", "response_id": "rx"}
+
+    results = paint.paint_parallel(
+        call, b"photo", [scene(1850), scene(1950)], "Mill", "Town")
+    assert results[0]["verdict"] == "dropped"
+    assert results[1]["verdict"] == "unchecked"
+    assert seen[1] == (None, b"photo")
 
 
 def test_paint_scene_check_crash_drops():
@@ -119,7 +140,7 @@ def test_paint_scene_check_crash_drops():
     assert "check down" in result["note"]
 
 
-def test_paint_chain_anchor_crash_drops_all_scenes():
+def test_paint_chain_crash_drops_scene():
     def call(prompt, prev_id, photo_bytes=None):
         raise RuntimeError("down")
 
@@ -140,15 +161,16 @@ def test_paint_chain_crash_drops_one_scene_and_continues():
     assert [r["verdict"] for r in results] == ["dropped", "unchecked"]
 
 
-def test_parallel_anchor_id_returned_first():
-    ids = iter(["r-anchor", "r1", "r2"])
+def test_paint_parallel_threads_base_id_to_rest():
+    ids = iter(["r-base", "r2"])
 
     def call(prompt, prev_id, photo_bytes=None):
         return {"image": b"img", "response_id": next(ids)}
 
     results = paint.paint_parallel(
-        call, None, [scene(1850)], "De Adriaan", "Haarlem")
-    assert results[0]["response_id"] == "r1"
+        call, None, [scene(1850), scene(1950)], "De Adriaan", "Haarlem")
+    assert [r["response_id"] for r in results] == ["r-base", "r2"]
+    assert [r["year"] for r in results] == [1850, 1950]
 
 
 def test_paint_scene_keeps_matching_painting():
@@ -368,8 +390,21 @@ def test_scene_prompt_bans_all_lettering():
     assert "signs" in prompt and "dates" in prompt
 
 
-def test_anchor_instruction_bans_lettering():
-    assert "No text" in paint.anchor_instruction("Mill", "Town")
+def test_paint_scene_repaint_keeps_claims_in_prompt():
+    prompts = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        prompts.append(prompt)
+        return {"image": b"img", "response_id": "r1"}
+
+    answers = iter(["DIFFERS shows sails.", "MATCHES base only."])
+    out = paint.paint_scene(call, lambda image, p: next(answers),
+                            scene(1850, "standing", "The mill stands whole."),
+                            "De Adriaan", "Haarlem", "r0",
+                            claims=[vclaim(1850, "barges unload grain at the quay")])
+    assert out["verdict"] == "matches"
+    assert "barges unload grain" in prompts[0]
+    assert "barges unload grain" in prompts[1]
 
 
 def test_scene_prompt_adds_season_sentence():
@@ -547,8 +582,6 @@ def test_paint_parallel_forwards_claims_to_scenes():
 
     def call(prompt, prev_id, photo_bytes=None):
         seen.append(prompt)
-        if prev_id is None:
-            return {"image": b"anchor", "response_id": "r-anchor"}
         return {"image": b"img", "response_id": "r1"}
 
     paint.paint_parallel(

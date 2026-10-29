@@ -73,8 +73,21 @@ def end_sources(claims, cache=None) -> list:
             continue
         seen.append(url)
         entries.append({"url": url, "site": source_site(url),
-                        "title": source_title(url)})
+                        "title": end_title(url, cache)})
     return entries
+
+
+def end_title(url, cache=None) -> str:
+    """The page's real title when fetched, else the URL slug.
+
+    Wikipedia titles always come from the URL: the article name beats
+    the browser tab ("De Adriaan, Haarlem", not "... - Wikipedia").
+    """
+    if cache is not None and source_site(url) != "Wikipedia":
+        title = cache.get(f"{url}#title")
+        if title:
+            return title
+    return source_title(url)
 
 
 def _provenanced(quote, url, cache) -> bool:
@@ -104,22 +117,20 @@ def last_claim_event(last_scene, claims) -> str:
 
 def today_card(photo_year, own_photo, last_scene, claims=()) -> tuple:
     """The today caption agrees with the last verified state: a stale
-    stock photo is dated, and a dead or gone object speaks its last
-    words instead of claiming to stand."""
+    stock photo is dated, and a dead or gone object never claims to
+    stand. The last scene's line is never repeated: with a photo note
+    the note speaks alone, otherwise a past-tense line does."""
     year = last_scene.get("from_year")
     condition = (last_scene.get("state") or {}).get("condition", "standing")
     gone = (condition == "demolished"
             or last_claim_event(last_scene, claims) in DEATH_EVENTS)
-    if gone:
-        line = (last_scene.get("caption_sentence") or {}).get("text", "")
-        line = line or "And here I stood."
-    else:
-        line = "And here I stand today."
     sub = ""
     if (not own_photo and isinstance(photo_year, int)
             and isinstance(year, int) and photo_year < year):
         sub = f"Photographed in {photo_year}."
-    return (line, sub)
+    if gone:
+        return (("", sub) if sub else ("And here I stood.", ""))
+    return ("And here I stand today.", sub)
 
 
 def scene_site(scene, claims=()) -> str:
@@ -152,6 +163,30 @@ def dated(scenes) -> list:
             and not states.is_age_range(s.get("date_label", ""))]
 
 
+def kept_layers(layers_root, era_files) -> dict:
+    """Layer files per year, skipping dirs whose source.json does not
+    name the kept painting: stale cut-outs never reach the film."""
+    import hashlib
+
+    kept = {}
+    for year_dir in sorted(Path(layers_root).iterdir()):
+        found = sorted(year_dir.glob("figure_*.png"))
+        if not found:
+            continue
+        painting = era_files.get(year_dir.name)
+        if painting is None:
+            continue
+        try:
+            source = json.loads((year_dir / "source.json").read_text())
+        except (OSError, ValueError):
+            continue
+        digest = hashlib.sha256(Path(painting).read_bytes()).hexdigest()
+        if source.get("sha256") != digest:
+            continue
+        kept[year_dir.name] = [str(p) for p in found]
+    return kept
+
+
 def build_timeline(scenes, images, claims=()) -> list:
     """Contiguous segments: title, anchor, one era per painting, today, end."""
     plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
@@ -174,10 +209,19 @@ def build_timeline(scenes, images, claims=()) -> list:
     return plan
 
 
+def save_jpeg(src, dest, quality=88) -> None:
+    """A painting as a web-sized JPEG."""
+    from PIL import Image
+
+    Image.open(src).convert("RGB").save(dest, "JPEG", quality=quality)
+
+
 def write_film(out_dir, research, images, photo, photo_credit, layers,
                place="", era_files=None, layer_files=None, photo_file=None,
                cutout_file=None, photo_year=None, own_photo=False, cache=None):
-    """film.json plus film.html plus copied assets under out_dir/film/."""
+    """film.json plus film.html plus copied assets under out_dir/film/.
+    Paintings are served as JPEG; layers and the cut-out stay PNG for
+    their transparency."""
     out_dir = Path(out_dir)
     film_dir = out_dir / "film"
     film_dir.mkdir(parents=True, exist_ok=True)
@@ -231,10 +275,11 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
     assert tag in template
     (film_dir / "film.html").write_text(
         template.replace(tag, tag.replace("__FILM_JSON__", embedded)))
-    for dest, src in [("today.jpg", photo_file)] + [
-            (f"era_{key}.png", src) for key, src in (era_files or {}).items()]:
+    if photo_file is not None:
+        shutil.copy(photo_file, film_dir / "today.jpg")
+    for key, src in (era_files or {}).items():
         if src is not None:
-            shutil.copy(src, film_dir / dest)
+            save_jpeg(src, film_dir / f"era_{key}.jpg")
     for key, files in (layer_files or {}).items():
         layer_dir = film_dir / f"layers_{key}"
         layer_dir.mkdir(exist_ok=True)

@@ -2,9 +2,11 @@
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import unicodedata
@@ -52,6 +54,8 @@ def main(argv=None):
         if name != "identify":
             cmd.add_argument("--out-dir", default="out")
         cmd.add_argument("--place", default=None)
+        cmd.add_argument("--lat", type=float, default=None)
+        cmd.add_argument("--lon", type=float, default=None)
         cmd.add_argument("--lang", default="en")
         cmd.add_argument("--yes", action="store_true")
         cmd.add_argument("--no-cache", action="store_true")
@@ -96,9 +100,14 @@ def main(argv=None):
     paint_cmd.add_argument("--scenes", default=None)
     paint_cmd.add_argument("--tag", default=None)
     args = parser.parse_args(argv)
+    if args.command in ("identify", "research", "film"):
+        if (args.lat is None) != (args.lon is None):
+            parser.error("--lat and --lon go together")
+        args.location = (args.lat, args.lon) if args.lat is not None else None
     if args.command == "identify":
         return cmd_identify(args.photo, place=args.place, lang=args.lang,
-                            yes=args.yes, no_cache=args.no_cache)
+                            yes=args.yes, no_cache=args.no_cache,
+                            location=args.location)
     if args.command == "keep":
         return cmd_keep(args.slug, out_dir=args.out_dir)
     if args.command == "children":
@@ -119,7 +128,11 @@ def main(argv=None):
             film_html = Path(args.out_dir) / args.slug / "film" / "film.html"
             out_mp4 = Path(args.out_dir) / args.slug / "film" / "film.mp4"
             print("recording MP4 (needs an unsandboxed browser)...")
-            render_record.record(film_html, out_mp4)
+            try:
+                render_record.record(film_html, out_mp4)
+            except Exception as exc:  # noqa: BLE001 - the film stands, the MP4 failed
+                print(f"MP4 recording failed: {exc}")
+                return 1
             print(f"MP4 at {out_mp4}")
         return code
     if args.command == "paint":
@@ -130,10 +143,11 @@ def main(argv=None):
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
                         verify_with=args.verify_with, paint_eras=args.paint,
-                        out_dir=args.out_dir)
+                        location=args.location, out_dir=args.out_dir)
     return cmd_research(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
-                        verify_with=args.verify_with, out_dir=args.out_dir)
+                        verify_with=args.verify_with, location=args.location,
+                        out_dir=args.out_dir)
 
 
 def cmd_keep(slug, out_dir="out"):
@@ -158,13 +172,18 @@ def cli_progress(event, data):
         print(f"note: {data.get('source')} failed: {data.get('error')}")
 
 
-def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False):
+def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False,
+                 location=None):
     cache = None if no_cache else Cache("out/cache")
     try:
         steps = {}
         found = identify.identify(photo, place=place, respond=vision_respond, cache=cache,
-                                  lang=lang, timings=steps, progress=cli_progress)
+                                  lang=lang, timings=steps, progress=cli_progress,
+                                  location=location)
         print(f"identify steps (s): {json.dumps(steps)}")
+    except identify.NoGpsError as exc:
+        print(f"no location: {exc}; give --place or --lat/--lon")
+        return 2
     except identify.NotIdentifiedError as exc:
         print(f"identify steps (s): {json.dumps(steps)}")
         print(f"not identified: {exc}")
@@ -228,65 +247,143 @@ def final_paint_actions(chosen, painted_years, painted_states) -> dict:
     return actions
 
 
-def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
-             progress=None, paint_eras=False, paint_call=None, check_call=None,
-             out_dir="out"):
-    """The film as a stream: opening card within seconds, then one ready
-    scene after another. Research starts while the user still confirms.
-    With paint_eras, scene 1 paints from the anchor while research runs
-    and later scenes paint as they verify."""
-    filmed = stream.FilmStream()
-    cache = None if no_cache else Cache("out/cache")
+def stream_scene_kwargs(report, claims, scene) -> dict:
+    """Prompt extras for a streamed paint: the shared season, the
+    anchor elements no judged claim names yet, and the judged claims."""
+    dated = [(claim.get("year"), captions.claim_detail(claim)) for claim in claims
+             if claim.get("verdict") in ("supported", "partly")
+             and isinstance(claim.get("year"), int)]
+    year = scene.get("from_year")
+    if not isinstance(year, int):
+        excluded = tuple(report.get("elements", []))
+    else:
+        excluded = tuple(paint.excluded_elements(report.get("elements", []), dated, year))
+    return {"season": report.get("season"), "excluded": excluded,
+            "claims": tuple(claims)}
+
+
+def _future_response_id(future):
+    """A painted scene's response id, or None when it failed."""
+    try:
+        return future.result().get("response_id")
+    except Exception:  # noqa: BLE001 - a dead scene grounds nothing
+        return None
+
+
+def verify_wiring(verify_with) -> dict:
+    """One verify wiring for every path: support votes, search
+    fallback, completion check, workers. The completion check stays
+    on Meta until the comparison proves otherwise."""
+    if verify_with == "baseten":
+        support, workers = baseten_support_respond, models.VERIFY_OPEN.workers
+    else:
+        support, workers = support_respond, models.VERIFY.workers
+    return {"support": support, "search": verify_respond,
+            "completion": support_respond, "workers": workers}
+
+
+def judge_batch(wiring, jobs, progress=None, completion=True) -> list:
+    """Judge jobs with one shared wiring, results in film order."""
+    return verify.judge_all(wiring["support"], jobs,
+                            search_respond=wiring["search"],
+                            completion_respond=wiring["completion"],
+                            completion=completion,
+                            max_workers=wiring["workers"], progress=progress,
+                            dispute_check=verify.sentence_disputed)
+
+
+def refresh_film(kept) -> tuple:
+    """Verified claims become timeline and chosen scenes."""
+    film_verified = [c for c in kept if c["verdict"] == "supported"
+                     or (c["verdict"] == "partly" and c["rewritten"])]
+    film_timeline = research.build_timeline(timeline_events(film_verified))
+    film_chosen = scenes.choose_scenes(film_timeline, film_verified)
+    return film_verified, film_timeline, film_chosen
+
+
+def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
+            cache=None, verify_with="baseten", progress=None, quiet=False,
+            speculative=False, compare_support=False,
+            on_identified=None, on_facts=None, on_claim=None, on_scene=None,
+            location=None, out_dir="out") -> dict:
+    """One job for the web and both commands: identify, research,
+    verify. No input; no print when quiet; milestones via progress.
+    `decide` confirms the identified object (facts fetch while it
+    asks; the whole gather runs ahead too when speculative). Hooks
+    fire per identify, facts, judged claim and ready scene. Returns
+    the result; callers save and report."""
+    if decide is None:
+        decide = lambda found: True
+    if progress is None:
+        progress = (lambda event, data: None) if quiet else cli_progress
+    if cache is None and not no_cache:
+        cache = Cache("out/cache")
     models.reset_usage()
     timings = {}
     start = time.perf_counter()
-    if progress is None:
-        progress = cli_progress
+    wiring = verify_wiring(verify_with)
+    identify_steps = {}
     try:
         phase = time.perf_counter()
-        identify_steps = {}
-        found = identify.identify(photo, place=place, respond=vision_respond, cache=cache,
-                                  lang=lang, timings=identify_steps, progress=progress)
+        found = identify.identify(photo, place=place, respond=vision_respond,
+                                  cache=cache, lang=lang, location=location,
+                                  timings=identify_steps, progress=progress)
         timings["identify_s"] = round(time.perf_counter() - phase, 1)
         timings["identify_steps"] = identify_steps
-        print(f"identify steps (s): {json.dumps(identify_steps)}")
+    except identify.NoGpsError as exc:
+        return {"confirmed": False, "identified": False, "cached": False,
+                "error_kind": "no_location", "error": str(exc),
+                "identify_steps": identify_steps}
     except identify.NotIdentifiedError as exc:
-        print(f"identify steps (s): {json.dumps(identify_steps)}")
-        print(f"object: not identified ({exc})")
-        print("outcome: not_identified")
-        return 2
+        return {"confirmed": False, "identified": False, "cached": False,
+                "error_kind": "not_identified", "error": str(exc),
+                "identify_steps": identify_steps}
     except identify.SourceError as exc:
-        print(f"source failed: {exc}")
-        return 2
-    print(describe_found(found))
-    if found.qid:
-        print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")
+        return {"confirmed": False, "identified": False, "cached": False,
+                "error_kind": "source", "error": str(exc),
+                "identify_steps": identify_steps}
+    if not quiet:
+        print(f"identify steps (s): {json.dumps(identify_steps)}")
+        print(describe_found(found))
+        if found.qid:
+            print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")
     order = research.read_langs(found.country_code, lang)
+    slug = slug_for(found.name, found.qid, found.articles, prefer=order)
+    progress("identified", {"name": found.name, "slug": slug})
+    if on_identified is not None:
+        on_identified(found, slug, order)
     if cache is not None and found.qid:
-        slug = slug_for(found.name, found.qid, found.articles, prefer=order)
         reviewed = cache.get_reviewed(found.qid, lang)
         if reviewed is not None:
             out_path = Path(out_dir) / slug / "research.json"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
-            result = reviewed.get("outcome", {})
-            print(f"film opens instantly (reviewed research reused; use --no-cache to redo)")
-            print(f"outcome: {result.get('outcome')}")
-            return 0
+            progress("cached", {"slug": slug, "kind": "reviewed"})
+            return {"confirmed": True, "identified": True, "cached": "reviewed",
+                    "slug": slug, "found": found, "order": order,
+                    "result": reviewed.get("outcome", {})}
         film = cached_film(slug, lang, out_dir)
         if film is not None:
-            result = film.get("outcome", {})
-            print(f"film opens instantly (cached film from {film.get('saved_at')}; "
-                  f"use --no-cache to check again)")
-            print(f"outcome: {result.get('outcome')}")
-            return 0
+            progress("cached", {"slug": slug, "kind": "film"})
+            return {"confirmed": True, "identified": True, "cached": "film",
+                    "slug": slug, "found": found, "order": order,
+                    "result": film.get("outcome", {}),
+                    "saved_at": film.get("saved_at")}
     article_urls = [
-        f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
-        for lang, title in found.articles.items()
+        f"https://{code}.wikipedia.org/wiki/{title.replace(' ', '_')}"
+        for code, title in found.articles.items()
     ]
     fetched = SourceTexts(cache=cache, progress=progress)
-    support = baseten_support_respond if verify_with == "baseten" else support_respond
-    workers = models.VERIFY_OPEN.workers if verify_with == "baseten" else models.VERIFY.workers
+
+    def get_first():
+        try:
+            return film_facts(found, lang, cache, timings, quiet)
+        except Exception as exc:  # noqa: BLE001 - facts are a head start, not a gate
+            if not quiet:
+                print(f"wikidata facts failed ({exc}); continuing on web research")
+            progress("facts_failed", {"error": str(exc)})
+            return {"facts": {"facts": []}, "claims": [],
+                    "build_anchor_year": None}
 
     def gather_rest(first):
         claims = first["claims"]
@@ -297,69 +394,203 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             read_langs=research.read_langs(found.country_code, lang))
         answer = research.ask_lifespan(lifespan_respond, question)
         timings["research_s"] = round(time.perf_counter() - phase, 1)
+        progress("researched", {"events": len(answer["events"])})
         modelled = research.assemble_claims(answer["events"], answer["citations"],
                                             answer["sources"], anchor_year=build_anchor_year)
-        if len(modelled) < len(answer["events"]):
+        if len(modelled) < len(answer["events"]) and not quiet:
             print(f"dropped (anchor stands): {len(answer['events']) - len(modelled)} research build years")
         claims.extend(modelled)
-        print(f"lifespan events: {len(answer['events'])}")
-        kept = keep_quality(claims)
+        if not quiet:
+            print(f"lifespan events: {len(answer['events'])}")
+        kept = keep_quality(claims, quiet)
         to_check, pool = plan_checks(kept)
         for c in pool:
             c.update({"verdict": "unverified", "quote": "", "url": None, "support": [],
                       "note": "outside chosen scenes", "completed": True,
                       "rewritten": None, "war_politics_only": False})
-        print(f"checking {len(to_check)} of {len(kept)} claims (spares on need)")
+        if not quiet:
+            print(f"checking {len(to_check)} of {len(kept)} claims (spares on need)")
         draft = draft_scenes(kept)
         phase = time.perf_counter()
-        fetched.fetch(to_check, article_urls, verify_with)
-        timings["fetch_s"] = round(time.perf_counter() - phase, 1)
+        fetched.fetch(to_check, article_urls, verify_with, quiet)
+        timings["fetch_s"] = round(timings.get("fetch_s", 0) + time.perf_counter() - phase, 1)
         anchor_year = min([c["year"] for c in kept], default=None)
         jobs = build_jobs(to_check, fetched.texts, answer["snippets"], anchor_year)
-        return {"kept": kept, "to_check": to_check, "pool": pool, "draft": draft, "jobs": jobs}
+        return {"kept": kept, "to_check": to_check, "pool": pool,
+                "draft": draft, "jobs": jobs, "snippets": answer["snippets"]}
 
-    def gather():
-        return gather_rest(film_facts(found, lang, cache, timings))
+    before = models.usage_totals()
+    if speculative:
+        def begin():
+            first = get_first()
+            return first, gather_rest(first)
 
-    def show_card(claims):
-        card = stream.opening_card(found.name, found.kind, claims)
-        filmed.emit("opening_card", card)
-        print(f"\n---\n{card['name']} ({card['kind']})", flush=True)
-        if card["text"]:
-            print(card["text"])
-        print("---", flush=True)
+        confirmed, both = stream.confirm_speculative(
+            f"Is this {found.name}?", begin, lambda: decide(found))
+        if not confirmed:
+            after = models.usage_totals()
+            spent = (sum(v.get("total_tokens", 0) for v in after.values())
+                     - sum(v.get("total_tokens", 0) for v in before.values()))
+            progress("declined", {"spent_tokens": spent})
+            return {"confirmed": False, "identified": True, "cached": False,
+                    "spent": spent}
+        first, gathered = both
+    else:
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            first_future = pool.submit(get_first)
+            confirmed = decide(found)
+            if not confirmed:
+                after = models.usage_totals()
+                spent = (sum(v.get("total_tokens", 0) for v in after.values())
+                         - sum(v.get("total_tokens", 0) for v in before.values()))
+                progress("declined", {"spent_tokens": spent})
+                return {"confirmed": False, "identified": True, "cached": False,
+                        "spent": spent}
+            first = first_future.result()
+            gathered = gather_rest(first)
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+    anchor_year = None
+    anchor_claim = next((c for c in first["claims"] if c.get("anchor") == "build"), None)
+    if anchor_claim is not None:
+        phase = time.perf_counter()
+        fetched.fetch([anchor_claim], article_urls, verify_with, quiet)
+        timings["fetch_s"] = round(timings.get("fetch_s", 0) + time.perf_counter() - phase, 1)
+        job = build_jobs([anchor_claim], fetched.texts, [], anchor_claim["year"])[0]
+        if (job["anchor"] == "build" and job["passages"]
+                and verify.anchor_hit(job["passages"], job["year"])):
+            anchor_year = anchor_claim["year"]
+    first["verified_anchor"] = anchor_year
+    progress("facts", {"claims": len(first["claims"]), "anchor": anchor_year})
+    if on_facts is not None:
+        on_facts(first)
+    to_check, draft, jobs = gathered["to_check"], gathered["draft"], gathered["jobs"]
+    judged_years: list = []
+    supported_years: list = []
+    emitted: set = set()
+    judged_by_index: dict = {}
+    to_check_years = [c["year"] for c in to_check]
+    numbers = stream.scene_numbers(draft)
+    phase = time.perf_counter()
+    for index, result in verify.judge_stream(
+            wiring["support"], jobs, search_respond=wiring["search"],
+            completion_respond=wiring["completion"],
+            max_workers=wiring["workers"], progress=progress,
+            dispute_check=verify.sentence_disputed):
+        claim = to_check[jobs[index]["claim_index"]]
+        claim.update(result)
+        claim["war_politics_only"] = (
+            claim["war_politics_only"] or bool(verify.flag_content(claim["claim"])))
+        judged_by_index[index] = result
+        if on_claim is not None:
+            on_claim(index, claim)
+        judged_years.append(claim["year"])
+        if claim["verdict"] in ("supported", "partly"):
+            supported_years.append(claim["year"])
+        for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years,
+                                               emitted, supported_years):
+            emitted.add(scene["from_year"])
+            if on_scene is not None:
+                on_scene(scene, numbers[scene["from_year"]])
+    fast = sum(1 for c in to_check if c.get("fast_path"))
+    if fast and not quiet:
+        print(f"fast paths: {fast} of {len(to_check)} decided without a vote")
+    timings["verify_s"] = round(time.perf_counter() - phase, 1)
+    comparison = None
+    if compare_support:
+        phase = time.perf_counter()
+        alt = judge_batch(verify_wiring("baseten"), jobs, progress, completion=False)
+        timings["verify_alt_s"] = round(time.perf_counter() - phase, 1)
+        judged = [judged_by_index[i] for i in range(len(jobs))]
+        comparison = compare_verdicts(jobs, judged, alt)
+        for job, other in zip(jobs, alt):
+            claim = to_check[job["claim_index"]]
+            claim["alt_verdict"] = other["verdict"]
+            claim["alt_rounds"] = other.get("rounds", [])
+        if not quiet:
+            print(f"agreement: {comparison['agree']}/{comparison['total']} "
+                  f"(meta vs baseten support)")
+    verified, timeline, chosen = refresh_film(gathered["kept"])
+    need = spare_needs(chosen, [c for c in gathered["pool"] if c["verdict"] == "unverified"])
+    if need:
+        spares = sorted([c for c in gathered["pool"] if c["verdict"] == "unverified"],
+                        key=lambda c: states.classify(
+                            c.get("event", "stood"), c.get("quote_span") or c["claim"])
+                        is None)[:need]
+        if not quiet:
+            print(f"checking {len(spares)} spares for caption lines")
+        phase = time.perf_counter()
+        fetched.fetch(spares, article_urls, verify_with, quiet)
+        timings["fetch_s"] = round(timings["fetch_s"] + time.perf_counter() - phase, 1)
+        phase = time.perf_counter()
+        spare_jobs = build_jobs(spares, fetched.texts, gathered["snippets"],
+                                min([c["year"] for c in gathered["kept"]]))
+        judged = judge_batch(wiring, spare_jobs, progress)
+        apply_judged(spares, spare_jobs, judged)
+        timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
+        verified, timeline, chosen = refresh_film(gathered["kept"])
+    result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
+    timings["total_s"] = round(time.perf_counter() - start, 1)
+    progress("complete", {"outcome": result["outcome"], "slug": slug})
+    return {"confirmed": True, "identified": True, "cached": False, "slug": slug,
+            "found": found, "order": order, "kept": gathered["kept"],
+            "timeline": timeline, "chosen": chosen, "result": result,
+            "timings": timings, "failures": fetched.failures,
+            "comparison": comparison}
 
+
+def report_not_identified(result) -> None:
+    """CLI lines for a failed identify, shared by both commands."""
+    if result["error_kind"] == "no_location":
+        print(f"no location: {result['error']}; give --place or --lat/--lon")
+        print("outcome: not_identified")
+    elif result["error_kind"] == "not_identified":
+        print(f"identify steps (s): {json.dumps(result['identify_steps'])}")
+        print(f"object: not identified ({result['error']})")
+        print("outcome: not_identified")
+    else:
+        print(f"source failed: {result['error']}")
+
+
+def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
+             progress=None, paint_eras=False, paint_call=None, check_call=None,
+             photo_call=None, location=None, out_dir="out"):
+    """The film as a stream: opening card within seconds, then one ready
+    scene after another. Research starts while the user still confirms.
+    With paint_eras, scene 1 paints from the anchor while research runs
+    and later scenes paint as they verify."""
+    filmed = stream.FilmStream()
+    found = None
     paint_pool = None
+    era_dir = None
     paint_futures = {}
     painted_states = {}
-    anchor_future = None
+    base_future = None
+    report_future = None
+    stream_claims = []
     paint_fn = paint_call or paint_respond
     check_fn = check_call or check_respond
     photo_bytes = photo_bytes_clean(photo) if paint_eras else None
-    era_dir = None
-    if paint_eras:
-        paint_pool = ThreadPoolExecutor(max_workers=6)
-        era_dir = (Path(out_dir) / slug_for(found.name, found.qid, found.articles,
-                                                prefer=order) / "eras_stream")
-        era_dir.mkdir(parents=True, exist_ok=True)
 
-    def verify_anchor_early(card_claims):
-        """The build anchor checked against article text, before research."""
-        anchor_claim = next((c for c in card_claims if c.get("anchor") == "build"), None)
-        if anchor_claim is None:
-            return None
-        fetched.fetch([anchor_claim], article_urls, verify_with)
-        job = build_jobs([anchor_claim], fetched.texts, [], anchor_claim["year"])[0]
-        if job["anchor"] == "build" and job["passages"] and verify.anchor_hit(
-                job["passages"], job["year"]):
-            return anchor_claim["year"]
-        return None
+    def on_identified(ident, slug, order):
+        nonlocal found, paint_pool, era_dir
+        found = ident
+        if paint_eras:
+            paint_pool = ThreadPoolExecutor(max_workers=6)
+            era_dir = Path(out_dir) / slug / "eras_stream"
+            era_dir.mkdir(parents=True, exist_ok=True)
 
     def paint_scene_worker(scene, scene_no, with_photo):
-        prev_id = anchor_future.result() if not with_photo else None
+        prev_id = _future_response_id(base_future) if not with_photo else None
+        try:
+            kwargs = stream_scene_kwargs(report_future.result(), stream_claims, scene)
+        except Exception:  # noqa: BLE001 - without the report the scene still paints
+            kwargs = {}
         result = paint.paint_scene(paint_fn, check_fn, scene, found.name, place or "",
                                    prev_id,
-                                   photo_bytes=photo_bytes if with_photo else None)
+                                   photo_bytes=photo_bytes if (with_photo or prev_id is None) else None,
+                                   **kwargs)
         filmed.emit("scene_painted", {"scene": scene_no, "year": scene["from_year"],
                                       "verdict": result["verdict"],
                                       "attempts": result["attempts"]})
@@ -379,12 +610,21 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             pass
         return paint_scene_worker(scene, scene_no, False)
 
-    def start_scene1(card_claims):
+    def show_card(claims):
+        card = stream.opening_card(found.name, found.kind, claims)
+        filmed.emit("opening_card", card)
+        print(f"\n---\n{card['name']} ({card['kind']})", flush=True)
+        if card["text"]:
+            print(card["text"])
+        print("---", flush=True)
+
+    def start_scene1(anchor_year):
         """Scene 1 paints from the anchor while research runs; later
-        scenes branch from its response id, or a plain anchor turn."""
-        nonlocal anchor_future
+        scenes branch from its response id, or the photo when it drops."""
+        nonlocal base_future, report_future
         scene1_future = None
-        anchor_year = verify_anchor_early(card_claims)
+        looker = photo_call or check_fn
+        report_future = paint_pool.submit(paint.anchor_report, looker, photo_bytes)
         if anchor_year is not None:
             print(f"scene 1 ({anchor_year}) verified from the anchor; "
                   f"painting while research runs", flush=True)
@@ -393,40 +633,12 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                 paint_scene_worker, scene1, 1, True)
             paint_futures[anchor_year] = scene1_future
             painted_states[anchor_year] = dict(scene1.get("state") or {})
-        if scene1_future is not None:
-            anchor_future = paint_pool.submit(
-                lambda: (scene1_future.result()["response_id"]
-                         or paint.paint_anchor(paint_fn, photo_bytes, found.name,
-                                               place or "")["response_id"]))
-        else:
-            anchor_future = paint_pool.submit(
-                paint.paint_anchor, paint_fn, photo_bytes, found.name, place or "")
+        base_future = scene1_future
 
-    if yes:
-        first = film_facts(found, lang, cache, timings)
+    def on_facts(first):
         show_card(first["claims"])
         if paint_eras:
-            start_scene1(first["claims"])
-        gathered = gather_rest(first)
-    else:
-        before = models.usage_totals()
-
-        def decide():
-            answer = input(f"Is this {found.name}? [Y/n] ").strip().lower()
-            return answer in ("", "y", "yes")
-
-        confirmed, gathered = stream.confirm_speculative(f"Is this {found.name}?", gather, decide)
-        if not confirmed:
-            after = models.usage_totals()
-            spent = sum(v.get("total_tokens", 0) for v in after.values()) - sum(
-                v.get("total_tokens", 0) for v in before.values())
-            print(f"not confirmed; speculative work discarded (cost: {spent} tokens)")
-            if paint_pool is not None:
-                paint_pool.shutdown(wait=False)
-            return 2
-        show_card(gathered["kept"])
-        if paint_eras:
-            start_scene1(gathered["kept"])
+            start_scene1(first["verified_anchor"])
 
     def emit_scene(scene_no, scene):
         filmed.emit("scene_verified", {"scene": scene_no, "year": scene["from_year"],
@@ -434,343 +646,184 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         print(f"Scene {scene_no} ({scene.get('date_label', scene['from_year'])}) verified",
               flush=True)
 
-    phase = time.perf_counter()
-    to_check, draft, jobs = gathered["to_check"], gathered["draft"], gathered["jobs"]
-    judged_years: list = []
-    supported_years: list = []
-    emitted: set = set()
-    to_check_years = [c["year"] for c in to_check]
-    numbers = stream.scene_numbers(draft)
-    for index, result in verify.judge_stream(support, jobs, search_respond=verify_respond,
-                                             completion_respond=support,
-                                             max_workers=workers, progress=progress,
-                                             dispute_check=verify.sentence_disputed):
-        claim = to_check[jobs[index]["claim_index"]]
-        claim.update(result)
-        claim["war_politics_only"] = (
-            claim["war_politics_only"] or bool(verify.flag_content(claim["claim"])))
-        judged_years.append(claim["year"])
-        if claim["verdict"] in ("supported", "partly"):
-            supported_years.append(claim["year"])
-        for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years,
-                                               emitted, supported_years):
-            emitted.add(scene["from_year"])
-            emit_scene(numbers[scene["from_year"]], scene)
-            if (paint_eras and isinstance(scene["from_year"], int)
-                    and scene["from_year"] not in paint_futures):
-                paint_futures[scene["from_year"]] = paint_pool.submit(
-                    paint_scene_worker, scene, numbers[scene["from_year"]], False)
-                painted_states[scene["from_year"]] = dict(scene.get("state") or {})
-    fast = sum(1 for c in to_check if c.get("fast_path"))
-    if fast:
-        print(f"fast paths: {fast} of {len(to_check)} decided without a vote")
-    timings["verify_s"] = round(time.perf_counter() - phase, 1)
+    def on_claim(index, claim):
+        stream_claims.append(claim)
 
-    def refresh_film():
-        film_verified = [c for c in gathered["kept"] if c["verdict"] == "supported"
-                         or (c["verdict"] == "partly" and c["rewritten"])]
-        film_timeline = research.build_timeline(timeline_events(film_verified))
-        film_chosen = scenes.choose_scenes(film_timeline, film_verified)
-        return film_verified, film_timeline, film_chosen
+    def on_scene(scene, scene_no):
+        emit_scene(scene_no, scene)
+        if (paint_eras and isinstance(scene["from_year"], int)
+                and scene["from_year"] not in paint_futures):
+            paint_futures[scene["from_year"]] = paint_pool.submit(
+                paint_scene_worker, scene, scene_no, False)
+            painted_states[scene["from_year"]] = dict(scene.get("state") or {})
 
-    verified, timeline, chosen = refresh_film()
-    need = spare_needs(chosen, [c for c in gathered["pool"] if c["verdict"] == "unverified"])
-    if need:
-        spares = sorted([c for c in gathered["pool"] if c["verdict"] == "unverified"],
-                        key=lambda c: states.classify(
-                            c.get("event", "stood"), c.get("quote_span") or c["claim"])
-                        is None)[:need]
-        print(f"checking {len(spares)} spares for caption lines")
-        phase = time.perf_counter()
-        fetched.fetch(spares, article_urls, verify_with)
-        timings["fetch_s"] = round(timings["fetch_s"] + time.perf_counter() - phase, 1)
-        phase = time.perf_counter()
-        spare_jobs = build_jobs(spares, fetched.texts, [], min([c["year"] for c in gathered["kept"]]))
-        judged = verify.judge_all(support, spare_jobs, search_respond=verify_respond,
-                                  completion_respond=support, max_workers=workers,
-                                  progress=progress,
-                                  dispute_check=verify.sentence_disputed)
-        apply_judged(spares, spare_jobs, judged)
-        timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
-        verified, timeline, chosen = refresh_film()
-    if paint_eras:
-        # The final choice can differ from the draft (failed claims move
-        # scenes); chosen scenes never painted as drafts paint now, late
-        # but complete, numbered in final film order. A draft painting
-        # whose state no longer matches is repainted, never kept.
-        final_numbers = stream.scene_numbers(chosen)
-        actions = final_paint_actions(chosen, set(paint_futures), painted_states)
-        for scene in chosen:
-            year = scene["from_year"]
-            action = actions.get(year)
-            if action is None or action == "keep":
-                continue
-            if action == "paint":
-                filmed.emit("scene_verified", {"scene": final_numbers[year],
-                                               "year": year,
-                                               "date_label": scene.get("date_label")})
-                print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
-                      f"verified (final choice)", flush=True)
-                paint_futures[year] = paint_pool.submit(
-                    paint_scene_worker, scene, final_numbers[year], False)
-            else:
-                print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
-                      f"repainted (final state differs)", flush=True)
-                paint_futures[year] = paint_pool.submit(
-                    repaint_scene_worker, paint_futures[year], scene,
-                    final_numbers[year])
-            painted_states[year] = dict(scene.get("state") or {})
-    result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
-    if paint_eras:
-        try:
+    if yes:
+        decide = lambda ident: True
+    else:
+        def decide(ident):
+            answer = input(f"Is this {ident.name}? [Y/n] ").strip().lower()
+            return answer in ("", "y", "yes")
+
+    try:
+        result = run_job(photo, place=place, lang=lang, decide=decide,
+                         no_cache=no_cache, verify_with=verify_with,
+                         progress=progress, quiet=False, speculative=True,
+                         on_identified=on_identified, on_facts=on_facts,
+                         on_claim=on_claim, on_scene=on_scene,
+                         location=location, out_dir=out_dir)
+        if not result["identified"]:
+            report_not_identified(result)
+            return 2
+        if result["cached"] == "reviewed":
+            print("film opens instantly (reviewed research reused; use --no-cache to redo)")
+            print(f"outcome: {result['result'].get('outcome')}")
+            return 0
+        if result["cached"] == "film":
+            print(f"film opens instantly (cached film from {result['saved_at']}; "
+                  f"use --no-cache to check again)")
+            print(f"outcome: {result['result'].get('outcome')}")
+            return 0
+        if not result["confirmed"]:
+            print(f"not confirmed; speculative work discarded (cost: {result['spent']} tokens)")
+            return 2
+        chosen = result["chosen"]
+        if paint_eras:
+            # The final choice can differ from the draft (failed claims move
+            # scenes); chosen scenes never painted as drafts paint now, late
+            # but complete, numbered in final film order. A draft painting
+            # whose state no longer matches is repainted, never kept.
+            final_numbers = stream.scene_numbers(chosen)
+            actions = final_paint_actions(chosen, set(paint_futures), painted_states)
+            for scene in chosen:
+                year = scene["from_year"]
+                action = actions.get(year)
+                if action is None or action == "keep":
+                    continue
+                if action == "paint":
+                    filmed.emit("scene_verified", {"scene": final_numbers[year],
+                                                   "year": year,
+                                                   "date_label": scene.get("date_label")})
+                    print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
+                          f"verified (final choice)", flush=True)
+                    paint_futures[year] = paint_pool.submit(
+                        paint_scene_worker, scene, final_numbers[year], False)
+                else:
+                    print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
+                          f"repainted (final state differs)", flush=True)
+                    paint_futures[year] = paint_pool.submit(
+                        repaint_scene_worker, paint_futures[year], scene,
+                        final_numbers[year])
+                painted_states[year] = dict(scene.get("state") or {})
             entries = collect_paint_entries(paint_futures)
-        finally:
-            paint_pool.shutdown(wait=True, cancel_futures=True)
-        kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
-        if kept_files:
-            paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
-                                str(era_dir / "contact.png"))
-        (era_dir.parent / "paint_stream.json").write_text(json.dumps(
-            {"mode": "stream", "object": found.name,
-             "eras": [entries[y] for y in sorted(entries)]}, indent=1))
-    timings["total_s"] = round(time.perf_counter() - start, 1)
-    report_and_save(found, lang, order, gathered["kept"], timeline, chosen, result,
-                    timings, verify_with, fetched.failures, None,
-                    stream_events=filmed.events, out_root=out_dir)
-    first_scene = filmed.metric("scene_verified")
-    line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
-            f"first scene verified at {first_scene} s, "
-            f"film ready at {timings['total_s']} s")
-    if paint_eras:
-        painted_times = {e["year"]: e["t"] for e in filmed.events
-                         if e["event"] == "scene_painted" and e["verdict"] == "matches"}
-        ready = [(s["from_year"], painted_times[s["from_year"]])
-                 for s in chosen if s["from_year"] in painted_times]
-        ready.append(("today", 0.0))  # the user's photo needs no build
-        playback = stream.simulate_playback(ready)
-        pauses = ", ".join(str(y) for y in playback["pauses"]) or "none"
+            kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
+            if kept_files:
+                paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
+                                    str(era_dir / "contact.png"))
+            (era_dir.parent / "paint_stream.json").write_text(json.dumps(
+                {"mode": "stream", "object": found.name,
+                 "eras": [entries[y] for y in sorted(entries)]}, indent=1))
+        report_and_save(found, lang, result["order"], result["kept"],
+                        result["timeline"], chosen, result["result"],
+                        result["timings"], verify_with, result["failures"], None,
+                        stream_events=filmed.events, out_root=out_dir)
+        first_scene = filmed.metric("scene_verified")
         line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
                 f"first scene verified at {first_scene} s, "
-                f"first scene painted at {filmed.metric('scene_painted')} s, "
-                f"film ready at {timings['total_s']} s, playback pauses: {pauses}")
-    print(line)
-    return 0
+                f"film ready at {result['timings']['total_s']} s")
+        if paint_eras:
+            painted_times = {e["year"]: e["t"] for e in filmed.events
+                             if e["event"] == "scene_painted" and e["verdict"] == "matches"}
+            ready = [(s["from_year"], painted_times[s["from_year"]])
+                     for s in chosen if s["from_year"] in painted_times]
+            ready.append(("today", 0.0))  # the user's photo needs no build
+            playback = stream.simulate_playback(ready)
+            pauses = ", ".join(str(y) for y in playback["pauses"]) or "none"
+            line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
+                    f"first scene verified at {first_scene} s, "
+                    f"first scene painted at {filmed.metric('scene_painted')} s, "
+                    f"film ready at {result['timings']['total_s']} s, playback pauses: {pauses}")
+        print(line)
+        return 0
+    finally:
+        if paint_pool is not None:
+            paint_pool.shutdown(wait=True, cancel_futures=True)
 
 
 def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify_with="baseten",
-                 progress=None, out_dir="out"):
-    cache = None if no_cache else Cache("out/cache")
-    models.reset_usage()
-    timings = {}
-    start = time.perf_counter()
-    if progress is None:
-        progress = cli_progress
-    try:
-        phase = time.perf_counter()
-        identify_steps = {}
-        found = identify.identify(photo, place=place, respond=vision_respond, cache=cache,
-                                  lang=lang, timings=identify_steps, progress=progress)
-        timings["identify_s"] = round(time.perf_counter() - phase, 1)
-        timings["identify_steps"] = identify_steps
-        print(f"identify steps (s): {json.dumps(identify_steps)}")
-    except identify.NotIdentifiedError as exc:
-        print(f"identify steps (s): {json.dumps(identify_steps)}")
-        print(f"object: not identified ({exc})")
-        print("outcome: not_identified")
+                 progress=None, location=None, out_dir="out"):
+    if yes:
+        decide = lambda ident: True
+    else:
+        def decide(ident):
+            answer = input(f"Is this {ident.name}? [Y/n] ").strip().lower()
+            return answer in ("", "y", "yes")
+    result = run_job(photo, place=place, lang=lang, decide=decide,
+                     no_cache=no_cache, verify_with=verify_with,
+                     progress=progress, quiet=False, speculative=False,
+                     compare_support=(verify_with == "both"),
+                     location=location, out_dir=out_dir)
+    if not result["identified"]:
+        report_not_identified(result)
         return 2
-    except identify.SourceError as exc:
-        print(f"source failed: {exc}")
+    if result["cached"] == "reviewed":
+        print(f"outcome: {result['result'].get('outcome')} (reviewed research reused; use --no-cache to redo)")
+        print(f"saved: {Path(out_dir) / result['slug'] / 'research.json'}")
+        return 0
+    if result["cached"] == "film":
+        print(f"outcome: {result['result'].get('outcome')} (cached film from {result['saved_at']}; "
+              f"use --no-cache to check again)")
+        print(f"saved: {Path(out_dir) / result['slug'] / 'research.json'}")
+        return 0
+    if not result["confirmed"]:
+        print("not confirmed; stopping")
         return 2
-    print(describe_found(found))
-    if found.qid:
-        print(f"wikidata: https://www.wikidata.org/wiki/{found.qid}")
-    order = research.read_langs(found.country_code, lang)
-    pool = ThreadPoolExecutor(max_workers=1)
-    try:
-        facts_future = (
-            pool.submit(research.fetch_facts, found.qid, None, time.sleep, lang, cache,
-                        found.country_code)
-            if found.qid else None
-        )
-        if not yes:
-            answer = input(f"Is this {found.name}? [Y/n] ").strip().lower()
-            if answer not in ("", "y", "yes"):
-                print("not confirmed; stopping")
-                return 2
-        phase = time.perf_counter()
-        try:
-            facts = facts_future.result() if facts_future else {"facts": []}
-        except Exception as exc:  # noqa: BLE001 - facts are a head start, not a gate
-            print(f"wikidata facts failed ({exc}); continuing on web research")
-            facts = {"facts": []}
-    finally:
-        pool.shutdown(wait=True, cancel_futures=True)
-    if cache is not None and found.qid:
-        slug = slug_for(found.name, found.qid, found.articles, prefer=order)
-        reviewed = cache.get_reviewed(found.qid, lang)
-        if reviewed is not None:
-            out_path = Path(out_dir) / slug / "research.json"
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
-            result = reviewed.get("outcome", {})
-            print(f"outcome: {result.get('outcome')} (reviewed research reused; use --no-cache to redo)")
-            print(f"saved: {out_path}")
-            return 0
-        film = cached_film(slug, lang, out_dir)
-        if film is not None:
-            result = film.get("outcome", {})
-            print(f"outcome: {result.get('outcome')} (cached film from {film.get('saved_at')}; "
-                  f"use --no-cache to check again)")
-            print(f"saved: {Path(out_dir) / slug / 'research.json'}")
-            return 0
-
-    claims = []
-    if found.qid:
-        claims.extend(research.wikidata_claims(found.qid, facts))
-        timings["facts_s"] = round(time.perf_counter() - phase, 1)
-        print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
-    build_anchor_year = next((c["year"] for c in claims if c.get("anchor") == "build"), None)
-    if build_anchor_year is not None:
-        print(f"build anchor: {build_anchor_year} fixed by Wikidata")
-    phase = time.perf_counter()
-    question = research.lifespan_question(
-        found.name, place or "", found.articles,
-        read_langs=research.read_langs(found.country_code, lang),
-    )
-    answer = research.ask_lifespan(lifespan_respond, question)
-    timings["research_s"] = round(time.perf_counter() - phase, 1)
-    modelled = research.assemble_claims(answer["events"], answer["citations"], answer["sources"],
-                                        anchor_year=build_anchor_year)
-    if len(modelled) < len(answer["events"]):
-        print(f"dropped (anchor stands): {len(answer['events']) - len(modelled)} research build years")
-    claims.extend(modelled)
-    print(f"lifespan events: {len(answer['events'])}")
-    kept = keep_quality(claims)
-
-    # Choose before checking: phase 1 verifies scene years, the build
-    # and anchor claims and every state claim; spares verify only when
-    # a scene needs a caption line.
-    to_check, pool = plan_checks(kept)
-    for c in pool:
-        c.update({"verdict": "unverified", "quote": "", "url": None, "support": [],
-                  "note": "outside chosen scenes", "completed": True,
-                  "rewritten": None, "war_politics_only": False})
-    print(f"checking {len(to_check)} of {len(kept)} claims (spares on need)")
-
-    article_urls = [
-        f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
-        for lang, title in found.articles.items()
-    ]
-    fetched = SourceTexts(cache=cache, progress=progress)
-    texts = fetched.texts
-    failures = fetched.failures
-    anchor_year = min([c["year"] for c in kept], default=None)
-    support = baseten_support_respond if verify_with == "baseten" else support_respond
-    workers = models.VERIFY_OPEN.workers if verify_with == "baseten" else models.VERIFY.workers
-    comparison = None
-
-    def fetch_texts(claims):
-        fetched.fetch(claims, article_urls, verify_with)
-
-    def judge(claims):
-        jobs = build_jobs(claims, texts, answer["snippets"], anchor_year)
-        judged = verify.judge_all(support, jobs, search_respond=verify_respond,
-                                  completion_respond=support_respond,
-                                  max_workers=workers, progress=progress,
-                                  dispute_check=verify.sentence_disputed)
-        apply_judged(claims, jobs, judged)
-        fast = sum(1 for r in judged if r.get("fast_path"))
-        if fast:
-            print(f"fast paths: {fast} of {len(judged)} decided without a vote")
-        return jobs, judged
-
-    phase = time.perf_counter()
-    fetch_texts(to_check)
-    timings["fetch_s"] = round(time.perf_counter() - phase, 1)
-    phase = time.perf_counter()
-    jobs, judged = judge(to_check)
-    timings["verify_s"] = round(time.perf_counter() - phase, 1)
-    if verify_with == "both":
-        phase = time.perf_counter()
-        alt = verify.judge_all(baseten_support_respond, jobs, search_respond=verify_respond,
-                               max_workers=models.VERIFY_OPEN.workers, completion=False,
-                               dispute_check=verify.sentence_disputed)
-        timings["verify_alt_s"] = round(time.perf_counter() - phase, 1)
-        comparison = compare_verdicts(jobs, judged, alt)
-        for job, other in zip(jobs, alt):
-            claim = to_check[job["claim_index"]]
-            claim["alt_verdict"] = other["verdict"]
-            claim["alt_rounds"] = other.get("rounds", [])
-        print(f"agreement: {comparison['agree']}/{comparison['total']} "
-              f"(meta vs baseten support)")
-
-    def refresh_film():
-        film_verified = [c for c in kept if c["verdict"] == "supported"
-                         or (c["verdict"] == "partly" and c["rewritten"])]
-        film_timeline = research.build_timeline(timeline_events(film_verified))
-        film_chosen = scenes.choose_scenes(film_timeline, film_verified)
-        return film_verified, film_timeline, film_chosen
-
-    verified, timeline, chosen = refresh_film()
-    need = spare_needs(chosen, [c for c in pool if c["verdict"] == "unverified"])
-    if need:
-        spares = sorted([c for c in pool if c["verdict"] == "unverified"],
-                        key=lambda c: states.classify(
-                            c.get("event", "stood"), c.get("quote_span") or c["claim"])
-                        is None)[:need]
-        print(f"checking {len(spares)} spares for caption lines")
-        phase = time.perf_counter()
-        fetch_texts(spares)
-        timings["fetch_s"] = round(timings["fetch_s"] + time.perf_counter() - phase, 1)
-        phase = time.perf_counter()
-        judge(spares)
-        timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
-        verified, timeline, chosen = refresh_film()
-    result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
-
-    timings["total_s"] = round(time.perf_counter() - start, 1)
-    report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
-                    verify_with, failures, comparison, out_root=out_dir)
+    report_and_save(result["found"], lang, result["order"], result["kept"],
+                    result["timeline"], result["chosen"], result["result"],
+                    result["timings"], verify_with, result["failures"],
+                    result["comparison"], out_root=out_dir)
     return 0
 
 
 def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
                     verify_with, failures, comparison, stream_events=None,
-                    out_root="out") -> str:
+                    out_root="out", quiet=False) -> str:
     """Print claims, scenes, timeline and outcome, then save research.json."""
-    print("\nclaims:")
-    for c in kept:
-        print(f"- {c['year']} [{c['verdict']}] {c['claim'][:120]}")
-        for url in c["sources"]:
-            print(f"    source: {url}")
-        if c.get("quote"):
-            print(f"    quote: {c['quote'][:150]}")
-        if c.get("url"):
-            print(f"    quote from: {c['url']}")
-        if c.get("note"):
-            print(f"    note: {c['note']}")
-        if c["verdict"] == "partly" and c.get("rewritten"):
-            print(f"    rewritten: {c['rewritten'][:120]}")
-    print("\nscenes:")
-    for s in chosen:
-        flagged = f" [FLAG: {s['flag']}]" if s.get("flag") else ""
-        print(f"- {s.get('date_label', s['from_year'])}: {_show_state(s['state'])} ({s['reason']}){flagged}")
-        for line in s["caption_lines"]:
-            print(f"    line: {line['line'][:100]}")
-    print("\ntimeline:")
-    for seg in timeline:
-        flagged = f" [FLAG: {seg['flag']}]" if seg.get("flag") else ""
-        print(f"- {seg.get('date_label', seg['from_year'])} to {seg['to_year']}: "
-              f"{_show_state(seg['state'])}{flagged}")
-    print(f"\noutcome: {result['outcome']} ({result['reason']}; "
-          f"{result['verified']} verified, {result['eras']} eras, {result['good_sources']} good sources)")
+    if not quiet:
+        print("\nclaims:")
+        for c in kept:
+            print(f"- {c['year']} [{c['verdict']}] {c['claim'][:120]}")
+            for url in c["sources"]:
+                print(f"    source: {url}")
+            if c.get("quote"):
+                print(f"    quote: {c['quote'][:150]}")
+            if c.get("url"):
+                print(f"    quote from: {c['url']}")
+            if c.get("note"):
+                print(f"    note: {c['note']}")
+            if c["verdict"] == "partly" and c.get("rewritten"):
+                print(f"    rewritten: {c['rewritten'][:120]}")
+        print("\nscenes:")
+        for s in chosen:
+            flagged = f" [FLAG: {s['flag']}]" if s.get("flag") else ""
+            print(f"- {s.get('date_label', s['from_year'])}: {_show_state(s['state'])} ({s['reason']}){flagged}")
+            for line in s["caption_lines"]:
+                print(f"    line: {line['line'][:100]}")
+        print("\ntimeline:")
+        for seg in timeline:
+            flagged = f" [FLAG: {seg['flag']}]" if seg.get("flag") else ""
+            print(f"- {seg.get('date_label', seg['from_year'])} to {seg['to_year']}: "
+                  f"{_show_state(seg['state'])}{flagged}")
+        print(f"\noutcome: {result['outcome']} ({result['reason']}; "
+              f"{result['verified']} verified, {result['eras']} eras, {result['good_sources']} good sources)")
 
     slug = slug_for(found.name, found.qid, found.articles, prefer=order)
     out_dir = Path(out_root) / slug
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"timings (s): {json.dumps(timings)}")
+    if not quiet:
+        print(f"timings (s): {json.dumps(timings)}")
     tokens = models.usage_totals()
-    print(f"tokens: {json.dumps(tokens)}")
+    if not quiet:
+        print(f"tokens: {json.dumps(tokens)}")
     sites = sorted({render_builder.source_site(c["url"]) for c in kept if c.get("url")})
     saved = {
         "saved_at": date.today().isoformat(),
@@ -790,7 +843,8 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
     if stream_events is not None:
         saved["stream"] = stream_events
     (out_dir / "research.json").write_text(json.dumps(saved, indent=2, ensure_ascii=False))
-    print(f"saved: {out_dir / 'research.json'}")
+    if not quiet:
+        print(f"saved: {out_dir / 'research.json'}")
     return slug
 
 
@@ -805,7 +859,7 @@ def _show_state(state: dict) -> str:
     return shown
 
 
-def film_facts(found, lang, cache, timings) -> dict:
+def film_facts(found, lang, cache, timings, quiet=False) -> dict:
     """Wikidata facts and the build anchor: everything the opening card
     needs, before research starts."""
     phase = time.perf_counter()
@@ -814,9 +868,10 @@ def film_facts(found, lang, cache, timings) -> dict:
              if found.qid else {"facts": []})
     timings["facts_s"] = round(time.perf_counter() - phase, 1)
     claims = research.wikidata_claims(found.qid, facts) if found.qid else []
-    print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
+    if not quiet:
+        print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
     build_anchor_year = next((c["year"] for c in claims if c.get("anchor") == "build"), None)
-    if build_anchor_year is not None:
+    if build_anchor_year is not None and not quiet:
         print(f"build anchor: {build_anchor_year} fixed by Wikidata")
     return {"facts": facts, "claims": claims, "build_anchor_year": build_anchor_year}
 
@@ -832,7 +887,7 @@ def film_anchor_scene(object_name, anchor_year) -> dict:
             "caption_lines": []}
 
 
-def keep_quality(claims) -> list:
+def keep_quality(claims, quiet=False) -> list:
     """Claims with at least one good source; weak-only claims are dropped.
 
     The same claim twice is one claim: exact duplicates are dropped, so
@@ -842,11 +897,13 @@ def keep_quality(claims) -> list:
     seen = set()
     for c in claims:
         if not research.claim_quality_ok(c["sources"]):
-            print(f"dropped (weak sources only): {c['year']} {c['claim'][:80]}")
+            if not quiet:
+                print(f"dropped (weak sources only): {c['year']} {c['claim'][:80]}")
             continue
         key = json.dumps(c, sort_keys=True, default=str)
         if key in seen:
-            print(f"dropped (duplicate claim): {c['year']} {c['claim'][:80]}")
+            if not quiet:
+                print(f"dropped (duplicate claim): {c['year']} {c['claim'][:80]}")
             continue
         seen.add(key)
         kept.append(c)
@@ -931,7 +988,7 @@ class SourceTexts:
         self.cache = cache
         self.progress = progress
 
-    def fetch(self, claims, article_urls, verify_with) -> None:
+    def fetch(self, claims, article_urls, verify_with, quiet=False) -> None:
         urls = claim_urls(claims, article_urls, self.texts, self.attempted)
         self.attempted.update(urls)
         if not urls:
@@ -939,7 +996,8 @@ class SourceTexts:
         fetched, errors = verify.fetch_many(urls, cache=self.cache, progress=self.progress)
         self.texts.update(fetched)
         for url in sorted(errors):
-            print(f"note: could not read {url} ({str(errors[url])[:100]})")
+            if not quiet:
+                print(f"note: could not read {url} ({str(errors[url])[:100]})")
             self.failures.append({"url": url, "error": str(errors[url])[:200],
                                   "provider": verify_with})
 
@@ -1160,7 +1218,7 @@ def recover_or_retry(call, checker, scene, name, place, photo_bytes,
     it from an earlier run; remains then get one calm aftermath try."""
     year = scene["from_year"]
     prior = []
-    for run_dir in prior_dirs:
+    for run_dir in prior_dirs[:2]:  # newest first; two checks are enough
         candidate = run_dir / f"{year}.png"
         if candidate.exists():
             prior.append((str(candidate), candidate.read_bytes()))
@@ -1410,8 +1468,8 @@ def sam_respond(text, jpeg_bytes):
 
     uri = "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes).decode("ascii")
     client = _respond_for(models.SAM)
-    resp = client.responses.create(
-        model=models.SAM.model,
+    resp = models.respond(
+        client, models.SAM,
         input=[{"role": "user", "content": [
             {"type": "input_text", "text": text},
             {"type": "input_image", "image_url": uri},
@@ -1435,13 +1493,18 @@ def cmd_layers(slug, mode="parallel", tag=None, call_sam=None, out_dir="out"):
         print(f"no painted eras at {era_dir}")
         return 2
     call = call_sam or sam_respond
+    layers_root = out_dir / f"layers_{suffix}"
+    shutil.rmtree(layers_root, ignore_errors=True)
     total = 0
     for path in sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem):
         found = layers.figures(call, str(path))
-        layer_dir = out_dir / f"layers_{suffix}" / path.stem
+        layer_dir = layers_root / path.stem
         layer_dir.mkdir(parents=True, exist_ok=True)
         for i, layer in enumerate(found):
             layer["image"].save(layer_dir / f"figure_{i}.png")
+        (layer_dir / "source.json").write_text(json.dumps(
+            {"painting": path.name,
+             "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}))
         total += len(found)
         print(f"{path.stem}: {len(found)} figures")
     print(f"saved {total} figure layers under layers_{suffix}/")
@@ -1486,13 +1549,10 @@ def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
     if not era_files:
         print(f"no kept paintings in {manifest_path}")
         return 2
-    images = {key: f"era_{key}.png" for key in era_files}
+    images = {key: f"era_{key}.jpg" for key in era_files}
     layer_files = {}
     if layers_dir is not None and (out_dir / layers_dir).exists():
-        for year_dir in sorted((out_dir / layers_dir).iterdir()):
-            found = sorted(year_dir.glob("figure_*.png"))
-            if found:
-                layer_files[year_dir.name] = [str(p) for p in found]
+        layer_files = render_builder.kept_layers(out_dir / layers_dir, era_files)
     layers = {key: [f"layers_{key}/figure_{i}.png" for i in range(len(files))]
               for key, files in layer_files.items()}
     cutout_path = None

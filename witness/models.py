@@ -82,23 +82,33 @@ VERIFY_OPEN = ModelSpec(
     model="meta-models/muse-spark-open-1026",
     key_name="BASETEN_API_KEY",
     temperature=0,
-    # 2M tokens/min throughput: ~15k tokens per support call allows
-    # about 130 calls/min, so 10 workers at ~3 s a call stays inside.
+    # 2M tokens/min throughput: support calls are small (a claim plus
+    # a few passages), so 10 workers with the first two vote rounds in
+    # parallel stay inside.
     workers=10,
     timeout=180,  # the open model always reasons, so votes run longer
 )
 
 
+_CLIENTS = {}
+
+
 def client_for(spec, environ=None):
-    """OpenAI-compatible client for a spec. Key never leaves the environment."""
+    """One OpenAI-compatible client per spec and key, shared by every
+    call. Key never leaves the environment."""
     from openai import OpenAI
 
     env = environ if environ is not None else os.environ
     key = env.get(spec.key_name)
     if not key:
         raise ModelError(f"{spec.key_name} is not set (needed for {spec.provider}/{spec.model})")
-    return OpenAI(base_url=spec.base_url, api_key=key,
-                  timeout=spec.timeout, max_retries=1)
+    cache_key = (spec.base_url, spec.key_name, key)
+    client = _CLIENTS.get(cache_key)
+    if client is None:
+        client = OpenAI(base_url=spec.base_url, api_key=key,
+                        timeout=spec.timeout, max_retries=1)
+        _CLIENTS[cache_key] = client
+    return client
 
 
 def respond(client, spec, **kwargs):

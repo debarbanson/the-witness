@@ -6,10 +6,12 @@ The same pass applies the content rules: war-only or politics-only claims
 are flagged so the film can summarise or skip them.
 """
 
+import html as html_module
 import json
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from urllib.parse import unquote, urlparse
 
@@ -321,6 +323,7 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
     passages, urls = job.get("passages") or [], job.get("urls") or []
     votes = max(1, job.get("votes", 1))
     fast_path = None
+    stopper = None
     if job.get("anchor") == "build" and passages:
         hit = anchor_hit(passages, job.get("year"))
         if hit is not None:
@@ -345,7 +348,8 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
         rounds = _vote_rounds(
             lambda: _support_round(support_respond, job["claim"], passages),
             votes, stop=quoted_supported)
-        if rounds and quoted_supported(rounds[-1]):
+        stopper = next((found for found in rounds if quoted_supported(found)), None)
+        if stopper is not None:
             fast_path = "literal_quote"
         decided_first = [r for r in rounds if r["verdict"] != "error"]
         if (
@@ -374,7 +378,7 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
             "rounds": _slim(rounds), "votes": len(rounds), "fast_path": None,
         }
     if fast_path == "literal_quote":
-        winner = rounds[-1]
+        winner = stopper
         verdict = "supported"
     else:
         counts: dict = {}
@@ -439,18 +443,22 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
 
 
 def _vote_rounds(one_round, votes: int, stop=None) -> list:
-    """Vote rounds with early stop: when the first two decided answers
-    agree, the third call is skipped. `stop` ends the vote at once
-    when a round already decides it (a literal quote)."""
-    rounds = []
-    while len(rounds) < votes:
+    """The first two rounds run in parallel; a third only when they
+    disagree. Submission order is kept, so the winner never depends
+    on which round finished first. Both first rounds always run, even
+    when one already decides the vote."""
+    if votes <= 1:
+        return [one_round()]
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="vote") as pool:
+        first = pool.submit(one_round)
+        second = pool.submit(one_round)
+        rounds = [first.result(), second.result()]
+    if votes <= 2:
+        return rounds
+    if stop is not None and any(stop(found) for found in rounds):
+        return rounds
+    if rounds[0]["verdict"] == "error" or rounds[0]["verdict"] != rounds[1]["verdict"]:
         rounds.append(one_round())
-        if stop is not None and stop(rounds[-1]):
-            break
-        if len(rounds) == 2:
-            first, second = rounds
-            if (first["verdict"] != "error" and first["verdict"] == second["verdict"]):
-                break
     return rounds
 
 
@@ -610,11 +618,40 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
             if size > 2_000_000:
                 raise VerifyError("page over 2 MB, skipped")
             chunks.append(chunk)
-        text = extract_main_text(b"".join(chunks).decode("utf-8", "replace"))
+        html = b"".join(chunks).decode("utf-8", "replace")
+        text = extract_main_text(html)
+        title = page_title(html)
+        if title and cache is not None:
+            cache.put(f"{url}#title", title)
     _cache[url] = text
     if cache is not None:
         cache.put(url, text)
     return text
+
+
+def page_title(html: str) -> str:
+    """The page's own <title>, for the end card."""
+
+    class Title(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.parts, self.inside = [], False
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "title":
+                self.inside = True
+
+        def handle_endtag(self, tag):
+            if tag == "title":
+                self.inside = False
+
+        def handle_data(self, data):
+            if self.inside:
+                self.parts.append(data)
+
+    parser = Title()
+    parser.feed(html[:100_000])
+    return html_module.unescape(" ".join("".join(parser.parts).split()))
 
 
 REFERENCE_SECTIONS = frozenset({

@@ -964,3 +964,88 @@ def test_regression_eiffel_1967_proposal_is_caption_only():
     from witness import states
 
     assert states.classify("moved-proposed", "Secret agreement to dismantle and relocate.") is None
+
+
+def test_disputed_sentence_needs_marker_on_the_sentence():
+    text = ("Support chains were first fitted in 1908. Its massive branches "
+            "were partially supported by scaffolding [dubious - discuss]. "
+            "In 1974, fences were installed [citation needed].")
+    assert verify.disputed_sentence(
+        text, "its massive branches were partially supported by scaffolding")
+    assert verify.disputed_sentence(text, "In 1974, fences were installed")
+    assert not verify.disputed_sentence(
+        text, "Support chains were first fitted in 1908")
+    assert not verify.disputed_sentence(text, "words from nowhere")
+
+
+def test_sentence_disputed_checks_wikipedia_html():
+    payload = {"parse": {"text": {"*": (
+        "<p>Branches held up by an elaborate system of scaffolding."
+        "<sup>[<i>dubious</i>]</sup> Fences went up around the tree.</p>")}}}
+    seen = {}
+
+    def get(url, params=None, headers=None, timeout=None):
+        seen.update(params)
+        return FakeResponse(payload)
+
+    assert verify.sentence_disputed(
+        "https://en.wikipedia.org/wiki/Major_Oak",
+        "Branches held up by an elaborate system of scaffolding.",
+        get=get) is True
+    assert verify.sentence_disputed(
+        "https://en.wikipedia.org/wiki/Major_Oak",
+        "Fences went up around the tree.", get=get) is False
+    assert seen["action"] == "parse"
+
+
+def test_sentence_disputed_reads_plain_pages():
+    html = ("<html><body><p>The old tower stood sixty metres tall "
+            "[citation needed].</p></body></html>")
+
+    def get(url, headers=None, timeout=None, stream=None):
+        return FakeResponse(html)
+
+    assert verify.sentence_disputed(
+        "https://example.com/tower",
+        "The old tower stood sixty metres tall.", get=get) is True
+
+
+def test_sentence_disputed_ignores_short_quotes_and_failures():
+    def boom(url, **kwargs):
+        raise RuntimeError("down")
+
+    assert verify.sentence_disputed(
+        "https://en.wikipedia.org/wiki/X", "short", get=boom) is False
+    assert verify.sentence_disputed(
+        "https://en.wikipedia.org/wiki/X",
+        "a much longer quote that says something concrete", get=boom) is False
+
+
+def test_judge_disputed_single_source_is_unsupported():
+    result = verify.judge_claim(scripted_support("supported"), job(),
+                                dispute_check=lambda url, quote: True)
+    assert result["verdict"] == "unsupported"
+    assert "disput" in (result["note"] or "").lower()
+
+
+def test_judge_clean_second_source_saves_disputed_claim():
+    def respond(prompt):
+        return answered_with({
+            "verdict": "supported", "quote": "both hold",
+            "url": "https://en.wikipedia.org/wiki/X",
+            "support": [
+                {"url": "https://a.example/1", "supports": True,
+                 "quote": "first holds"},
+                {"url": "https://b.example/2", "supports": True,
+                 "quote": "second holds"}]})
+
+    result = verify.judge_claim(
+        respond, job(), dispute_check=lambda url, quote: url.endswith("/1"))
+    assert result["verdict"] == "supported"
+    assert [e["supports"] for e in result["support"]] == [False, True]
+
+
+def test_judge_all_threads_dispute_check():
+    out = verify.judge_all(scripted_support("supported"), [job()],
+                           dispute_check=lambda url, quote: True)
+    assert out[0]["verdict"] == "unsupported"

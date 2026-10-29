@@ -36,12 +36,27 @@ def test_assign_claims_skips_unverified_and_non_object_years():
     assert assigned == {}
 
 
+def test_assign_claims_prefers_most_informative_claim():
+    thin = claim(2019, claim="structure relocation in 2019")
+    rich = claim(2019, claim="moved: On 22 October 2019 the 23-metre, "
+                            "720-tonne lighthouse was moved 70 m inland")
+    assert captions.assign_claims([scene(2019)], [thin, rich])[2019] is rich
+    assert captions.assign_claims([scene(2019)], [rich, thin])[2019] is rich
+
+
 def test_assign_claims_uses_each_claim_once():
     spanning = claim(1899, from_year=1899, to_year=1968)
     assigned = captions.assign_claims(
         [scene(1920), scene(1930)], [spanning])
     assert assigned[1920] is spanning
     assert 1930 not in assigned
+
+
+def test_assign_claims_skips_age_range_scenes():
+    aged = scene(1026)
+    aged["date_label"] = "about 800 to 1,200 years old"
+    assigned = captions.assign_claims([aged], [claim(1026)])
+    assert assigned == {}
 
 
 def test_assign_claims_accepts_a_span_covering_the_scene():
@@ -126,6 +141,7 @@ def test_sentence_prompt_forbids_years_and_cutting():
     assert "You are the object itself" in prompt
     assert "the claim's main event" in prompt
     assert "if the source gives an age, include it" in prompt
+    assert "my sails, my buildings" in prompt
     assert "1865" in prompt
     assert "only what the source" in prompt
     assert "The mill was converted in 1865." in prompt

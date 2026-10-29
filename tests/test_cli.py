@@ -733,7 +733,9 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     assert (film_dir / "cutout.png").exists()
     film = json.loads((film_dir / "film.json").read_text())
     assert film["object"] == "Test Mill"
-    assert film["scenes"][0]["caption"][0] == "I stood here in 1850."
+    assert film["today_line"] == "And here I stand today."
+    assert film["today_sub"] == ""
+    assert film["scenes"][0]["caption"][0] == "1850"
 
 
 def test_cmd_layers_tag_reads_tagged_eras(tmp_path, monkeypatch):
@@ -852,3 +854,91 @@ def test_cmd_captions_reports_failed_scenes(tmp_path, monkeypatch, capsys):
     saved = json.loads((tmp_path / "out" / "q1-test" / "research.json").read_text())
     assert "caption_sentence" not in saved["scenes"][0]
     assert saved["scenes"][1]["caption_sentence"]["claim_year"] is None
+
+
+def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+    from witness import paint as paint_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    old_dir = slug_dir / "eras_parallel"
+    old_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "grey").save(buf, "PNG")
+    (old_dir / "1932.png").write_bytes(buf.getvalue())
+    (tmp_path / "photo.jpg").write_bytes(b"photo")
+    (slug_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "claims": [],
+        "scenes": [
+            {"from_year": 1932, "date_label": "1932",
+             "state": {"condition": "ruin", "degree": "total",
+                       "scope": "whole",
+                       "description": "Only stones and beams left."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I burnt down in the evening.",
+                                 "claim_year": 1932, "claim_url": "u"}},
+        ],
+    }))
+
+    def blocked(prompt, prev_id, photo_bytes=None):
+        if photo_bytes is not None:
+            return {"image": b"anchor", "response_id": "r0"}
+        raise paint_module.PaintSafetyError("content_policy_violation")
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(tmp_path / "photo.jpg"), place="Town", tag="b1",
+        paint_call=blocked, check_call=lambda image, p: "MATCHES base only.",
+        photo_call=lambda photo_bytes, prompt: "winter")
+    assert code == 0
+    manifest = json.loads((slug_dir / "paint_parallel_b1.json").read_text())
+    (entry,) = manifest["eras"]
+    assert entry["verdict"] == "recovered"
+    assert (slug_dir / "eras_parallel_b1" / "1932.png").read_bytes() == buf.getvalue()
+
+
+def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    (tmp_path / "photo.jpg").write_bytes(b"photo")
+    (slug_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
+        "claims": [], "timeline": [], "timings": {},
+        "scenes": [
+            {"from_year": 1026, "date_label": "about 800 to 1,200 years old",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": ""},
+             "caption_lines": []},
+            {"from_year": 1790, "date_label": "1790",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ],
+    }))
+    painted = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        if photo_bytes is not None:
+            return {"image": b"anchor", "response_id": "r0"}
+        painted.append("1790" in prompt)
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8), "green").save(buf, "PNG")
+        return {"image": buf.getvalue(), "response_id": "r1"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(tmp_path / "photo.jpg"), place="Forest",
+        paint_call=call, check_call=lambda image, p: "MATCHES whole.",
+        photo_call=lambda photo_bytes, prompt: "summer")
+    assert code == 0
+    assert painted == [True]
+    assert not (slug_dir / "eras_parallel" / "1026.png").exists()

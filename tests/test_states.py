@@ -322,3 +322,18 @@ def test_implausible_spans_flagged(condition, from_year, to_year, claim,
 )
 def test_date_label_prefers_ranges_over_sort_year(date_text, year, expected):
     assert states.date_label(date_text, year) == expected
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        ("about 800 to 1,200 years old", True),
+        ("about 400 to 500 years old", True),
+        ("1026", False),
+        ("23 April 1932", False),
+        ("beginning in the 1970s", False),
+        ("today", False),
+    ],
+)
+def test_is_age_range(label, expected):
+    assert states.is_age_range(label) == expected

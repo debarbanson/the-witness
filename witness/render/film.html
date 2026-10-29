@@ -25,6 +25,7 @@
   #caption { position: absolute; left: 0; right: 0; bottom: 0;
              padding: 40px 80px 120px; background: linear-gradient(transparent, rgba(0,0,0,.78));
              font-size: 48px; line-height: 1.35; }
+  #cap1.stamp { color: #ffd98a; letter-spacing: 4px; font-size: 42px; }
   #cap2 { display: block; }
   #caption .site { display: block; font-size: 38px; font-style: italic;
                    color: #ffd98a; margin-top: 14px; }
@@ -140,14 +141,16 @@ function render(t) {
   if (seg.kind === "anchor") {
     clearLayers();
     const first = FILM.scenes[0];
+    const anchor = FILM.anchor || { line: "I have stood here since",
+      label: first ? first.date_label : "" };
     imgA.src = FILM.photo; imgA.style.opacity = 1;
     card.style.display = "flex";
     const title = document.getElementById("cardTitle");
     title.className = "";
-    title.textContent = "I have stood here since";
+    title.textContent = anchor.line;
     const sub = document.getElementById("cardSub");
     sub.className = "big";
-    sub.textContent = first ? first.date_label : "";
+    sub.textContent = anchor.label;
     showClock(); return;
   }
   if (seg.kind === "end") {
@@ -176,8 +179,10 @@ function render(t) {
       imgB.style.transform = "scale(" + (1.05 - 0.05 * cp) + ")";
     }
     caption.style.display = "block";
-    document.getElementById("cap1").textContent = "And here I stand today.";
-    document.getElementById("cap2").textContent = "";
+    document.getElementById("cap1").className = "";
+    document.getElementById("cap1").textContent =
+      FILM.today_line || "And here I stand today.";
+    document.getElementById("cap2").textContent = FILM.today_sub || "";
     document.getElementById("capsite").textContent = FILM.photo_credit || "";
     showClock(); return;
   }
@@ -219,6 +224,7 @@ function render(t) {
     img.style.transform = imgA.style.transform;
   });
   caption.style.display = "block";
+  document.getElementById("cap1").className = "stamp";
   document.getElementById("cap1").textContent = scene.caption[0];
   document.getElementById("cap2").textContent = scene.caption[1];
   document.getElementById("capsite").textContent = scene.site;

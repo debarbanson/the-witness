@@ -174,6 +174,17 @@ def test_build_timeline_states():
     assert segs[0]["state"]["scope"] == "whole"
 
 
+def test_build_timeline_records_description_provenance():
+    events = [
+        {"year": 1899, "event": "built", "detail": "Construction began."},
+        {"year": 2016, "event": "restored", "detail": "Restored.",
+         "visible_change": "new staircase fitted"},
+    ]
+    first, second = research.build_timeline(events)
+    assert first["description_from"] == "detail"
+    assert second["description_from"] == "visible_change"
+
+
 def test_build_timeline_non_visible_events_leave_no_segment():
     events = [
         {"year": 1779, "event": "built", "detail": ""},

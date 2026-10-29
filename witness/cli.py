@@ -52,6 +52,7 @@ def main(argv=None):
     render_cmd.add_argument("--era-dir", default="eras_parallel")
     render_cmd.add_argument("--layers-dir", default=None)
     render_cmd.add_argument("--photo-credit", default="")
+    render_cmd.add_argument("--own-photo", action="store_true")
     render_cmd.add_argument("--mp4", action="store_true")
     paint_cmd = sub.add_parser("paint")
     paint_cmd.add_argument("slug")
@@ -77,7 +78,8 @@ def main(argv=None):
 
         code = cmd_render(args.slug, args.photo, subject=args.subject, place=args.place,
                           era_dir=args.era_dir, layers_dir=args.layers_dir,
-                          photo_credit=args.photo_credit)
+                          photo_credit=args.photo_credit,
+                          own_photo=args.own_photo)
         if code == 0 and args.mp4:
             film_html = Path("out") / args.slug / "film" / "film.html"
             out_mp4 = Path("out") / args.slug / "film" / "film.mp4"
@@ -355,7 +357,8 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     numbers = stream.scene_numbers(draft)
     for index, result in verify.judge_stream(support, jobs, search_respond=verify_respond,
                                              completion_respond=support,
-                                             max_workers=workers, progress=progress):
+                                             max_workers=workers, progress=progress,
+                                             dispute_check=verify.sentence_disputed):
         claim = to_check[jobs[index]["claim_index"]]
         claim.update(result)
         claim["war_politics_only"] = (
@@ -395,7 +398,8 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         spare_jobs = build_jobs(spares, fetched.texts, [], min([c["year"] for c in gathered["kept"]]))
         judged = verify.judge_all(support, spare_jobs, search_respond=verify_respond,
                                   completion_respond=support, max_workers=workers,
-                                  progress=progress)
+                                  progress=progress,
+                                  dispute_check=verify.sentence_disputed)
         apply_judged(spares, spare_jobs, judged)
         timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
         verified, timeline, chosen = refresh_film()
@@ -570,7 +574,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
         jobs = build_jobs(claims, texts, answer["snippets"], anchor_year)
         judged = verify.judge_all(support, jobs, search_respond=verify_respond,
                                   completion_respond=support_respond,
-                                  max_workers=workers, progress=progress)
+                                  max_workers=workers, progress=progress,
+                                  dispute_check=verify.sentence_disputed)
         apply_judged(claims, jobs, judged)
         fast = sum(1 for r in judged if r.get("fast_path"))
         if fast:
@@ -586,7 +591,8 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
     if verify_with == "both":
         phase = time.perf_counter()
         alt = verify.judge_all(baseten_support_respond, jobs, search_respond=verify_respond,
-                               max_workers=models.VERIFY_OPEN.workers, completion=False)
+                               max_workers=models.VERIFY_OPEN.workers, completion=False,
+                               dispute_check=verify.sentence_disputed)
         timings["verify_alt_s"] = round(time.perf_counter() - phase, 1)
         comparison = compare_verdicts(jobs, judged, alt)
         for job, other in zip(jobs, alt):
@@ -1036,6 +1042,31 @@ def check_respond(image_bytes, prompt):
     return "\n".join(texts)
 
 
+def recover_or_retry(call, checker, scene, name, place, photo_bytes,
+                       directives, prior_dirs, dropped):
+    """A dropped critical era first tries the newest kept painting of
+    it from an earlier run; remains then get one calm aftermath try."""
+    year = scene["from_year"]
+    prior = []
+    for run_dir in prior_dirs:
+        candidate = run_dir / f"{year}.png"
+        if candidate.exists():
+            prior.append((str(candidate), candidate.read_bytes()))
+    hit = paint.recover_scene(checker, scene, name, prior)
+    if hit is not None:
+        print(f"{year}: recovered from {hit['source']}")
+        return {"year": year, "image": hit["image"], "response_id": None,
+                "verdict": "recovered", "attempts": dropped["attempts"],
+                "note": f"recovered from {hit['source']}: {hit['note']}"}
+    condition = (scene.get("state") or {}).get("condition")
+    if condition in paint.REMAINS_CONDITIONS:
+        print(f"{year}: trying the aftermath")
+        return paint.paint_aftermath(
+            call, checker, scene, name, place, photo_bytes,
+            season=directives["season"])
+    return dropped
+
+
 def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
               paint_call=None, check_call=None, photo_call=None):
     """Paint an object's eras from its research, checked per era."""
@@ -1050,6 +1081,7 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
     wanted = {int(y) for y in scenes.split(",")} if scenes else None
     eras = [s for s in data.get("scenes", [])
             if isinstance(s.get("from_year"), int)
+            and not states.is_age_range(s.get("date_label", ""))
             and (wanted is None or s["from_year"] in wanted)]
     if not eras:
         print("no paintable eras in research")
@@ -1070,14 +1102,19 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
     if mode == "chain":
         results = paint.paint_chain(call, photo_bytes, eras, name, place,
                                     check_call=checker, season=directives["season"],
-                                    excluded=directives["excluded"])
+                                    excluded=directives["excluded"],
+                                    claims=data.get("claims", []))
     else:
         results = paint.paint_parallel(call, photo_bytes, eras, name, place,
                                        check_call=checker, season=directives["season"],
-                                       excluded=directives["excluded"])
+                                       excluded=directives["excluded"],
+                                       claims=data.get("claims", []))
     suffix = f"{mode}_{tag}" if tag else mode
     era_dir = out_dir / f"eras_{suffix}"
     era_dir.mkdir(parents=True, exist_ok=True)
+    prior_dirs = sorted(
+        (d for d in out_dir.glob("eras_*") if d != era_dir and d.is_dir()),
+        key=lambda d: d.stat().st_mtime, reverse=True)
     manifest_path = out_dir / f"paint_{suffix}.json"
     entries = {}
     if manifest_path.exists():
@@ -1085,11 +1122,17 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
             entries[entry["year"]] = entry
     for scene, result in zip(eras, results):
         year = scene["from_year"]
+        if result["image"] is None:
+            result = recover_or_retry(call, checker, scene, name, place,
+                                      photo_bytes, directives, prior_dirs,
+                                      result)
         entry = {"year": year, "verdict": result["verdict"],
                  "attempts": result["attempts"]}
         if result["image"] is not None:
             (era_dir / f"{year}.png").write_bytes(result["image"])
             entry["file"] = f"eras_{suffix}/{year}.png"
+            if result["verdict"] == "recovered":
+                entry["note"] = result["note"]
         else:
             entry["note"] = result["note"]
         entries[year] = entry
@@ -1169,6 +1212,8 @@ def cmd_captions(slug, rewrite_call=None, support_call=None):
     for scene in data.get("scenes", []):
         year = scene.get("from_year")
         if not isinstance(year, int) or scene.get("caption_sentence"):
+            continue
+        if states.is_age_range(scene.get("date_label", "")):
             continue
         claim = assigned.get(year)
         if claim is None:
@@ -1276,7 +1321,8 @@ def cmd_layers(slug, mode="parallel", tag=None, call_sam=None):
 
 
 def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
-               layers_dir=None, photo_credit="", segment_call=None):
+               layers_dir=None, photo_credit="", segment_call=None,
+               own_photo=False):
     """Build the live film page from kept research plus paintings."""
     from witness import segment as segment_module
 
@@ -1311,7 +1357,8 @@ def cmd_render(slug, photo, subject=None, place="", era_dir="eras_parallel",
     film_dir = render_builder.write_film(
         out_dir, data, images, f"today{photo_dest}", photo_credit, layers,
         place=place, era_files=era_files, layer_files=layer_files,
-        photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None)
+        photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None,
+        photo_year=identify.capture_year(photo), own_photo=own_photo)
     film = json.loads((film_dir / "film.json").read_text())
     total = film["segments"][-1]["end"]
     print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, {total} s)")

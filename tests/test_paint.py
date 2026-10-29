@@ -371,3 +371,131 @@ def test_paint_directives_combines_season_and_exclusions():
         b"photo", [(1932, "built plain"), (1986, "tulip banners added")])
     assert out["season"] == "summer"
     assert out["excluded"] == {1932: ["tulip banners"], 1986: []}
+
+
+def test_paint_scene_passes_caption_to_check():
+    seen = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        return {"image": b"img", "response_id": "r1"}
+
+    def ask(image, prompt):
+        seen.append(prompt)
+        return "MATCHES agree."
+
+    made = scene(1999, "under_construction", "Foundations open.")
+    made["caption_sentence"] = {"text": "My first pile was put in the ground.",
+                                "claim_year": 1999, "claim_url": "u"}
+    paint.paint_scene(call, ask, made, "De Adriaan", "Haarlem", "r0")
+    assert "My first pile was put in the ground." in seen[0]
+
+
+def test_recover_scene_ignores_non_critical_states():
+    calls = []
+    out = paint.recover_scene(
+        lambda image, p: calls.append(p) or "MATCHES.",
+        scene(1850), "De Adriaan", [("old", b"img")])
+    assert out is None
+    assert calls == []
+
+
+def test_recover_scene_keeps_newest_passing_painting():
+    answers = iter(["DIFFERS text dated.", "MATCHES base only."])
+    out = paint.recover_scene(
+        lambda image, p: next(answers),
+        scene(1932, "ruin", "Only stones and beams left."),
+        "De Adriaan", [("b1", b"new"), ("parallel", b"old")])
+    assert out["image"] == b"old"
+    assert out["source"] == "parallel"
+
+
+def test_recover_scene_returns_none_when_nothing_passes():
+    out = paint.recover_scene(
+        lambda image, p: "DIFFERS text dated.",
+        scene(1932, "ruin", "Only stones and beams left."),
+        "De Adriaan", [("b1", b"new")])
+    assert out is None
+
+
+def test_aftermath_prompt_frames_a_calm_next_day():
+    prompt = paint.aftermath_prompt(
+        scene(1932, "ruin", "Only stones and burned beams left.",
+              ["1932 burnt: the fire brigade could not save the mill."]),
+        "De Adriaan", "Haarlem")
+    assert "Only the remains of De Adriaan stand" in prompt
+    assert "morning after" in prompt
+    assert "no flames" in prompt
+    assert "no people in distress" in prompt
+    assert "fire brigade" not in prompt
+
+
+def test_paint_aftermath_keeps_a_matching_calm_scene():
+    def call(prompt, prev_id, photo_bytes=None):
+        assert "morning after" in prompt
+        return {"image": b"img", "response_id": "r9"}
+
+    out = paint.paint_aftermath(
+        call, lambda image, p: "MATCHES calm remains.",
+        scene(1932, "ruin", "Only stones left."), "De Adriaan", "Haarlem")
+    assert out["verdict"] == "matches"
+    assert out["image"] == b"img"
+
+
+def test_paint_aftermath_drops_after_two_blocks():
+    def call(prompt, prev_id, photo_bytes=None):
+        raise paint.PaintSafetyError("content_policy_violation")
+
+    out = paint.paint_aftermath(
+        call, lambda image, p: "MATCHES.",
+        scene(1932, "ruin", "Only stones left."), "De Adriaan", "Haarlem")
+    assert out["verdict"] == "dropped"
+    assert out["image"] is None
+
+
+def vclaim(year, text, verdict="supported"):
+    return {"year": year, "url": "https://example.com/x", "verdict": verdict,
+            "claim": text, "rewritten": None, "quote": "q"}
+
+
+def test_scene_prompt_uses_own_claims_when_no_caption_lines():
+    prompt = paint.scene_prompt(
+        scene(2002, "standing", "The lighthouse stands whole."),
+        "Rubjerg Knude Fyr", "Rubjerg Knude",
+        claims=[vclaim(2002, "abandoned: Museum abandoned in 2002 due to shifting sands.")])
+    assert "shifting sands" in prompt
+
+
+def test_scene_prompt_prefers_caption_lines_over_claims():
+    prompt = paint.scene_prompt(
+        scene(2002, "standing", "Whole.", ["harbour busy"]),
+        "Rubjerg Knude Fyr", "Rubjerg Knude",
+        claims=[vclaim(2002, "abandoned due to shifting sands")])
+    assert "harbour busy" in prompt
+    assert "shifting sands" not in prompt
+
+
+def test_scene_prompt_skips_harm_other_year_and_unverified_claims():
+    prompt = paint.scene_prompt(
+        scene(2002, "standing", "Whole."), "Rubjerg Knude Fyr", "Rubjerg Knude",
+        claims=[vclaim(2002, "died: The keeper died in the storm."),
+                vclaim(1968, "sand drift blinded the light"),
+                vclaim(2002, "dunes grew tall", verdict="unsupported")])
+    assert "died" not in prompt
+    assert "sand drift" not in prompt
+    assert "dunes grew" not in prompt
+    assert "everyday life" in prompt
+
+
+def test_paint_parallel_forwards_claims_to_scenes():
+    seen = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        seen.append(prompt)
+        if prev_id is None:
+            return {"image": b"anchor", "response_id": "r-anchor"}
+        return {"image": b"img", "response_id": "r1"}
+
+    paint.paint_parallel(
+        call, lambda image, p: "MATCHES.", [scene(2002)], "Fyr", "Knude",
+        claims=[vclaim(2002, "abandoned due to shifting sands")])
+    assert any("shifting sands" in prompt for prompt in seen)

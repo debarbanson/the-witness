@@ -38,10 +38,12 @@ STOPWORDS = frozenset(
 )
 
 _cache: dict = {}
+_html_cache: dict = {}
 
 
 def clear_cache() -> None:
     _cache.clear()
+    _html_cache.clear()
 
 
 class VerifyError(Exception):
@@ -298,10 +300,12 @@ def is_literal_quote(quote, passages, year, keywords, min_chars=30) -> bool:
 
 
 def judge_claim(support_respond, job, search_respond=None, completion_respond=None,
-              completion=True) -> dict:
+              completion=True, dispute_check=None) -> dict:
     """One claim judged end to end: support vote, second judgement when
     the precheck says evidence is present, completion for state-setting
-    claims. Every round is kept in the answer."""
+    claims. Every round is kept in the answer. A supporting sentence
+    carrying a dispute tag does not support, unless a clean second
+    source confirms the claim."""
     passages, urls = job.get("passages") or [], job.get("urls") or []
     votes = max(1, job.get("votes", 1))
     fast_path = None
@@ -368,6 +372,25 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
         winners = [v for v, n in counts.items() if n == top]
         verdict = decided[-1]["verdict"] if len(winners) > 1 else winners[0]
         winner = next(r for r in reversed(decided) if r["verdict"] == verdict)
+    if verdict != "unsupported" and dispute_check is not None:
+        support = [dict(entry) for entry in winner.get("support", [])]
+        for entry in support:
+            if entry.get("supports") and dispute_check(
+                    entry.get("url"), entry.get("quote", "")):
+                entry["supports"] = False
+                entry["note"] = "sentence carries a dispute tag"
+        if support and all(not entry.get("supports") for entry in support):
+            return {
+                "verdict": "unsupported", "quote": winner.get("quote", ""),
+                "url": winner.get("url"), "support": support,
+                "note": "supporting sentence disputed, no clean source",
+                "completed": True, "completion_note": None,
+                "rewritten": winner.get("rewritten"),
+                "war_politics_only": winner.get("war_politics_only", False),
+                "rounds": _slim(rounds), "votes": len(rounds),
+                "fast_path": fast_path,
+            }
+        winner = {**winner, "support": support}
     completed, completion_note = True, None
     event, detail = job.get("event", ""), job.get("detail", "")
     needs_completion = states.classify(event, detail) is not None or states.looks_incomplete(event, detail)
@@ -458,7 +481,8 @@ def _slim(rounds) -> list:
 
 
 def judge_stream(support_respond, jobs, search_respond=None, completion_respond=None,
-                 max_workers=6, completion=True, progress=None):
+                 max_workers=6, completion=True, progress=None,
+                 dispute_check=None):
     """Judge several claims at once, yielding (index, result) per claim
     as it finishes. A failing job becomes unsupported with a note
     instead of killing the run. `progress("verifying", ...)` names the
@@ -472,7 +496,8 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
                                    "total": len(jobs)})
         try:
             return judge_claim(support_respond, job, search_respond, completion_respond,
-                               completion=completion)
+                               completion=completion,
+                               dispute_check=dispute_check)
         except VerifyError as exc:
             return {
                 "verdict": "unsupported", "quote": "", "url": None, "support": [],
@@ -494,12 +519,13 @@ def judge_stream(support_respond, jobs, search_respond=None, completion_respond=
 
 
 def judge_all(support_respond, jobs, search_respond=None, completion_respond=None,
-              max_workers=6, completion=True, progress=None) -> list:
+              max_workers=6, completion=True, progress=None,
+              dispute_check=None) -> list:
     """Judge several claims at once; results keep job order."""
     out = [None] * len(jobs)
     for index, result in judge_stream(support_respond, jobs, search_respond,
                                       completion_respond, max_workers,
-                                      completion, progress):
+                                      completion, progress, dispute_check):
         out[index] = result
     return out
 
@@ -669,6 +695,78 @@ def extract_main_text(html: str, min_words=6) -> str:
     parser.feed(html)
     kept = [" ".join(p.split()) for p in parser.paras]
     return "\n\n".join(p for p in kept if len(p.split()) >= min_words)
+
+
+# Rendered inline dispute templates, bracketed so ordinary prose
+# ("the disputed border") never matches.
+DISPUTE_MARKERS = ("[dubious", "[disputed", "[citation needed",
+                   "[failed verification", "[unreliable source",
+                   "[clarification needed")
+
+
+def disputed_sentence(html_text, quote, full_after=50, prefix_after=200) -> bool:
+    """A dispute tag on the quoted sentence: a bracketed marker inside
+    it or just after it, where the template renders. Spaces are
+    ignored, since extraction splits "[dubious]" apart."""
+    text = normalise_text(html_text or "").lower()
+    needle = normalise_text(quote or "").lower().rstrip().rstrip(".")
+    if not needle:
+        return False
+    at, after = text.find(needle), full_after
+    if at < 0 and len(needle) > 60:
+        at, after = text.find(needle[:60]), prefix_after
+    if at < 0:
+        return False
+    window = text[at:at + len(needle) + after].replace(" ", "")
+    markers = tuple(marker.replace(" ", "") for marker in DISPUTE_MARKERS)
+    return any(marker in window for marker in markers)
+
+
+def fetch_wikipedia_html(url, get=None, sleep=time.sleep, cache=None) -> str:
+    """Parsed article HTML as text, dispute templates intact. Cached
+    apart from the plain extracts."""
+    key = f"{url} #html"
+    if key in _html_cache:
+        return _html_cache[key]
+    if cache is not None:
+        hit = cache.get(key)
+        if hit is not None:
+            _html_cache[key] = hit
+            return hit
+    get = get or requests.get
+    parsed = urlparse(url)
+    lang = parsed.netloc.split(".")[0]
+    title = unquote(parsed.path.removeprefix("/wiki/"))
+    data = mediawiki_get(
+        get, f"https://{lang}.wikipedia.org/w/api.php",
+        {"action": "parse", "page": title, "prop": "text",
+         "redirects": 1, "format": "json"},
+        sleep=sleep, timeout=15, tries=2)
+    try:
+        html = data["parse"]["text"]["*"]
+    except (KeyError, TypeError) as exc:
+        raise VerifyError(f"{url}: no parsed text") from exc
+    text = extract_main_text(html)
+    _html_cache[key] = text
+    if cache is not None:
+        cache.put(key, text)
+    return text
+
+
+def sentence_disputed(url, quote, get=None, cache=None) -> bool:
+    """Whether the quoted sentence carries a dispute tag in its source.
+    Anything unreadable counts as clean: the rule fires only on a tag
+    actually seen."""
+    if not url or not quote or len(quote) < 30:
+        return False
+    try:
+        if urlparse(url).netloc.lower().endswith("wikipedia.org"):
+            text = fetch_wikipedia_html(url, get=get, cache=cache)
+        else:
+            text = fetch_source_text(url, get=get, cache=cache)
+    except Exception:  # noqa: BLE001 - unreadable means no tag seen
+        return False
+    return disputed_sentence(text, quote)
 
 
 def keywords_for_claim(text: str, event: str = "", limit=8) -> list:

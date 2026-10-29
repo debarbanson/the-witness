@@ -41,20 +41,54 @@ def test_timeline_skips_eras_without_paintings():
     assert [seg["year"] for seg in eras] == [1865]
 
 
-def test_caption_is_first_person_in_two_lines():
-    line1, line2 = builder.caption_for(
+def age_scene():
+    made = scene(1026)
+    made["date_label"] = "about 800 to 1,200 years old"
+    return made
+
+
+def test_timeline_never_films_an_age_range():
+    plan = builder.build_timeline(
+        [age_scene(), scene(1790)],
+        {"1026": "e/1026.png", "1790": "e/1790.png"})
+    eras = [seg for seg in plan if seg["kind"] == "era"]
+    assert [seg["year"] for seg in eras] == [1790]
+
+
+def test_anchor_card_for_age_range_and_for_year():
+    assert builder.anchor_card(age_scene()) == {
+        "line": "I have stood here for",
+        "label": "about 800 to 1,200 years"}
+    assert builder.anchor_card(scene(1899)) == {
+        "line": "I have stood here since", "label": "1899"}
+
+
+def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
+    research = {
+        "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [age_scene(), scene(1790, sentence="I was renamed.")],
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research,
+                             {"1026": "e/1026.png", "1790": "e/1790.png"},
+                             photo="today.jpg", photo_credit="me", layers={})
+    film = json.loads((out / "film.json").read_text())
+    assert [entry["year"] for entry in film["scenes"]] == [1790]
+    assert film["anchor"] == {"line": "I have stood here for",
+                             "label": "about 800 to 1,200 years"}
+
+
+def test_caption_is_a_date_stamp_and_one_sentence():
+    stamp, sentence = builder.caption_for(
         scene(1779, "standing", "opened in 1779",
               sentence="I opened my doors to the town."))
-    assert line1 == "I stood here in 1779."
-    assert line2 == "I opened my doors to the town."
-
-
-def test_caption_templates_per_condition():
-    assert builder.caption_for(scene(1932, "burnt", "base left"))[0] == "I burned in 1932."
-    assert builder.caption_for(scene(1999, "under_construction", "scaffolded"))[0].startswith(
-        "I was being rebuilt")
-    assert builder.caption_for(scene(2019, "moved", "70 m inland"))[0] == "I moved in 2019."
-    assert builder.caption_for(scene(2002, "rebuilt", "whole again"))[0] == "I was rebuilt in 2002."
+    assert stamp == "1779"
+    assert sentence == "I opened my doors to the town."
+    stamped = scene(1932)
+    stamped["date_label"] = "23 April 1932"
+    stamp, _ = builder.caption_for(stamped)
+    assert stamp == "23 April 1932"
 
 
 def test_caption_without_sentence_is_plain_and_unborrowed():
@@ -200,6 +234,41 @@ def test_film_captions_cite_own_year_claims(tmp_path):
         assert entry["caption_claim"]["year"] == entry["year"]
 
 
+def test_today_card_names_a_stale_photo_year():
+    last = scene(2026, "standing", "canopy leafless",
+                 sentence="I stand leafless.")
+    line, sub = builder.today_card(2006, False, last, [])
+    assert line == "And here I stand today."
+    assert sub == "Photographed in 2006."
+
+
+def test_today_card_silent_for_fresh_or_own_photos():
+    last = scene(2002, "rebuilt", "whole again", sentence="I was rebuilt.")
+    assert builder.today_card(2012, False, last, []) == (
+        "And here I stand today.", "")
+    assert builder.today_card(2006, True, last, []) == (
+        "And here I stand today.", "")
+    assert builder.today_card(None, False, last, []) == (
+        "And here I stand today.", "")
+
+
+def test_today_card_uses_last_words_when_dead_or_gone():
+    died = scene(2026, "standing", "canopy leafless",
+                 sentence="The RSPB announced I died.")
+    claims = [{"year": 2026, "url": "https://a.example/x", "event": "died",
+               "verdict": "supported"}]
+    line, sub = builder.today_card(2006, False, died, claims)
+    assert line == "The RSPB announced I died."
+    assert sub == "Photographed in 2006."
+    gone = scene(1990, "demolished", "torn down",
+                 sentence="I was torn down.")
+    line, _ = builder.today_card(None, False, gone, [])
+    assert line == "I was torn down."
+    bare = scene(1990, "demolished", "torn down")
+    line, _ = builder.today_card(None, False, bare, [])
+    assert line == "And here I stood."
+
+
 def test_film_caption_fallback_carries_no_claim(tmp_path):
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
@@ -208,6 +277,23 @@ def test_film_caption_fallback_carries_no_claim(tmp_path):
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
+                             photo="today.jpg", photo_credit="me", layers={})
+    film = json.loads((out / "film.json").read_text())
+    assert film["scenes"][0]["caption"][1] != ""
+    assert film["scenes"][0]["caption_claim"] is None
+
+
+def test_film_fallback_sentence_carries_no_claim(tmp_path):
+    made = scene(1970, "standing", "scaffolding")
+    made["caption_sentence"] = {
+        "text": "Here I stood in 1970, much as always.",
+        "claim_year": None, "claim_url": None}
+    research = {
+        "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [made], "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1970": "e/1970.png"},
                              photo="today.jpg", photo_credit="me", layers={})
     film = json.loads((out / "film.json").read_text())
     assert film["scenes"][0]["caption"][1] != ""

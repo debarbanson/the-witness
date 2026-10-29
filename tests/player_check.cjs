@@ -42,16 +42,19 @@ sandbox.__DATA__ = {
   object: "Mill", place: "Town", photo: "today.jpg",
   photo_credit: "me", cutout: null, attribution: [],
   ai_label: "AI",
+  today_line: "The society announced I died.", today_sub: "Photographed in 1900.",
   sources: [{ url: "https://en.wikipedia.org/wiki/Mill",
               site: "Wikipedia", title: "Mill" }],
+  anchor: { line: "I have stood here since", label: "1865" },
   segments: [
     { kind: "title", start: 0, end: 3 },
-    { kind: "era", year: 1865, image: "era_1865.png", start: 3, end: 10,
-      caption: ["I stood here in 1865.", "second"], site: "Wikipedia" },
-    { kind: "era", year: 1920, image: "era_1920.png", start: 10, end: 17,
-      caption: ["I stood here in 1920.", "second"], site: "Wikipedia" },
-    { kind: "today", start: 17, end: 22 },
-    { kind: "end", start: 22, end: 28 },
+    { kind: "anchor", start: 3, end: 5 },
+    { kind: "era", year: 1865, image: "era_1865.png", start: 5, end: 12,
+      caption: ["1865", "second"], site: "Wikipedia" },
+    { kind: "era", year: 1920, image: "era_1920.png", start: 12, end: 19,
+      caption: ["1920", "second"], site: "Wikipedia" },
+    { kind: "today", start: 19, end: 24 },
+    { kind: "end", start: 24, end: 30 },
   ],
   scenes: [
     { year: 1865, image: "era_1865.png", caption: ["a", "b"],
@@ -66,8 +69,15 @@ const render = vm.runInContext("render", sandbox);
 const imgA = () => sandbox.document.getElementById("imgA");
 const layersEl = () => sandbox.document.getElementById("layers");
 
+// The anchor card shows one year from the film data.
+render(4.0);
+assert.strictEqual(sandbox.document.getElementById("cardTitle").textContent,
+  "I have stood here since", "anchor line from the film data");
+assert.strictEqual(sandbox.document.getElementById("cardSub").textContent,
+  "1865", "anchor shows one year");
+
 // Start, middle and end of the layered scene: the shared transform.
-for (const t of [3.0, 6.5, 9.9]) {
+for (const t of [5.0, 8.5, 11.9]) {
   render(t);
   const painting = imgA();
   assert.strictEqual(layersEl().children.length, 2, `two layers at t=${t}`);
@@ -80,26 +90,30 @@ for (const t of [3.0, 6.5, 9.9]) {
 }
 
 // Layer images are built once per scene, not once per frame.
-render(4.0);
+render(6.0);
 const first = layersEl().children.slice();
-render(4.1);
+render(6.1);
 assert.deepStrictEqual(layersEl().children, first, "layer images reused");
 
 // Leaving the scene clears the layers.
-render(12.0);
+render(14.0);
 assert.strictEqual(layersEl().children.length, 0, "layers cleared");
 render(1.0);
 assert.strictEqual(layersEl().children.length, 0, "layers cleared on title");
 
 // Today opens on the photo, never on black.
-render(17.0);
+render(19.0);
 assert.strictEqual(imgA().src, "today.jpg", "photo under the cut-out");
 assert.strictEqual(imgA().style.opacity, 1, "photo visible from the start");
-render(20.0);
+assert.strictEqual(sandbox.document.getElementById("cap1").textContent,
+  "The society announced I died.", "today line from the film data");
+assert.strictEqual(sandbox.document.getElementById("cap2").textContent,
+  "Photographed in 1900.", "photo note from the film data");
+render(22.0);
 assert.strictEqual(imgA().style.opacity, 1, "photo stays up");
 
 // The end card names sites and pages, not raw URLs.
-render(24.0);
+render(26.0);
 const items = sandbox.document.getElementById("sources").children;
 assert.strictEqual(items.length, 1, "one source listed");
 assert.strictEqual(items[0].textContent, "Wikipedia: Mill");

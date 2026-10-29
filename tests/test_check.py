@@ -49,3 +49,24 @@ def test_check_prompt_asks_about_text_and_anachronisms():
     assert "readable text" in prompt
     assert "paraglider" in prompt or "aircraft" in prompt
     assert "MATCHES only if" in prompt
+
+
+def test_check_prompt_adds_caption_agreement():
+    prompt = check.check_prompt("De Adriaan", "under construction", 1999,
+                                caption="My first pile was put in the ground.")
+    assert "My first pile was put in the ground." in prompt
+    assert "contradicts" in prompt
+    plain = check.check_prompt("De Adriaan", "under construction", 1999)
+    assert "contradicts" not in plain
+
+
+def test_check_painting_passes_caption_to_the_question():
+    seen = []
+
+    def ask(image, prompt):
+        seen.append(prompt)
+        return "MATCHES agree."
+
+    check.check_painting(ask, b"img", "De Adriaan", "under construction",
+                         1999, caption="My first pile was put in the ground.")
+    assert "My first pile was put in the ground." in seen[0]

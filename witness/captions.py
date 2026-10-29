@@ -10,6 +10,8 @@ live calls.
 
 import re
 
+from witness import states
+
 TARGET_CHARS = 80  # what the writer aims at; fits two caption lines
 MAX_CHARS = 110  # hard gate; beyond this the run fails, nothing is cut
 
@@ -30,19 +32,31 @@ def claim_matches(claim, year) -> bool:
             and span[0] <= year <= span[1])
 
 
+def claim_detail(claim) -> str:
+    """The claim's own words: the narrowed rewrite when one exists."""
+    return claim.get("rewritten") or claim.get("claim", "")
+
+
 def assign_claims(scenes, claims) -> dict:
-    """One claim per painted scene in film order, each claim used once."""
+    """One claim per painted scene in film order, each claim used once.
+    When several match, the most informative (longest detail) tells the
+    scene's story."""
     assigned = {}
     used = set()
     for scene in scenes:
         year = scene.get("from_year")
         if not isinstance(year, int):
             continue
-        for index, claim in enumerate(claims):
-            if index not in used and claim_matches(claim, year):
-                assigned[year] = claim
-                used.add(index)
-                break
+        if states.is_age_range(scene.get("date_label", "")):
+            continue
+        matching = [index for index, claim in enumerate(claims)
+                    if index not in used and claim_matches(claim, year)]
+        if not matching:
+            continue
+        best = max(matching,
+                   key=lambda i: (len(claim_detail(claims[i])), -i))
+        assigned[year] = claims[best]
+        used.add(best)
     return assigned
 
 
@@ -52,6 +66,7 @@ def sentence_prompt(detail, quote, year) -> str:
         "You are the object itself (the mill, the tree, the lighthouse). "
         "Write one first-person sentence for a museum film caption about "
         f"the year {year}: I or my, never I saw, we or our. "
+        "For the object's parts or buildings, say my (my sails, my buildings). "
         "Cover the claim's main event; if the source gives an age, include it. "
         "Say only what the source sentence says, no more. "
         "Do not mention any year or date; the film already shows the year. "
@@ -72,7 +87,7 @@ def sentence_ok(sentence, year) -> bool:
 
 def write_sentence(rewrite_call, support_call, claim, year) -> dict:
     """Rewrite plus re-verification; shorter retry once, else failure."""
-    detail = claim.get("rewritten") or claim.get("claim", "")
+    detail = claim_detail(claim)
     for attempt, plain in enumerate((False, True), 1):
         sentence = (rewrite_call(detail, claim.get("quote", ""), year, plain)
                     or "").strip()

@@ -296,6 +296,7 @@ def build_timeline(events: list) -> list:
     by_year: dict = {}
     detail_of: dict = {}
     label_of: dict = {}
+    visible_of: dict = {}
     previous = None
     for event in sorted(events, key=lambda e: e["year"]):
         if event.get("verdict", "supported") != "supported":
@@ -311,13 +312,16 @@ def build_timeline(events: list) -> list:
             detail_of[event["year"]] = event.get("detail", "")
             label_of[event["year"]] = states.date_label(
                 event.get("date_text", ""), event["year"])
+            visible_of[event["year"]] = event.get("visible_change", "")
             previous = state["condition"]
     merged = []
     for year in sorted(by_year):
         if merged and merged[-1]["state"] == by_year[year]:
             continue
+        from_visible = bool((visible_of[year] or "").strip())
         merged.append({"from_year": year, "to_year": None, "state": by_year[year],
-                       "date_label": label_of[year]})
+                       "date_label": label_of[year],
+                       "description_from": "visible_change" if from_visible else "detail"})
     for seg, nxt in zip(merged, merged[1:]):
         seg["to_year"] = nxt["from_year"]
     for seg, nxt in zip(merged, [*merged[1:], None]):

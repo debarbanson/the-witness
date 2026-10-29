@@ -87,10 +87,18 @@ def _spread(items, n):
 
 
 def _state_at(timeline, year):
+    """The state in a year: the open segment covering it. A description
+    narrating the opening event stays at that year; only a visible
+    condition travels mid-period."""
     for seg in timeline:
         to_year = seg.get("to_year")
         if seg["from_year"] <= year and (to_year is None or year < to_year):
-            return seg["state"]
+            if year == seg["from_year"]:
+                return seg["state"]
+            kept = dict(seg["state"])
+            if seg.get("description_from") != "visible_change":
+                kept["description"] = ""
+            return kept
     return {"condition": "standing", "degree": "total",
             "scope": "whole", "description": ""}
 

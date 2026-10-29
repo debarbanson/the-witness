@@ -117,3 +117,27 @@ def test_same_claims_in_any_order_give_same_scenes():
     first = scenes.choose_scenes(timeline, list(claims))
     second = scenes.choose_scenes(timeline, list(reversed(claims)))
     assert json.dumps(second, sort_keys=True) == json.dumps(first, sort_keys=True)
+
+
+def test_mid_period_scene_drops_event_narrative():
+    timeline = [{"from_year": 1899, "to_year": 2016,
+                 "description_from": "detail",
+                 "state": state("standing", "Construction began.")}]
+    found = scenes._state_at(timeline, 1968)
+    assert found["condition"] == "standing"
+    assert found["description"] == ""
+    assert scenes._state_at(timeline, 1899)["description"] == "Construction began."
+
+
+def test_mid_period_scene_keeps_visible_condition():
+    timeline = [{"from_year": 1970, "to_year": 1982,
+                 "description_from": "visible_change",
+                 "state": state("standing", "scaffolding supporting branches")}]
+    found = scenes._state_at(timeline, 1975)
+    assert found["description"] == "scaffolding supporting branches"
+
+
+def test_mid_period_scene_without_provenance_drops_description():
+    timeline = [seg(1899, 2016, "standing", "Construction began.")]
+    found = scenes._state_at(timeline, 1968)
+    assert found["description"] == ""

@@ -434,6 +434,13 @@ def check_span(condition: str, from_year, to_year, claim_text: str = "",
     return f"{condition} spans {duration} years, longer than the claim supports"
 
 
+def is_age_range(label) -> bool:
+    """An age range ("about 800 to 1,200 years old") is not a year: no
+    scene is ever painted or filmed for it."""
+    text = str(label or "").lower()
+    return "years old" in text or "year old" in text
+
+
 def date_label(date_text: str, year: int) -> str:
     """Display date: the range or vague phrase when one is given, else the year."""
     text = (date_text or "").strip()

@@ -122,6 +122,34 @@ def test_read_location_without_gps_raises(tmp_path):
         identify.read_location(photo)
 
 
+def dated_photo(path, original=None, changed=None):
+    exif = Image.Exif()
+    if original is not None:
+        exif[36867] = original
+    if changed is not None:
+        exif[306] = changed
+    Image.new("RGB", (8, 8)).save(path, exif=exif)
+
+
+def test_capture_year_prefers_original_date(tmp_path):
+    photo = tmp_path / "p.jpg"
+    dated_photo(photo, original="2006:05:12 18:32:39",
+                changed="2020:01:01 00:00:00")
+    assert identify.capture_year(photo) == 2006
+
+
+def test_capture_year_falls_back_to_file_date(tmp_path):
+    photo = tmp_path / "p.jpg"
+    dated_photo(photo, changed="2012:02:19 13:43:21")
+    assert identify.capture_year(photo) == 2012
+
+
+def test_capture_year_without_dates_is_none(tmp_path):
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8)).save(photo)
+    assert identify.capture_year(photo) is None
+
+
 def test_overpass_query_shape_and_user_agent():
     post = FakeTransport([(200, fixture("overpass_nearby.json"))])
     identify.fetch_overpass(52.0, 4.0, post=post, sleep=lambda s: None)

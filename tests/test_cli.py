@@ -361,6 +361,32 @@ def test_baseten_support_passes_timeout_and_falls_back_to_meta(monkeypatch):
     assert cli_module.baseten_support_respond("claim") == {"fallback": True}
 
 
+def test_caption_support_uses_three_votes(monkeypatch):
+    from witness import cli as cli_module
+
+    seen = {}
+
+    def fake_judge(respond, job, completion=True):
+        seen.update(job)
+        return {"verdict": "supported"}
+
+    monkeypatch.setattr(cli_module.verify, "judge_claim", fake_judge)
+    out = cli_module.caption_support_respond(
+        "I burnt down.", "The mill burnt down.")
+    assert out == "supported"
+    assert seen["votes"] == 3
+    assert seen["passages"] == ["The mill burnt down."]
+
+
+def test_baseten_support_falls_back_when_key_missing(monkeypatch):
+    from witness import cli as cli_module
+
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+    monkeypatch.setattr(cli_module, "support_respond",
+                        lambda prompt: {"fallback": True})
+    assert cli_module.baseten_support_respond("claim") == {"fallback": True}
+
+
 def test_keep_stores_reviewed_research(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module
@@ -728,3 +754,101 @@ def test_cmd_layers_tag_reads_tagged_eras(tmp_path, monkeypatch):
                                  call_sam=lambda text, jpg: raw)
     assert code == 0
     assert len(list((tmp_path / "out" / "q1-test" / "layers_parallel_b1" / "1850").glob("*.png"))) == 2
+
+
+def _caption_research():
+    return {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "claims": [
+            {"year": 1779, "url": "https://a.example/x", "verdict": "supported",
+             "claim": "opened in 1779", "rewritten": None,
+             "quote": "The mill opened in 1779."},
+            {"year": 1925, "url": "https://a.example/y", "verdict": "supported",
+             "claim": "saved in 1925", "rewritten": None,
+             "quote": "The mill was saved in 1925."},
+        ],
+        "scenes": [
+            {"from_year": 1779, "date_label": "1779",
+             "state": {"condition": "standing"}, "caption_lines": []},
+            {"from_year": 1865, "date_label": "1865",
+             "state": {"condition": "standing"}, "caption_lines": []},
+        ],
+    }
+
+
+def test_cmd_captions_writes_sentence_and_fallback(tmp_path, monkeypatch, capsys):
+    import json
+    from pathlib import Path
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
+    calls = []
+
+    def rewrite(detail, quote, year, plain):
+        calls.append((year, plain))
+        return "I opened my doors to the town."
+
+    code = cli_module.cmd_captions(
+        "q1-test", rewrite_call=rewrite,
+        support_call=lambda sentence, quote: "supported")
+    assert code == 0
+    assert calls == [(1779, False)]
+    saved = json.loads((slug_dir / "research.json").read_text())
+    first, second = saved["scenes"]
+    assert first["caption_sentence"] == {
+        "text": "I opened my doors to the town.",
+        "claim_year": 1779, "claim_url": "https://a.example/x"}
+    assert second["caption_sentence"] == {
+        "text": "Here I stood in 1865, much as always.",
+        "claim_year": None, "claim_url": None}
+
+
+def test_cmd_captions_skips_captioned_scenes(tmp_path, monkeypatch, capsys):
+    import json
+    from pathlib import Path
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    data = _caption_research()
+    data["scenes"][0]["caption_sentence"] = {
+        "text": "I opened my doors.", "claim_year": 1779,
+        "claim_url": "https://a.example/x"}
+    (slug_dir / "research.json").write_text(json.dumps(data))
+    calls = []
+
+    def rewrite(detail, quote, year, plain):
+        calls.append(year)
+        return "I opened my doors."
+
+    code = cli_module.cmd_captions(
+        "q1-test", rewrite_call=rewrite,
+        support_call=lambda sentence, quote: "supported")
+    assert code == 0
+    assert calls == []
+    out, _ = capsys.readouterr()
+    assert "fallback" in out
+
+
+def test_cmd_captions_reports_failed_scenes(tmp_path, monkeypatch, capsys):
+    import json
+    from pathlib import Path
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
+
+    code = cli_module.cmd_captions(
+        "q1-test",
+        rewrite_call=lambda detail, quote, year, plain: "x" * 200,
+        support_call=lambda sentence, quote: "supported")
+    assert code == 1
+    saved = json.loads((tmp_path / "out" / "q1-test" / "research.json").read_text())
+    assert "caption_sentence" not in saved["scenes"][0]
+    assert saved["scenes"][1]["caption_sentence"]["claim_year"] is None

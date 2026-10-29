@@ -5,13 +5,20 @@ import json
 from witness.render import builder
 
 
-def scene(year, condition="standing", description="", lines=()):
-    return {"from_year": year, "date_label": str(year),
+def scene(year, condition="standing", description="", lines=(), sentence=None,
+            claim_year=None, claim_url="https://a.example/x"):
+    made = {"from_year": year, "date_label": str(year),
             "state": {"condition": condition, "degree": "total",
                       "scope": "whole", "description": description},
             "caption_lines": [{"year": year, "line": line,
                                "url": "https://nl.wikipedia.org/wiki/X"}
                               for line in lines]}
+    if sentence is not None:
+        made["caption_sentence"] = {
+            "text": sentence,
+            "claim_year": year if claim_year is None else claim_year,
+            "claim_url": claim_url}
+    return made
 
 
 def test_timeline_gives_every_part_its_seconds():
@@ -36,9 +43,10 @@ def test_timeline_skips_eras_without_paintings():
 
 def test_caption_is_first_person_in_two_lines():
     line1, line2 = builder.caption_for(
-        scene(1779, "standing", "opened in 1779"))
+        scene(1779, "standing", "opened in 1779",
+              sentence="I opened my doors to the town."))
     assert line1 == "I stood here in 1779."
-    assert line2 == "opened in 1779"
+    assert line2 == "I opened my doors to the town."
 
 
 def test_caption_templates_per_condition():
@@ -49,10 +57,11 @@ def test_caption_templates_per_condition():
     assert builder.caption_for(scene(2002, "rebuilt", "whole again"))[0] == "I was rebuilt in 2002."
 
 
-def test_caption_second_line_falls_back_to_caption_line():
-    long = "x" * 200
-    _, line2 = builder.caption_for(scene(1779, "standing", long, ["barges on the quay"]))
-    assert line2 == "barges on the quay"
+def test_caption_without_sentence_is_plain_and_unborrowed():
+    _, line2 = builder.caption_for(
+        scene(1779, "standing", "opened in 1779", ["barges on the quay"]))
+    assert line2 == "Here I stood in 1779, much as always."
+    assert "…" not in line2
 
 
 def test_source_site_names_domain():
@@ -67,7 +76,29 @@ def test_end_sources_dedupe_urls():
         {"url": "https://b.example/2", "quote": "q", "verdict": "partly"},
         {"url": "https://c.example/3", "quote": "q", "verdict": "unsupported"},
     ]
-    assert builder.end_sources(claims) == ["https://a.example/1", "https://b.example/2"]
+    assert [entry["url"] for entry in builder.end_sources(claims)] == [
+        "https://a.example/1", "https://b.example/2"]
+
+
+def test_end_sources_carry_site_and_title():
+    claims = [
+        {"url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+         "quote": "q", "verdict": "supported"},
+    ]
+    (entry,) = builder.end_sources(claims)
+    assert entry["site"] == "Wikipedia"
+    assert entry["title"] == "De Adriaan, Haarlem"
+
+
+def test_source_title_names_the_page():
+    assert builder.source_title(
+        "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem") == "De Adriaan, Haarlem"
+    assert builder.source_title(
+        "https://nl.wikipedia.org/w/index.php?title=De_Adriaan_(Haarlem)&oldid=1"
+    ) == "De Adriaan (Haarlem)"
+    assert builder.source_title(
+        "https://www.molenadriaan.nl/en/tours-services/") == "tours services"
+    assert builder.source_title("https://example.com/") == "example.com"
 
 
 def test_film_json_carries_readiness_and_attribution(tmp_path):
@@ -113,6 +144,25 @@ def test_frame_count_covers_duration():
     assert record.frame_times(10.0, fps=30)[0] == 0.0
 
 
+def test_record_loads_a_fixed_frame(tmp_path):
+    from witness.render import record
+
+    html = tmp_path / "film.html"
+    html.write_text("<html></html>")
+    url = record.page_url(html)
+    assert url.endswith("film.html?t=0")
+
+
+def test_frame_edges_detect_black_bars(tmp_path):
+    from PIL import Image
+    from witness.render import record
+
+    barred = Image.new("RGB", (1080, 1920), "black")
+    lit = Image.new("RGB", (1080, 1920), (90, 100, 110))
+    assert record.edges_lit(barred) is False
+    assert record.edges_lit(lit) is True
+
+
 def test_scene_site_falls_back_to_year_claims():
     assert builder.scene_site(
         scene(1865), [{"year": 1865, "url": "https://nl.wikipedia.org/wiki/Y",
@@ -121,10 +171,47 @@ def test_scene_site_falls_back_to_year_claims():
                                              "verdict": "supported"}]) == ""
 
 
-def test_caption_trims_long_description_without_caption_lines():
-    _, line2 = builder.caption_for(scene(1865, "standing", "word " * 30))
-    assert len(line2) <= 57
-    assert line2.endswith("…")
+def test_caption_never_cuts_a_sentence():
+    long = "I ground corn for the whole town and the villages round about."
+    _, line2 = builder.caption_for(
+        scene(1865, "standing", "word " * 30, sentence=long))
+    assert line2 == long
+    assert "…" not in line2
+
+
+def test_film_captions_cite_own_year_claims(tmp_path):
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [scene(1779, "standing", "opened",
+                         sentence="I opened my doors to the town."),
+                   scene(1865, "standing", "millstones",
+                         sentence="My new millstones ground day and night.")],
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research,
+                             {"1779": "e/1779.png", "1865": "e/1865.png"},
+                             photo="today.jpg", photo_credit="me", layers={})
+    film = json.loads((out / "film.json").read_text())
+    lines = [entry["caption"][1] for entry in film["scenes"]]
+    assert all("…" not in line for line in lines)
+    assert len(set(lines)) == len(lines)
+    for entry in film["scenes"]:
+        assert entry["caption_claim"]["year"] == entry["year"]
+
+
+def test_film_caption_fallback_carries_no_claim(tmp_path):
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": [],
+        "scenes": [scene(1779, "standing", "opened")],
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
+                             photo="today.jpg", photo_credit="me", layers={})
+    film = json.loads((out / "film.json").read_text())
+    assert film["scenes"][0]["caption"][1] != ""
+    assert film["scenes"][0]["caption_claim"] is None
 
 
 def test_film_html_plays_without_fetch(tmp_path):

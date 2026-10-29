@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from witness import check, children, identify, layers, models, outcome, paint, research, scenes, states, stream, verify
+from witness import captions, check, children, identify, layers, models, outcome, paint, research, scenes, states, stream, verify
 from witness.cache import Cache
 from witness.render import builder as render_builder
 
@@ -38,6 +38,8 @@ def main(argv=None):
     keep.add_argument("slug")
     child_cmd = sub.add_parser("children")
     child_cmd.add_argument("slug")
+    caption_cmd = sub.add_parser("captions")
+    caption_cmd.add_argument("slug")
     layers_cmd = sub.add_parser("layers")
     layers_cmd.add_argument("slug")
     layers_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel", "stream"))
@@ -66,6 +68,8 @@ def main(argv=None):
         return cmd_keep(args.slug)
     if args.command == "children":
         return cmd_children(args.slug)
+    if args.command == "captions":
+        return cmd_captions(args.slug)
     if args.command == "layers":
         return cmd_layers(args.slug, mode=args.mode, tag=args.tag)
     if args.command == "render":
@@ -968,8 +972,14 @@ def support_respond(prompt):
 
 def baseten_support_respond(prompt):
     try:
+        client = _respond_for(models.VERIFY_OPEN)
+    except SystemExit:
+        # _respond_for already named the missing key: meta judges instead.
+        print("note: baseten unavailable, meta fallback", file=sys.stderr)
+        return support_respond(prompt)
+    try:
         resp = models.chat(
-            _respond_for(models.VERIFY_OPEN),
+            client,
             models.VERIFY_OPEN,
             messages=[{"role": "user", "content": prompt}],
             timeout=180,
@@ -1119,6 +1129,68 @@ def child_support_respond(line, source):
     job = {"claim": line, "event": "stood", "detail": line, "year": 0,
            "keywords": [], "passages": [source], "urls": [], "votes": 1}
     return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
+
+
+def caption_rewrite_respond(detail, quote, year, plain):
+    """One caption sentence on Muse Spark, steady temperature."""
+    prompt = captions.sentence_prompt(detail, quote, year)
+    if plain:
+        prompt += " Shorter and simpler."
+    resp = models.respond(_respond_for(models.VERIFY), models.VERIFY, input=prompt)
+    data = json.loads(resp.model_dump_json())
+    texts = []
+    for item in data.get("output", []):
+        for block in item.get("content", []) or []:
+            if block.get("type") == "output_text":
+                texts.append(block.get("text", ""))
+    return "\n".join(texts).strip()
+
+
+def caption_support_respond(sentence, quote):
+    """Re-verify a caption sentence against its own source sentence."""
+    job = {"claim": sentence, "event": "stood", "detail": sentence, "year": 0,
+           "keywords": [], "passages": [quote], "urls": [], "votes": 3}
+    return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
+
+
+def cmd_captions(slug, rewrite_call=None, support_call=None):
+    """Line-2 sentences from each scene's own verified claim."""
+    out_dir = Path("out") / slug
+    path = out_dir / "research.json"
+    if not path.exists():
+        print(f"no research at {path}")
+        return 2
+    data = json.loads(path.read_text())
+    rewrite = rewrite_call or caption_rewrite_respond
+    support = support_call or caption_support_respond
+    assigned = captions.assign_claims(data.get("scenes", []),
+                                      data.get("claims", []))
+    failed = []
+    for scene in data.get("scenes", []):
+        year = scene.get("from_year")
+        if not isinstance(year, int) or scene.get("caption_sentence"):
+            continue
+        claim = assigned.get(year)
+        if claim is None:
+            scene["caption_sentence"] = {
+                "text": captions.fallback_line(scene),
+                "claim_year": None, "claim_url": None}
+            print(f"{year}: fallback (no claim of its own)")
+            continue
+        out = captions.write_sentence(rewrite, support, claim, year)
+        if not out["verified"]:
+            failed.append(year)
+            print(f"{year}: sentence failed verification")
+            continue
+        scene["caption_sentence"] = {"text": out["sentence"],
+                                     "claim_year": year,
+                                     "claim_url": claim.get("url")}
+        print(f"{year}: {out['sentence']}"[:140])
+    path.write_text(json.dumps(data, indent=1))
+    if failed:
+        print(f"caption sentences failed for {failed}; fix and rerun")
+        return 1
+    return 0
 
 
 def cmd_children(slug, rewrite_call=None, support_call=None):

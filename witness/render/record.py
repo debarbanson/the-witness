@@ -11,6 +11,22 @@ def frame_times(duration, fps=30):
     return [round(i / fps, 3) for i in range(count)]
 
 
+def page_url(film_html) -> str:
+    """Fixed-frame URL: the page renders t=0 once and starts no clock,
+    so the recorder owns every frame."""
+    return Path(film_html).resolve().as_uri() + "?t=0"
+
+
+def edges_lit(frame, width=100, threshold=12) -> bool:
+    """The leftmost and rightmost columns hold picture, not black bars."""
+    grey = frame.convert("L")
+    w, h = grey.size
+    left = grey.crop((0, 0, min(width, w), h))
+    right = grey.crop((max(w - width, 0), 0, w, h))
+    pixels = list(left.getdata()) + list(right.getdata())
+    return sum(pixels) / len(pixels) > threshold
+
+
 def record(film_html, out_mp4, fps=30):
     """Playwright steps render(t); ffmpeg encodes H.264 1080x1920."""
     from playwright.sync_api import sync_playwright
@@ -30,7 +46,7 @@ def record(film_html, out_mp4, fps=30):
             args=["--allow-file-access-from-files"])
         page = browser.new_page(viewport={"width": 540, "height": 960},
                                 device_scale_factor=2)
-        page.goto(film_html.as_uri())
+        page.goto(page_url(film_html))
         page.wait_for_function("typeof FILM !== 'undefined' && FILM !== null")
         for t in times:
             page.evaluate(f"render({t})")

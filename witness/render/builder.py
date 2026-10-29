@@ -3,7 +3,9 @@
 import json
 import shutil
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
+
+from witness import captions
 
 TITLE_S = 3
 ANCHOR_S = 2
@@ -13,26 +15,15 @@ END_S = 6
 
 
 def caption_for(scene, is_first=False):
-    """First-person caption in at most two lines, from verified words."""
+    """First-person caption: the written sentence for the scene, or a
+    plain line with no fact. Never cut, never borrowed."""
     year = scene["from_year"]
     condition = (scene.get("state") or {}).get("condition", "standing")
     first = _first_person(condition, year, is_first)
-    description = (scene.get("state") or {}).get("description", "")
-    if description and len(description) <= 56:
-        return (first, description)
-    lines = [line.get("line", "") for line in scene.get("caption_lines", [])]
-    if lines:
-        return (first, _shorten(lines[0]))
-    if description:
-        return (first, _shorten(description))
-    return (first, "")
-
-
-def _shorten(text, limit=56) -> str:
-    """Trim to a word boundary with an ellipsis."""
-    if len(text) <= limit:
-        return text
-    return text[:limit].rsplit(" ", 1)[0] + "…"
+    stored = (scene.get("caption_sentence") or {}).get("text", "")
+    if stored:
+        return (first, stored)
+    return (first, captions.fallback_line(scene))
 
 
 def _first_person(condition, year, is_first):
@@ -66,14 +57,33 @@ def source_site(url) -> str:
     return host
 
 
+def source_title(url) -> str:
+    """Readable page title for a source URL."""
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    if query.get("title"):
+        return query["title"][0].replace("_", " ")
+    path = unquote(parsed.path).strip("/")
+    if "/" in path:
+        path = path.rsplit("/", 1)[-1]
+    title = path.replace("_", " ").replace("-", " ").strip()
+    if title:
+        return title
+    return parsed.netloc.lower().removeprefix("www.")
+
+
 def end_sources(claims) -> list:
-    """Unique source URLs behind the verified claims."""
+    """Unique sources behind the verified claims: URL kept for the web
+    page, site plus title for the film end card."""
     seen = []
+    entries = []
     for claim in claims:
         url = claim.get("url")
         if url and url not in seen and claim.get("verdict") in ("supported", "partly"):
             seen.append(url)
-    return seen
+            entries.append({"url": url, "site": source_site(url),
+                            "title": source_title(url)})
+    return entries
 
 
 def scene_site(scene, claims=()) -> str:
@@ -131,10 +141,16 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
             continue
         line1, line2 = caption_for(
             scene, is_first=(scene["from_year"] == scenes[0]["from_year"]))
+        stored = scene.get("caption_sentence") or {}
+        cited = None
+        if stored.get("text"):
+            cited = {"year": stored.get("claim_year"),
+                     "url": stored.get("claim_url")}
         film_scenes.append({"year": scene["from_year"],
                             "date_label": scene.get("date_label", key),
                             "image": images[key], "caption": [line1, line2],
                             "site": scene_site(scene, claims),
+                            "caption_claim": cited,
                             "layers": (layers or {}).get(key, []),
                             "ready_at": painted.get(scene["from_year"], 0)})
     attribution = []

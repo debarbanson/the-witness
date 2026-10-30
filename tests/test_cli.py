@@ -1151,6 +1151,120 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     assert film["scenes"][0]["caption"][0] == "1850"
 
 
+def render_both_setup(tmp_path):
+    import io
+    import json
+    from PIL import Image
+
+    out_dir = tmp_path / "out" / "q1-test"
+    adult_dir = out_dir / "eras_parallel"
+    child_dir = out_dir / "eras_parallel_child"
+    adult_dir.mkdir(parents=True)
+    child_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "red").save(buf, "PNG")
+    adult = buf.getvalue()
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "blue").save(buf, "PNG")
+    child = buf.getvalue()
+    (adult_dir / "1850.png").write_bytes(adult)
+    (child_dir / "1850.png").write_bytes(child)
+    (out_dir / "paint_parallel.json").write_text(json.dumps(
+        {"audience": "adult",
+         "eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
+    (out_dir / "paint_parallel_child.json").write_text(json.dumps(
+        {"audience": "child",
+         "eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "Little mill words."}]}))
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "opened in 1850",
+                    "quote": "The mill opened in 1850."}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x",
+                                 "child": {"text": "Little mill words."},
+                                 "evidence": {"claim": "opened in 1850",
+                                              "url": "https://a.example/x",
+                                              "quote": "The mill opened in 1850."}}},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(adult)
+    return out_dir, str(photo), child
+
+
+def test_cmd_render_builds_both_audiences_when_child_set_matches(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, child_bytes = render_both_setup(tmp_path)
+    code = cli_module.cmd_render("q1-test", photo, photo_credit="me")
+    assert code == 0
+    adult_film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert adult_film["audience"] == "adult"
+    assert adult_film["sibling"] == "child/film.json"
+    child_film = json.loads((out_dir / "film" / "child" / "film.json").read_text())
+    assert child_film["audience"] == "child"
+    assert child_film["sibling"] == "../film.json"
+    assert child_film["scenes"][0]["caption"] == ["1850", "Little mill words."]
+    assert (out_dir / "film" / "child" / "era_1850.png").read_bytes() == child_bytes
+    assert (out_dir / "film" / "child" / "film.html").exists()
+
+
+def test_cmd_render_marks_a_lone_film_without_sibling(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, _ = render_both_setup(tmp_path)
+    (out_dir / "paint_parallel_child.json").unlink()
+    code = cli_module.cmd_render("q1-test", photo, photo_credit="me")
+    assert code == 0
+    adult_film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert adult_film["sibling"] is None
+    assert not (out_dir / "film" / "child").exists()
+
+
+def test_cmd_render_skips_child_film_when_a_year_is_missing(tmp_path, monkeypatch, capsys):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, _ = render_both_setup(tmp_path)
+    (out_dir / "paint_parallel_child.json").write_text(json.dumps(
+        {"audience": "child",
+         "eras": [{"year": 1850, "verdict": "dropped", "attempts": 3,
+                   "caption": "Little mill words."}]}))
+    code = cli_module.cmd_render("q1-test", photo, photo_credit="me")
+    assert code == 0
+    assert "children" in capsys.readouterr().out
+    assert not (out_dir / "film" / "child").exists()
+    adult_film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert adult_film["sibling"] is None
+
+
+def test_cmd_render_refuses_child_manifest_as_primary(tmp_path, monkeypatch, capsys):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, _ = render_both_setup(tmp_path)
+    code = cli_module.cmd_render("q1-test", photo, photo_credit="me",
+                                 era_dir="eras_parallel_child")
+    assert code == 2
+    assert "children" in capsys.readouterr().out
+
+
 def test_cmd_render_reports_refused_scenes(tmp_path, monkeypatch, capsys):
     import io
     import json

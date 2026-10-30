@@ -63,6 +63,14 @@ def test_empty_today_line_gets_no_default():
     assert 'FILM.today_line ?? "And here I stand today."' in TEMPLATE.read_text()
 
 
+def test_player_offers_an_audience_switch_when_a_sibling_exists():
+    template = TEMPLATE.read_text()
+    assert 'id="audience"' in template
+    assert "film.sibling" in template
+    assert '"Children"' in template
+    assert '"Adults"' in template
+
+
 def test_player_behavior_in_node():
     node = shutil.which("node")
     if node is None:

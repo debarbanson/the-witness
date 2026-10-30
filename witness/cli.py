@@ -1763,25 +1763,18 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         print(f"no paint manifest at {manifest_path}; run paint first")
         return 2
     try:
-        manifest = json.loads(manifest_path.read_text()).get("eras", [])
+        stored = json.loads(manifest_path.read_text())
     except (json.JSONDecodeError, OSError):
         print(f"unreadable paint manifest at {manifest_path}")
         return 2
+    if stored.get("audience", "adult") != "adult":
+        print(f"{manifest_path.name} is a children's manifest; render builds "
+              f"both films together from the adult set")
+        return 2
+    manifest = stored.get("eras", [])
     era_path = out_dir / era_dir
-    sentences = {s.get("from_year"): paint.scene_caption(s)
-                 for s in data.get("scenes", [])}
-    era_files = {}
-    for entry in manifest:
-        if entry.get("verdict") not in ("matches", "recovered"):
-            continue
-        if entry.get("caption") != sentences.get(entry.get("year"), ""):
-            print(f"{entry.get('year')}: refused (painting was checked "
-                  f"against a different caption; rerun captions)")
-            continue
-        rel = entry.get("file") or f"{era_dir}/{entry['year']}.png"
-        candidate = out_dir / rel
-        if candidate.exists():
-            era_files[candidate.stem] = str(candidate)
+    era_files = collect_era_files(out_dir, manifest, data.get("scenes", []),
+                                  era_dir, audience="adult")
     if not era_files:
         print(f"no kept paintings in {manifest_path}")
         return 2
@@ -1794,6 +1787,12 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         reason = render_builder.refusal_reason(scene, claims)
         if reason is not None:
             print(f"{scene['from_year']}: refused ({reason})")
+    adult_years = {str(scene["from_year"])
+                   for scene in render_builder.dated(data.get("scenes", []))
+                   if str(scene["from_year"]) in images
+                   and render_builder.filmable(scene, claims)}
+    child_files = child_era_files(out_dir, era_dir, data.get("scenes", []),
+                                  claims, adult_years)
     cutout_path = None
     if subject:
         seg = segment_call if segment_call is not None else segment_module.segment
@@ -1808,11 +1807,81 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         era_files=era_files,
         photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None,
         photo_year=photo_year, own_photo=own_photo,
-        cache=cache or Cache("out/cache"))
+        cache=cache or Cache("out/cache"),
+        sibling="child/film.json" if child_files is not None else None)
+    if child_files is not None:
+        child_images = {key: render_builder.served_era_name(key, src)
+                        for key, src in child_files.items()}
+        render_builder.write_film(
+            out_dir, data, child_images, "today.jpg", photo_credit,
+            era_files=child_files,
+            photo_file=photo,
+            cutout_file=str(cutout_path) if cutout_path else None,
+            photo_year=photo_year, own_photo=own_photo,
+            cache=cache or Cache("out/cache"),
+            folder="film/child", audience="child", sibling="../film.json")
     film = json.loads((film_dir / "film.json").read_text())
     total = film["segments"][-1]["end"]
-    print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, {total} s)")
+    audiences = "adult and children's" if child_files is not None else "adult"
+    print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, "
+          f"{total} s, {audiences})")
     return 0
+
+
+def collect_era_files(out_dir, entries, scenes, era_dir, audience="adult"):
+    """Kept paintings whose check caption still matches, per audience."""
+    sentences = {s.get("from_year"): paint.scene_caption(s, audience=audience)
+                 for s in scenes}
+    rerun = "children" if audience == "child" else "captions"
+    era_files = {}
+    for entry in entries:
+        if entry.get("verdict") not in ("matches", "recovered"):
+            continue
+        if entry.get("caption") != sentences.get(entry.get("year"), ""):
+            print(f"{entry.get('year')}: refused (painting was checked "
+                  f"against a different caption; rerun {rerun})")
+            continue
+        rel = entry.get("file") or f"{era_dir}/{entry['year']}.png"
+        candidate = out_dir / rel
+        if candidate.exists():
+            era_files[candidate.stem] = str(candidate)
+    return era_files
+
+
+def child_era_files(out_dir, era_dir, scenes, claims, adult_years):
+    """The children's paintings when they cover every adult scene.
+
+    The switch shows the same story told two ways, so a partial
+    children's set means no children's film rather than a shorter
+    one. Returns None with a message on any gap."""
+    base = era_dir.removeprefix("eras_")
+    manifest_path = out_dir / f"paint_{base}_child.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        stored = json.loads(manifest_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        print(f"unreadable children's manifest at {manifest_path}")
+        return None
+    if stored.get("audience", "child") != "child":
+        print(f"{manifest_path.name} is not a children's manifest")
+        return None
+    era_files = collect_era_files(out_dir, stored.get("eras", []), scenes,
+                                  f"{era_dir}_child", audience="child")
+    missing = sorted(adult_years - set(era_files))
+    if missing:
+        print(f"children's set is missing {', '.join(missing)}; "
+              f"run paint --audience child first")
+        return None
+    for scene in scenes:
+        if str(scene.get("from_year")) in adult_years:
+            reason = render_builder.refusal_reason(scene, claims,
+                                                   audience="child")
+            if reason is not None:
+                print(f"{scene.get('from_year')}: no children's film "
+                      f"({reason})")
+                return None
+    return era_files
 
 
 if __name__ == "__main__":

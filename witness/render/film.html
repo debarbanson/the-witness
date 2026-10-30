@@ -58,7 +58,7 @@
   <div id="caption" style="display:none"><span id="cap1"></span><br><span id="cap2"></span><span class="site" id="capsite"></span></div>
   <div id="progress" style="display:none"></div>
   <div id="clock"></div>
-  <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button></div>
+  <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button><button id="audience" style="display:none"></button></div>
 </div>
 <script id="film-data" type="application/json">__FILM_JSON__</script>
 <script>
@@ -241,6 +241,8 @@ function start(film) {
   addEventListener("resize", fit);
   preload(film).then(() => {
     window.__READY = true;
+    player.run = (player.run || 0) + 1;
+    const run = player.run;
     const fixed = params.get("t");
     if (fixed !== null) { render(parseFloat(fixed)); return; }
     player.t0 = performance.now();
@@ -249,8 +251,28 @@ function start(film) {
     const pauseBtn = document.getElementById("pause");
     pauseBtn.onclick = () => togglePause(pauseBtn);
     document.getElementById("replay").onclick = replayFilm;
+    const audienceBtn = document.getElementById("audience");
+    if (film.sibling) {
+      audienceBtn.textContent = film.audience === "child" ? "Adults" : "Children";
+      audienceBtn.style.display = "";
+      audienceBtn.onclick = () => {
+        audienceBtn.disabled = true;
+        fetch(film.sibling).then(r => r.json()).then(next => {
+          player.paused = false;
+          pauseBtn.textContent = "Pause";
+          audienceBtn.disabled = false;
+          start(next);
+        }).catch(() => {
+          audienceBtn.disabled = false;
+          fail("The other version cannot load.");
+        });
+      };
+    } else {
+      audienceBtn.style.display = "none";
+    }
     document.getElementById("controls").style.display = "block";
     function frame(now) {
+      if (run !== player.run) return;
       const t = tickPlayer(now);
       render(t);
       if (t < player.total) requestAnimationFrame(frame);

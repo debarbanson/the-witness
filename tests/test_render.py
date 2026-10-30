@@ -123,6 +123,96 @@ def test_caption_is_a_date_stamp_and_one_sentence():
     assert stamp == "23 April 1932"
 
 
+def child_scene(year, line):
+    made = scene(year, sentence=f"Adult words for {year}.")
+    made["caption_sentence"]["child"] = {"text": line}
+    return made
+
+
+def test_child_caption_reads_the_childrens_sentence():
+    stamp, sentence = builder.caption_for(
+        child_scene(1779, "Little mill words."), audience="child")
+    assert stamp == "1779"
+    assert sentence == "Little mill words."
+
+
+def test_child_caption_is_empty_without_a_childrens_sentence():
+    stamp, sentence = builder.caption_for(
+        scene(1779, sentence="Adult words."), audience="child")
+    assert sentence == ""
+
+
+def test_adult_caption_ignores_the_childrens_sentence():
+    stamp, sentence = builder.caption_for(child_scene(1779, "Little mill words."))
+    assert sentence == "Adult words for 1779."
+
+
+def test_child_film_refuses_a_scene_without_a_childrens_sentence():
+    scenes = [child_scene(1779, "Little mill words."),
+              scene(1865, sentence="Adult words.")]
+    claims = claims_for(scenes)
+    assert builder.refusal_reason(scenes[0], claims, audience="child") is None
+    assert (builder.refusal_reason(scenes[1], claims, audience="child")
+            == "no children's sentence")
+    assert builder.refusal_reason(scenes[1], claims) is None
+
+
+def test_child_film_keeps_the_adult_evidence_rule():
+    made = child_scene(1779, "Little mill words.")
+    made["caption_sentence"]["evidence"]["quote"] = "Changed afterwards."
+    claims = claims_for([scene(1779, sentence="Adult words for 1779.")])
+    assert (builder.refusal_reason(made, claims, audience="child")
+            == "its claim changed since the caption was written")
+
+
+def test_child_timeline_skips_scenes_without_childrens_sentences():
+    scenes = [child_scene(1779, "Little mill words."),
+              scene(1865, sentence="Adult words.")]
+    plan = builder.build_timeline(
+        scenes, {"1779": "e/1779.png", "1865": "e/1865.png"},
+        claims_for(scenes), audience="child")
+    eras = [seg for seg in plan if seg["kind"] == "era"]
+    assert [seg["year"] for seg in eras] == [1779]
+    assert eras[0]["caption"] == ["1779", "Little mill words."]
+
+
+def test_write_film_builds_a_sibling_child_film(tmp_path):
+    from PIL import Image
+
+    adult_era = tmp_path / "adult_1850.png"
+    Image.new("RGB", (16, 24), "red").save(adult_era)
+    child_era = tmp_path / "child_1850.png"
+    Image.new("RGB", (16, 24), "blue").save(child_era)
+    scenes = [child_scene(1850, "Little mill words.")]
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
+        "timeline": [], "timings": {},
+    }
+    adult = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
+                               photo="today.jpg", photo_credit="me",
+                               era_files={"1850": str(adult_era)},
+                               sibling="child/film.json")
+    child = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
+                               photo="today.jpg", photo_credit="me",
+                               era_files={"1850": str(child_era)},
+                               folder="film/child", audience="child",
+                               sibling="../film.json")
+    assert adult == tmp_path / "film"
+    assert child == tmp_path / "film" / "child"
+    adult_film = json.loads((adult / "film.json").read_text())
+    child_film = json.loads((child / "film.json").read_text())
+    assert adult_film["audience"] == "adult"
+    assert adult_film["sibling"] == "child/film.json"
+    assert child_film["audience"] == "child"
+    assert child_film["sibling"] == "../film.json"
+    assert child_film["scenes"][0]["caption"] == ["1850", "Little mill words."]
+    assert (child / "era_1850.png").read_bytes() == child_era.read_bytes()
+    assert (adult / "era_1850.png").read_bytes() == adult_era.read_bytes()
+    assert (child / "film.html").exists()
+
+
 def test_caption_without_sentence_is_empty():
     stamp, sentence = builder.caption_for(scene(1779))
     assert (stamp, sentence) == ("1779", "")

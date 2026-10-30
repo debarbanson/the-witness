@@ -16,15 +16,16 @@ TODAY_S = 5
 END_S = 6
 
 
-def filmable(scene, claims) -> bool:
+def filmable(scene, claims, audience="adult") -> bool:
     """A scene reaches the film only with a written sentence pinned
     to immutable evidence (claim, URL, quote) that still matches a
     supported kept claim. Anything else is refused; there is no
-    filler line."""
-    return refusal_reason(scene, claims) is None
+    filler line. The children's film also needs the children's
+    sentence; it never borrows the adult one."""
+    return refusal_reason(scene, claims, audience=audience) is None
 
 
-def refusal_reason(scene, claims) -> str | None:
+def refusal_reason(scene, claims, audience="adult") -> str | None:
     """Why a scene cannot reach the film, or None when it can. A
     caption whose claim changed or lost support is invalidated."""
     stored = scene.get("caption_sentence") or {}
@@ -40,16 +41,20 @@ def refusal_reason(scene, claims) -> str | None:
                 return "its claim is no longer supported"
             if claim.get("quote") != evidence["quote"]:
                 return "its claim changed since the caption was written"
+            if audience == "child" and not (stored.get("child") or {}).get("text"):
+                return "no children's sentence"
             return None
     return "its claim is gone from the research"
 
 
-def caption_for(scene):
+def caption_for(scene, audience="adult"):
     """A date stamp plus one sentence: the written sentence for the
     scene, or nothing. Never cut, never borrowed."""
     stamp = scene.get("date_label") or str(scene.get("from_year"))
-    stored = (scene.get("caption_sentence") or {}).get("text", "")
-    return (stamp, stored)
+    stored = scene.get("caption_sentence") or {}
+    if audience == "child":
+        return (stamp, (stored.get("child") or {}).get("text", ""))
+    return (stamp, stored.get("text", ""))
 
 
 def source_site(url) -> str:
@@ -174,16 +179,16 @@ def dated(scenes) -> list:
             and not states.is_age_range(s.get("date_label", ""))]
 
 
-def build_timeline(scenes, images, claims) -> list:
+def build_timeline(scenes, images, claims, audience="adult") -> list:
     """Contiguous segments: title, anchor, one era per painting, today, end."""
     plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
     plan.append({"kind": "anchor", "start": TITLE_S, "end": TITLE_S + ANCHOR_S})
     eras = [s for s in dated(scenes)
-            if str(s["from_year"]) in images and filmable(s, claims)]
+            if str(s["from_year"]) in images and filmable(s, claims, audience)]
     t = TITLE_S + ANCHOR_S
     for position, scene in enumerate(eras):
         year = scene["from_year"]
-        stamp, sentence = caption_for(scene)
+        stamp, sentence = caption_for(scene, audience)
         plan.append({"kind": "era", "year": year,
                      "date_label": scene.get("date_label", str(year)),
                      "image": images[str(year)], "start": t, "end": t + ERA_S,
@@ -217,14 +222,18 @@ def served_era_name(key, src) -> str:
 
 def write_film(out_dir, research, images, photo, photo_credit,
                era_files=None, photo_file=None,
-               cutout_file=None, photo_year=None, own_photo=False, cache=None):
+               cutout_file=None, photo_year=None, own_photo=False, cache=None,
+               folder="film", audience="adult", sibling=None):
     """film.json plus film.html plus copied assets under out_dir/film/.
 
     Paintings ship byte-identical in their original format, so the
     model's provenance signal survives; the visible AI label stays.
     Built in a fresh staging folder, then published over film/ in
     one swap, so a re-render never leaves a stale asset behind and a
-    failed one keeps the last good film."""
+    failed one keeps the last good film. The children's film is a
+    second complete folder (folder="film/child") linked both ways
+    through the sibling field, which the player turns into its
+    Adults/Children switch."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix="film.staging-", dir=out_dir))
@@ -232,13 +241,15 @@ def write_film(out_dir, research, images, photo, photo_credit,
         _build_film(staging, research, images, photo, photo_credit,
                     era_files=era_files,
                     photo_file=photo_file, cutout_file=cutout_file,
-                    photo_year=photo_year, own_photo=own_photo, cache=cache)
+                    photo_year=photo_year, own_photo=own_photo, cache=cache,
+                    audience=audience, sibling=sibling)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    final = out_dir / "film"
+    final = out_dir / folder
+    final.parent.mkdir(parents=True, exist_ok=True)
     if final.exists():
-        aside = out_dir / "film.retired"
+        aside = final.parent / (final.name + ".retired")
         if aside.exists():
             shutil.rmtree(aside, ignore_errors=True)
         final.rename(aside)
@@ -256,18 +267,19 @@ def write_film(out_dir, research, images, photo, photo_credit,
 def _build_film(film_dir, research, images, photo, photo_credit,
                 era_files=None, photo_file=None,
                 cutout_file=None, photo_year=None, own_photo=False,
-                cache=None):
+                cache=None, audience="adult", sibling=None):
     """Write one complete film folder; write_film publishes it."""
     name = research["object"]["name"]
     claims = research.get("claims", [])
     scenes = dated(research.get("scenes", []))
-    plan = build_timeline(research.get("scenes", []), images, claims)
+    plan = build_timeline(research.get("scenes", []), images, claims,
+                          audience=audience)
     film_scenes = []
     for scene in scenes:
         key = str(scene["from_year"])
-        if key not in images or not filmable(scene, claims):
+        if key not in images or not filmable(scene, claims, audience):
             continue
-        stamp, sentence = caption_for(scene)
+        stamp, sentence = caption_for(scene, audience)
         stored = scene.get("caption_sentence") or {}
         cited = None
         if stored.get("text") and stored.get("claim_year") is not None:
@@ -283,7 +295,8 @@ def _build_film(film_dir, research, images, photo, photo_credit,
     if research.get("timings", {}).get("identify_steps", {}).get("overpass_s") is not None:
         attribution.append("© OpenStreetMap contributors")
     painted = [s for s in scenes
-               if str(s["from_year"]) in images and filmable(s, claims)]
+               if str(s["from_year"]) in images
+               and filmable(s, claims, audience)]
     last = painted[-1] if painted else {"from_year": "today", "state": {}}
     today_line, today_sub = today_card(photo_year, own_photo, last, claims)
     first = (research.get("scenes", []) or [{}])[0]
@@ -295,7 +308,8 @@ def _build_film(film_dir, research, images, photo, photo_credit,
             "attribution": attribution,
             "ai_label": "Painted scenes are AI imagery, checked against verified sources.",
             "sources": end_sources(research.get("claims", []), cache),
-            "segments": plan, "scenes": film_scenes}
+            "segments": plan, "scenes": film_scenes,
+            "audience": audience, "sibling": sibling}
     (film_dir / "film.json").write_text(json.dumps(film, indent=1))
     template = (Path(__file__).parent / "film.html").read_text()
     embedded = json.dumps(film).replace("</", "<\\/")

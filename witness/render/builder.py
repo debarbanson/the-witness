@@ -34,17 +34,20 @@ def refusal_reason(scene, claims, audience="adult") -> str | None:
     evidence = stored.get("evidence") or {}
     if not evidence.get("claim") or not evidence.get("url") or not evidence.get("quote"):
         return "no evidence reference"
-    for claim in claims:
-        if (claim.get("year") == stored.get("claim_year")
-                and claim.get("url") == evidence["url"]):
-            if not filmed(claim):
-                return "its claim is no longer supported"
-            if claim.get("quote") != evidence["quote"]:
-                return "its claim changed since the caption was written"
-            if audience == "child" and not (stored.get("child") or {}).get("text"):
-                return "no children's sentence"
-            return None
-    return "its claim is gone from the research"
+    same_page = [claim for claim in claims
+                 if claim.get("year") == stored.get("claim_year")
+                 and claim.get("url") == evidence["url"]]
+    if not same_page:
+        return "its claim is gone from the research"
+    matched = [claim for claim in same_page
+               if claim.get("quote") == evidence["quote"]]
+    if not matched:
+        return "its claim changed since the caption was written"
+    if not filmed(matched[0]):
+        return "its claim is no longer supported"
+    if audience == "child" and not (stored.get("child") or {}).get("text"):
+        return "no children's sentence"
+    return None
 
 
 def caption_for(scene, audience="adult"):

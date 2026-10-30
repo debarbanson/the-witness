@@ -147,6 +147,22 @@ def test_adult_caption_ignores_the_childrens_sentence():
     assert sentence == "Adult words for 1779."
 
 
+def test_refusal_matches_the_claim_by_its_quote():
+    made = scene(1932, sentence="I burnt down.")
+    made["caption_sentence"]["evidence"]["quote"] = "Second quote here."
+    made["caption_sentence"]["evidence"]["claim"] = "second thing"
+    claims = [
+        {"year": 1932, "url": "https://a.example/x", "verdict": "supported",
+         "claim": "first thing", "quote": "First quote here."},
+        {"year": 1932, "url": "https://a.example/x", "verdict": "supported",
+         "claim": "second thing", "quote": "Second quote here."},
+    ]
+    assert builder.refusal_reason(made, claims) is None
+    made["caption_sentence"]["evidence"]["quote"] = "Edited afterwards."
+    assert (builder.refusal_reason(made, claims)
+            == "its claim changed since the caption was written")
+
+
 def test_child_film_refuses_a_scene_without_a_childrens_sentence():
     scenes = [child_scene(1779, "Little mill words."),
               scene(1865, sentence="Adult words.")]

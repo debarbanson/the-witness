@@ -107,6 +107,17 @@ def test_child_caption_judges_with_object_and_year_context():
     assert seen["judged"] == "In 1779, De Adriaan: I opened long ago."
 
 
+def test_claim_for_line_matches_scene_order_not_research_order():
+    claims = [
+        {"year": 1932, "url": "https://a.example/x", "quote": "Zebra quote.",
+         "claim": "zebra thing"},
+        {"year": 1932, "url": "https://a.example/x", "quote": "Apple quote.",
+         "claim": "apple thing"},
+    ]
+    assert children.claim_for_line(
+        claims, 1932, "https://a.example/x")["quote"] == "Apple quote."
+
+
 def test_child_caption_checks_a_bound_passage():
     seen = {}
 

@@ -51,8 +51,12 @@ def child_caption(rewrite_call, support_call, adult, source, url,
 
 
 def claim_for_line(claims, year, url):
-    """The verified claim a caption line came from, first match."""
-    for claim in claims:
+    """The verified claim a caption line came from: lines are built
+    from the first claim in (year, claim) order, so the lookup walks
+    the same order."""
+    ordered = sorted(claims, key=lambda c: (c.get("year", 0),
+                                            c.get("claim", "")))
+    for claim in ordered:
         if claim.get("year") == year and claim.get("url") == url:
             return claim
     return None

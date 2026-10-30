@@ -573,10 +573,33 @@ def job(**overrides):
 
 
 def test_judge_single_vote_supported():
-    result = verify.judge_claim(scripted_support("supported"), job())
+    result = verify.judge_claim(
+        scripted_support("supported"), job(),
+        completion_respond=lambda p: answered_with({"completed": True}))
     assert result["verdict"] == "supported"
     assert result["completed"] is True
     assert len(result["rounds"]) == 1
+
+
+def test_failed_completion_check_marks_incomplete():
+    def fail(prompt):
+        raise TimeoutError("synthetic transport failure")
+
+    result = verify.judge_claim(
+        scripted_support("supported"), job(), completion_respond=fail)
+    assert result["verdict"] == "supported"
+    assert result["completed"] is False
+    assert "failed" in result["completion_note"]
+
+
+def test_cancel_is_not_converted_to_unverified():
+    from witness import models
+
+    def cancelled(prompt):
+        raise models.JobCancelled("synthetic cancel")
+
+    with pytest.raises(models.JobCancelled):
+        verify.verify_all(cancelled, [("claim", ["s"])], max_workers=1)
 
 
 def test_judge_majority_of_three_wins():
@@ -656,7 +679,7 @@ def test_judge_skips_completion_when_asked():
     assert asked == []
 
 
-def test_judge_completion_failure_keeps_claim_with_note():
+def test_judge_completion_malformed_marks_incomplete():
     def completion(prompt):
         raise verify.VerifyError("bad json")
 
@@ -664,7 +687,7 @@ def test_judge_completion_failure_keeps_claim_with_note():
                                 job(event="burnt", detail="Burnt down."),
                                 completion_respond=completion)
     assert result["verdict"] == "supported"
-    assert result["completed"] is True
+    assert result["completed"] is False
     assert result["completion_note"] is not None
 
 

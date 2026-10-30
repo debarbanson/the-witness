@@ -426,6 +426,57 @@ def test_job_search_budget_blocks_further_calls():
             models.respond(FakeClient(), models.RESEARCH, input="hi")
 
 
+def test_cancel_stops_paid_calls_before_they_run():
+    calls = []
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls.append(1)
+            return {"usage": {}}
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    control = models.JobControl()
+    control.cancel()
+    with models.job_control(control=control):
+        with pytest.raises(models.JobCancelled):
+            models.respond(FakeClient(), models.VERIFY, input="hi")
+    assert calls == []
+
+
+def test_deadline_stops_paid_calls():
+    class FakeResponses:
+        def create(self, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("past-deadline call ran")
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    with models.job_control(deadline_s=-1):
+        with pytest.raises(models.JobDeadlineExceeded):
+            models.respond(FakeClient(), models.VERIFY, input="hi")
+
+
+def test_control_reaches_worker_threads():
+    from concurrent.futures import ThreadPoolExecutor
+
+    control = models.JobControl()
+    control.cancel()
+    seen = []
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        with models.job_control(control=control):
+            future = models.submit_context(pool, models._check_control)
+            try:
+                future.result()
+            except models.JobCancelled:
+                seen.append(1)
+    finally:
+        pool.shutdown(wait=True)
+    assert seen == [1]
+
+
 def test_nested_job_ledger_shares_one_ledger():
     models.reset_usage()
     with models.job_ledger() as outer:

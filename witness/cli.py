@@ -311,24 +311,29 @@ def refresh_film(kept) -> tuple:
 
 
 @models.with_job_ledger
+@models.with_job_control
+@models.catch_job_halt
 def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             cache=None, verify_with="baseten", progress=None, quiet=False,
             compare_support=False,
             on_identified=None, on_facts=None, on_claim=None, on_scene=None,
-            location=None, out_dir="out", visitor="cli") -> dict:
+            location=None, out_dir="out", visitor="cli", control=None,
+            deadline_s=1800) -> dict:
     """One job for the web and both commands: identify, research,
     verify. No input; no print when quiet; milestones via progress.
     Only free facts fetch while `decide` confirms the identified
     object; paid research waits for yes, so a refusal spends nothing
-    beyond identify.
+    beyond identify. Every path confirms, cache hits included; an
+    absent decide callback is a programming error, never a yes.
     Hooks fire per identify, facts, judged claim and ready scene.
     Returns the result; callers save and report."""
     if decide is None:
-        decide = lambda found: True
+        raise ValueError("run_job needs an explicit decide callback")
     if progress is None:
         progress = (lambda event, data: None) if quiet else cli_progress
     if cache is None and not no_cache:
         cache = Cache("out/cache")
+    models._check_control()
     if models._DAILY is not None:
         try:
             models._DAILY.admit(visitor)
@@ -376,12 +381,20 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(reviewed, indent=2, ensure_ascii=False))
             progress("cached", {"slug": slug, "kind": "reviewed"})
+            if not decide(found):
+                progress("declined", {"spent_tokens": 0})
+                return {"confirmed": False, "identified": True,
+                        "cached": False, "spent": 0}
             return {"confirmed": True, "identified": True, "cached": "reviewed",
                     "slug": slug, "found": found, "order": order,
                     "result": reviewed.get("outcome", {})}
         film = cached_film(slug, lang, out_dir)
         if film is not None:
             progress("cached", {"slug": slug, "kind": "film"})
+            if not decide(found):
+                progress("declined", {"spent_tokens": 0})
+                return {"confirmed": False, "identified": True,
+                        "cached": False, "spent": 0}
             return {"confirmed": True, "identified": True, "cached": "film",
                     "slug": slug, "found": found, "order": order,
                     "result": film.get("outcome", {}),
@@ -545,6 +558,21 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             "comparison": comparison, "tokens": tokens, "cost_usd": cost}
 
 
+def report_halted(result) -> int | None:
+    """CLI lines for a capped, cancelled or over-deadline job. Returns
+    the exit code, or None when the job ran its course."""
+    if result.get("capped"):
+        print(f"capped; stopping ({result.get('error', 'spending cap')})")
+        return 2
+    if result.get("cancelled"):
+        print("cancelled; stopping")
+        return 2
+    if result.get("deadline"):
+        print("job deadline passed; stopping")
+        return 2
+    return None
+
+
 def report_not_identified(result) -> None:
     """CLI lines for a failed identify, shared by both commands."""
     if result["error_kind"] == "quota":
@@ -680,6 +708,9 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                              on_identified=on_identified, on_facts=on_facts,
                              on_claim=on_claim, on_scene=on_scene,
                              location=location, out_dir=out_dir)
+            halted = report_halted(result)
+            if halted is not None:
+                return halted
             if not result["identified"]:
                 report_not_identified(result)
                 return 2
@@ -755,6 +786,12 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                         f"film ready at {result['timings']['total_s']} s, playback pauses: {pauses}")
             print(line)
             return 0
+    except models.JobCancelled:
+        print("cancelled; stopping")
+        return 2
+    except models.JobDeadlineExceeded:
+        print("job deadline passed; stopping")
+        return 2
     finally:
         if paint_pool is not None:
             paint_pool.shutdown(wait=True, cancel_futures=True)
@@ -773,6 +810,9 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
                      progress=progress, quiet=False,
                      compare_support=(verify_with == "both"),
                      location=location, out_dir=out_dir)
+    halted = report_halted(result)
+    if halted is not None:
+        return halted
     if not result["identified"]:
         report_not_identified(result)
         return 2

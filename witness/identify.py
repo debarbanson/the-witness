@@ -309,7 +309,7 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
                 if confirmed is None:
                     confirmed = parse_second_look(respond(_look_prompt(candidate, near), photo_bytes))
                     if confirmed is None:
-                        confirmed = True  # chatter never rejects, as before
+                        confirmed = False  # twice unreadable is not a yes
                 look_elapsed += time.perf_counter() - started
                 if confirmed:
                     chosen, confidence = candidate, pick.get("confidence", "")

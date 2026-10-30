@@ -428,7 +428,8 @@ def judge_claim(support_respond, job, search_respond=None, completion_respond=No
             completed = check_completion(
                 completion_respond or support_respond, job["claim"], winner.get("quote", "")
             )["completed"]
-        except Exception as exc:  # noqa: BLE001 - completion qualifies; support decides
+        except Exception as exc:  # noqa: BLE001 - support decides; failure is not completion
+            completed = False
             completion_note = f"completion check failed: {exc}"
     return {
         "verdict": winner["verdict"],

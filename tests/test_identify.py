@@ -962,6 +962,19 @@ def test_second_look_retries_unparseable_answer(tmp_path):
     assert script == []
 
 
+def test_two_unparseable_second_looks_reject_the_pick(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    respond, calls = _look_script(["Hard to say", "Still unsure"])
+    with pytest.raises(identify.NotIdentifiedError) as exc_info:
+        identify.identify(photo, post=post, get=routed(), respond=respond,
+                          sleep=lambda s: None)
+    assert "rejected every pick" in str(exc_info.value)
+    # two looks per pick attempt, two attempts, both rejected
+    assert sum(1 for c in calls if c.startswith("Second look")) == 4
+
+
 def test_single_no_per_pick_rejects_everything(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)

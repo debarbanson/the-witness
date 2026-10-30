@@ -993,6 +993,77 @@ def test_film_cached_without_paintings_refuses(tmp_path, monkeypatch, capsys):
     assert "opens instantly" not in capsys.readouterr().out
 
 
+def test_capped_result_does_not_crash_film(tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "run_job", lambda *a, **k: {
+        "identified": True, "confirmed": True, "cached": False,
+        "capped": True, "error": "daily spending cap reached"})
+    code = cli_module.cmd_film("unused", yes=True,
+                               out_dir=str(tmp_path / "out"))
+    assert code == 2
+    assert "cap" in capsys.readouterr().out
+
+
+def test_cancelled_result_does_not_crash_film_or_research(
+        tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "run_job", lambda *a, **k: {
+        "identified": False, "confirmed": False, "cached": False,
+        "cancelled": True, "error": "job cancelled"})
+    assert cli_module.cmd_film("unused", yes=True,
+                               out_dir=str(tmp_path / "out")) == 2
+    assert cli_module.cmd_research("unused", yes=True,
+                                   out_dir=str(tmp_path / "out")) == 2
+    assert "cancelled" in capsys.readouterr().out
+
+
+def test_reviewed_cache_asks_decide(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from witness import cli as cli_module
+    from witness.cache import Cache
+
+    _stub_job(monkeypatch)
+    decisions = []
+    cache = Cache(str(tmp_path / "cache"))
+    cache.put_reviewed("Q1", "en", {"outcome": {"outcome": "short_film"}})
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"),
+        decide=lambda found: decisions.append(found.name) or False,
+        no_cache=False, cache=cache, verify_with="meta", progress=None,
+        quiet=True, out_dir=str(tmp_path / "out"))
+    assert decisions == ["Test Mill"]
+    assert result["confirmed"] is False
+
+
+def test_pre_cancelled_job_returns_cancelled(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    _stub_job(monkeypatch)
+    control = models.JobControl()
+    control.cancel()
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), decide=lambda found: True,
+        no_cache=True, verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"), control=control)
+    assert result["cancelled"] is True
+    assert result["confirmed"] is False
+
+
+def test_absent_decide_is_not_yes(tmp_path, monkeypatch):
+    import pytest
+    from witness import cli as cli_module
+
+    _stub_job(monkeypatch)
+    with pytest.raises(ValueError):
+        cli_module.run_job(
+            str(tmp_path / "photo.jpg"), no_cache=True,
+            verify_with="meta", progress=None, quiet=True,
+            out_dir=str(tmp_path / "out"))
+
+
 def test_run_job_admits_before_paid_identify(tmp_path, monkeypatch):
     from witness import cli as cli_module
     from witness import models

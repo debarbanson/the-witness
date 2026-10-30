@@ -33,6 +33,18 @@ class AccountingError(ModelError):
     """Spending accounting is unavailable or corrupt; fail closed."""
 
 
+class JobCancelled(BaseException):
+    """The visitor cancelled the job (a closed tab cancels it).
+
+    BaseException on purpose, like asyncio cancellation: per-claim and
+    per-paint guards must not convert it into dropped work. Only the
+    job entry point catches it, into an honest cancelled result."""
+
+
+class JobDeadlineExceeded(BaseException):
+    """The job ran past its deadline; same handling as cancelled."""
+
+
 # Prices verified 29 Oct 2026 against
 # https://dev.meta.ai/docs/pricing-rate-limits (Meta) and the Baseten
 # grant terms ($1.25 per M tokens in and out).
@@ -187,6 +199,84 @@ def _admit_call() -> None:
             f"job web-search budget spent ({SEARCH_BUDGET_PER_JOB}); stopping")
 
 
+class JobControl:
+    """One job's cancel token plus deadline, shared by every thread."""
+
+    def __init__(self, deadline_s=None):
+        import threading
+        import time as _time
+
+        self._time = _time
+        self._cancelled = threading.Event()
+        self.deadline = (None if deadline_s is None
+                         else _time.monotonic() + deadline_s)
+
+    def cancel(self) -> None:
+        """Cancel the job; in-flight calls finish, nothing new starts."""
+        self._cancelled.set()
+
+    def check(self) -> None:
+        if self._cancelled.is_set():
+            raise JobCancelled("job cancelled")
+        if self.deadline is not None and self._time.monotonic() > self.deadline:
+            raise JobDeadlineExceeded("job deadline passed")
+
+
+_CONTROL: contextvars.ContextVar = contextvars.ContextVar(
+    "witness_job_control", default=None)
+
+
+def _check_control() -> None:
+    """Raise when the job was cancelled or ran past its deadline."""
+    control = _CONTROL.get()
+    if control is not None:
+        control.check()
+
+
+@contextlib.contextmanager
+def job_control(deadline_s=None, control=None):
+    """Run under a job control (an explicit control wins over a fresh
+    deadline). Worker threads inherit it through submit_context."""
+    owned = control if control is not None else JobControl(deadline_s)
+    token = _CONTROL.set(owned)
+    try:
+        yield owned
+    finally:
+        _CONTROL.reset(token)
+
+
+def with_job_control(fn):
+    """Run a job entry point under its control: the `control` kwarg
+    when given, else a fresh `deadline_s` (default 30 minutes)."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with job_control(kwargs.get("deadline_s", 1800),
+                         kwargs.get("control")):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def catch_job_halt(fn):
+    """Turn a halted job into an honest result dict instead of a crash."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except JobCancelled as exc:
+            return {"confirmed": False, "identified": False, "cached": False,
+                    "cancelled": True, "error": str(exc)}
+        except JobDeadlineExceeded as exc:
+            return {"confirmed": False, "identified": False, "cached": False,
+                    "deadline": True, "error": str(exc)}
+
+    return wrapper
+
+
 def _paid_call(spec, response, ticket=None):
     """Record one finished paid call on the job ledger and reconcile
     the reservation with the authority. Failures never reach here."""
@@ -207,6 +297,7 @@ def respond(client, spec, **kwargs):
     if spec.temperature is not None:
         kwargs["temperature"] = spec.temperature
     _bound_output("max_output_tokens", spec, kwargs)
+    _check_control()
     _admit_call()
     ticket = _DAILY.reserve(spec.ceiling_usd) if _DAILY is not None else None
     try:
@@ -227,6 +318,7 @@ def chat(client, spec, messages, **kwargs):
     if spec.temperature is not None:
         kwargs["temperature"] = spec.temperature
     _bound_output("max_tokens", spec, kwargs)
+    _check_control()
     _admit_call()
     ticket = _DAILY.reserve(spec.ceiling_usd) if _DAILY is not None else None
     try:

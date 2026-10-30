@@ -253,6 +253,17 @@ def test_chat_injects_model_and_temperature():
     assert call["messages"] == [{"role": "user", "content": "hi"}]
 
 
+def test_open_model_output_bound_covers_reasoning_plus_answer():
+    assert models.VERIFY_OPEN.max_output_tokens >= 8192
+
+
+def test_chat_answer_reports_a_reasoning_cutoff():
+    cut = chat_answer(None, reasoning="thinking" * 1000)
+    cut["choices"][0]["finish_reason"] = "length"
+    with pytest.raises(models.ModelError, match="cut off"):
+        models.chat_answer(cut)
+
+
 def test_chat_answer_separates_reasoning_and_counts_tokens():
     parsed = models.chat_answer(chat_answer("final", reasoning="thinking", prompt=10, completion=5))
     assert parsed["content"] == "final"

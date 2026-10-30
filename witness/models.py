@@ -143,7 +143,10 @@ VERIFY_OPEN = ModelSpec(
     workers=10,
     timeout=180,  # the open model always reasons, so votes run longer
     ceiling_usd=0.10,
-    max_output_tokens=2048,
+    # The bound covers reasoning plus the answer: the model thinks for
+    # thousands of tokens before a short verdict, and a 2048 bound cut
+    # it off mid-thought with no answer at all (30 Oct probe).
+    max_output_tokens=8192,
 )
 
 
@@ -484,15 +487,22 @@ def chat(client, spec, messages, **kwargs):
 def chat_answer(response) -> dict:
     """Final answer text, reasoning kept separate, token counts."""
     if isinstance(response, dict):
-        message = response["choices"][0]["message"]
-        content = message.get("content", "")
-        reasoning = message.get("reasoning_content", "")
+        choice = response["choices"][0]
+        message = choice["message"]
+        content = message.get("content") or ""
+        reasoning = message.get("reasoning_content", "") or ""
         usage = response.get("usage", {}) or {}
+        cut_off = choice.get("finish_reason") == "length"
     else:
-        message = response.choices[0].message
+        choice = response.choices[0]
+        message = choice.message
         content = message.content or ""
         reasoning = getattr(message, "reasoning_content", "") or ""
         usage = _usage_dict(getattr(response, "usage", None))
+        cut_off = getattr(choice, "finish_reason", None) == "length"
+    if cut_off and not content:
+        raise ModelError(
+            "answer cut off: the output bound was spent on reasoning")
     return {"content": content, "reasoning": reasoning, "usage": usage}
 
 

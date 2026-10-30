@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -220,11 +221,44 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
                era_files=None, layer_files=None, photo_file=None,
                cutout_file=None, photo_year=None, own_photo=False, cache=None):
     """film.json plus film.html plus copied assets under out_dir/film/.
+
     Paintings are served as JPEG; layers and the cut-out stay PNG for
-    their transparency."""
+    their transparency. Built in a fresh staging folder, then
+    published over film/ in one swap, so a re-render never leaves a
+    stale asset behind and a failed one keeps the last good film."""
     out_dir = Path(out_dir)
-    film_dir = out_dir / "film"
-    film_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix="film.staging-", dir=out_dir))
+    try:
+        _build_film(staging, research, images, photo, photo_credit, layers,
+                    era_files=era_files, layer_files=layer_files,
+                    photo_file=photo_file, cutout_file=cutout_file,
+                    photo_year=photo_year, own_photo=own_photo, cache=cache)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    final = out_dir / "film"
+    if final.exists():
+        aside = out_dir / "film.retired"
+        if aside.exists():
+            shutil.rmtree(aside, ignore_errors=True)
+        final.rename(aside)
+        try:
+            staging.rename(final)
+        except BaseException:
+            aside.rename(final)
+            raise
+        shutil.rmtree(aside, ignore_errors=True)
+    else:
+        staging.rename(final)
+    return final
+
+
+def _build_film(film_dir, research, images, photo, photo_credit, layers,
+                era_files=None, layer_files=None, photo_file=None,
+                cutout_file=None, photo_year=None, own_photo=False,
+                cache=None):
+    """Write one complete film folder; write_film publishes it."""
     name = research["object"]["name"]
     claims = research.get("claims", [])
     scenes = dated(research.get("scenes", []))

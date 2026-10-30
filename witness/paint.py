@@ -256,7 +256,7 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
     for attempt in range(max_tries):
         try:
             result = call(prompt, prev_id,
-                          photo_bytes if attempt == 0 else None)
+                          photo_bytes if prev_id is None else None)
         except PaintSafetyError:
             continue
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film

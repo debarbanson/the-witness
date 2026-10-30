@@ -1,6 +1,7 @@
 """Step 7: the renderer builds a live film page. No live calls."""
 
 import json
+from pathlib import Path
 
 from witness.render import builder
 
@@ -320,6 +321,7 @@ class _FakeProc:
         self.closed = False
         self.code = code
         self.stdin = self
+        self.target = None
 
     def write(self, data):
         self.frames.append(data)
@@ -327,7 +329,18 @@ class _FakeProc:
     def close(self):
         self.closed = True
 
-    def wait(self):
+    def wait(self, timeout=None):
+        if self.target is not None:
+            Path(self.target).write_bytes(b"fake-mp4")
+        return self.code
+
+    def terminate(self):
+        pass
+
+    def kill(self):
+        pass
+
+    def poll(self):
         return self.code
 
 
@@ -335,9 +348,13 @@ def _stub_recording(monkeypatch, page, proc):
     import playwright.sync_api
     from witness.render import record
 
+    def popen(cmd, **kwargs):
+        proc.target = cmd[-1]
+        return proc
+
     monkeypatch.setattr(playwright.sync_api, "sync_playwright",
                         lambda: _FakePlaywright(page))
-    monkeypatch.setattr(record.subprocess, "Popen", lambda *a, **k: proc)
+    monkeypatch.setattr(record.subprocess, "Popen", popen)
 
 
 def test_record_waits_for_ready_and_decoded_frames(tmp_path, monkeypatch):
@@ -370,6 +387,86 @@ def test_record_raises_when_ffmpeg_fails(tmp_path, monkeypatch):
     _stub_recording(monkeypatch, _FakePage(), _FakeProc(code=1))
     with pytest.raises(subprocess.CalledProcessError):
         record.record(tmp_path / "film.html", tmp_path / "film.mp4")
+
+
+def test_rerender_leaves_no_stale_cutout(tmp_path):
+    from PIL import Image
+
+    cutout = tmp_path / "synthetic.png"
+    Image.new("RGBA", (8, 8)).save(cutout)
+    research = {"object": {"name": "Tower"}, "scenes": []}
+    builder.write_film(tmp_path / "job", research, {}, "today.jpg", "", {},
+                       cutout_file=cutout)
+    film = builder.write_film(tmp_path / "job", research, {}, "today.jpg",
+                              "", {}, cutout_file=None)
+    assert json.loads((film / "film.json").read_text())["cutout"] is None
+    assert not (film / "cutout.png").exists()
+    assert list((tmp_path / "job").glob("film.staging-*")) == []
+
+
+def test_record_publishes_mp4_only_on_success(tmp_path, monkeypatch):
+    from witness.render import record
+
+    (tmp_path / "film.html").write_text("<html></html>")
+    (tmp_path / "film.json").write_text(json.dumps(
+        {"segments": [{"kind": "end", "start": 0, "end": 0.03}]}))
+    proc = _FakeProc()
+    _stub_recording(monkeypatch, _FakePage(), proc)
+    out = record.record(tmp_path / "film.html", tmp_path / "film.mp4")
+    assert proc.target != str(tmp_path / "film.mp4")
+    assert proc.target.endswith(".mp4.partial")
+    assert Path(out).read_bytes() == b"fake-mp4"
+    assert list(tmp_path.glob("*.mp4.partial")) == []
+
+
+def test_record_failure_leaves_no_mp4_and_kills_everything(
+        tmp_path, monkeypatch):
+    import subprocess
+
+    import pytest
+
+    from witness.render import record
+
+    (tmp_path / "film.html").write_text("<html></html>")
+    (tmp_path / "film.json").write_text(json.dumps(
+        {"segments": [{"kind": "end", "start": 0, "end": 0.1}]}))
+
+    class DyingPage(_FakePage):
+        def evaluate(self, js):
+            raise RuntimeError("synthetic browser death")
+
+    class KillingProc(_FakeProc):
+        def __init__(self):
+            super().__init__(0)
+            self.killed = []
+
+        def terminate(self):
+            self.killed.append("terminate")
+
+        def kill(self):
+            self.killed.append("kill")
+
+        def poll(self):
+            return None if "kill" not in self.killed else 0
+
+    closed = []
+    proc = KillingProc()
+
+    class ClosingPlaywright(_FakePlaywright):
+        def close(self):
+            closed.append(True)
+
+    import playwright.sync_api
+
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright",
+                        lambda: ClosingPlaywright(DyingPage()))
+    monkeypatch.setattr(record.subprocess, "Popen", lambda *a, **k: proc)
+    with pytest.raises(RuntimeError):
+        record.record(tmp_path / "film.html", tmp_path / "film.mp4")
+    assert not (tmp_path / "film.mp4").exists()
+    assert list(tmp_path.glob("*.mp4.partial")) == []
+    assert closed == [True]
+    assert proc.killed[0] == "terminate"
 
 
 def test_scene_site_falls_back_to_year_claims():

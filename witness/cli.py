@@ -1607,9 +1607,22 @@ def cmd_layers(slug, mode="parallel", tag=None, call_sam=None, out_dir="out"):
     return 0
 
 
+def job_dir(root="out") -> Path:
+    """A random private directory for one job: unpredictable names,
+    owner-only permissions, never shared between visitors."""
+    import secrets
+
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"job-{secrets.token_hex(8)}"
+    path.mkdir(mode=0o700)
+    path.chmod(0o700)
+    return path
+
+
 def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
                layers_dir=None, photo_credit="", segment_call=None,
-               own_photo=False, out_dir="out"):
+               own_photo=False, out_dir="out", cache=None):
     """Build the live film page from kept research plus paintings.
 
     Only manifest entries marked matches or recovered are filmed;
@@ -1669,7 +1682,7 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         era_files=era_files, layer_files=layer_files,
         photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None,
         photo_year=photo_year, own_photo=own_photo,
-        cache=Cache("out/cache"))
+        cache=cache or Cache("out/cache"))
     film = json.loads((film_dir / "film.json").read_text())
     total = film["segments"][-1]["end"]
     print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, {total} s)")

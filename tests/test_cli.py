@@ -1344,6 +1344,43 @@ def test_film_with_corrupt_photo_refuses(tmp_path, monkeypatch, capsys):
     assert "bad photo" in capsys.readouterr().out
 
 
+def test_job_dirs_are_random_and_private(tmp_path):
+    import os
+    from witness import cli as cli_module
+
+    first = cli_module.job_dir(tmp_path)
+    second = cli_module.job_dir(tmp_path)
+    assert first != second
+    assert oct(os.stat(first).st_mode & 0o777) == "0o700"
+
+
+def test_render_uses_separate_knowledge_cache(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+    from witness.cache import Cache
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo = _render_fixture(tmp_path)
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+    research_path = out_dir / "research.json"
+    research = json.loads(research_path.read_text())
+    research["claims"] = [
+        {"year": 1850, "verdict": "supported", "claim": "stood",
+         "url": "https://a.example/x",
+         "quote": "I opened my doors to the town that spring."}]
+    research_path.write_text(json.dumps(research))
+    separate = Cache(tmp_path / "knowledge")
+    separate.put("https://a.example/x",
+                 "I opened my doors to the town that spring. In 1850, witnesses agree.")
+    code = cli_module.cmd_render("q1-test", str(photo),
+                                 era_dir="eras_parallel_b1",
+                                 cache=separate)
+    assert code == 0
+    film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert [entry["url"] for entry in film["sources"]] == ["https://a.example/x"]
+
+
 def test_render_without_manifest_refuses(tmp_path, monkeypatch):
     from witness import cli as cli_module
 

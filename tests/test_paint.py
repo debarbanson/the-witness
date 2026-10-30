@@ -28,6 +28,22 @@ def test_scene_prompt_names_year_state_surroundings_and_framing():
     assert "not as it looks today" in prompt
 
 
+def test_aftermath_retry_keeps_photo_without_predecessor():
+    seen = []
+
+    def call(prompt, prev, image):
+        seen.append(image is not None)
+        if len(seen) == 1:
+            raise paint.PaintSafetyError("synthetic refusal")
+        return {"image": b"fake", "response_id": "synthetic"}
+
+    result = paint.paint_aftermath(call, lambda *a: "MATCHES", {
+        "from_year": 1900, "state": {"condition": "burnt"}}, "Tower", "Town",
+        photo_bytes=b"synthetic image")
+    assert result["verdict"] == "matches"
+    assert seen == [True, True]
+
+
 def test_scene_prompt_without_municipality_reads_clean():
     prompt = paint.scene_prompt(
         scene(1850, "standing", "The mill stands whole."), "Mill", "")

@@ -1,4 +1,4 @@
-"""Step 3a: choose at most 7 scenes for a 40 to 60 second film.
+"""Step 3a: choose at most 4 scenes for a film of about 35 seconds.
 
 State changes first, then the strongest surroundings periods, today last.
 Dropped periods survive only as caption lines inside a neighbouring scene.
@@ -8,7 +8,7 @@ Pure function of the timeline and the verified claims.
 from witness import states
 from witness.verify import refused
 
-LIMIT = 7
+LIMIT = 4
 
 
 def choose_scenes(timeline, claims, limit=LIMIT):

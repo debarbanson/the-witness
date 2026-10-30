@@ -1,4 +1,4 @@
-"""Step 3a: choose at most 7 scenes. Pure logic."""
+"""Step 3a: choose at most 4 scenes. Pure logic."""
 
 from witness import scenes
 
@@ -31,7 +31,7 @@ def test_small_timeline_keeps_every_state_change_plus_today():
 def test_many_states_capped_with_first_and_last_kept():
     timeline = [seg(1800 + i * 10, 1810 + i * 10, "standing", f"change-{i}") for i in range(10)]
     chosen = scenes.choose_scenes(timeline, [claim(1800 + i * 10) for i in range(10)])
-    assert len(chosen) == 7
+    assert len(chosen) == 4
     assert chosen[0]["from_year"] == 1800
     assert chosen[-2]["from_year"] == 1890
     assert chosen[-1]["from_year"] == "today"
@@ -51,7 +51,7 @@ def test_dropped_periods_become_caption_lines():
     claims = [claim(1800 + i * 10, f"happened-{i}") for i in range(10)]
     chosen = scenes.choose_scenes(timeline, claims)
     lines = [line for s in chosen for line in s["caption_lines"]]
-    assert len(lines) == 4  # 10 state years, 6 kept as scenes
+    assert len(lines) == 7  # 10 state years, 3 kept as scenes
     assert any("happened" in line["line"] for line in lines)
     # Each line sits on its nearest kept scene.
     for scene in chosen:
@@ -82,8 +82,8 @@ def test_refused_claims_are_neither_scenes_nor_lines():
 
 
 def test_caption_lines_prefer_vague_date_text():
-    timeline = [seg(1900 + i * 10, 1910 + i * 10) for i in range(6)]
-    claims = [claim(1900 + i * 10) for i in range(6)]
+    timeline = [seg(1900 + i * 10, 1910 + i * 10) for i in range(3)]
+    claims = [claim(1900 + i * 10) for i in range(3)]
     claims.append(claim(1026, "built: thought to be 800 years old.", "about 800 years old"))
     lines = [line for s in scenes.choose_scenes(timeline, claims) for line in s["caption_lines"]]
     assert len(lines) == 1

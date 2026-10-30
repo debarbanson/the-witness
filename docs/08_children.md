@@ -22,22 +22,22 @@ It is not an education chatbot (an anti-project in the hackathon rules): there i
 
 After the film, one painted era is shown next to the user's own photo of today: "Find 5 things that changed!"
 
-1. **Pick the pair:** the era whose painting differs most from today in visible ways (transport, lighting, clothing, buildings), preferring an era before 1950.
-2. **Find the differences (Muse Spark, vision):** `muse-spark-1.3` gets both images and returns up to 5 differences, each with a short child-friendly label and the approximate region in each image (normalised boxes).
+1. **Pick the pair:** the era whose painting differs most from today in visible ways (transport, lighting, clothing, buildings): the starkest contrast wins.
+2. **Find the differences (Muse Spark, vision):** `muse-spark-1.3` gets both images and returns 3 to 5 differences, each with a short child-friendly label, the approximate region in each image (normalised boxes) and the verified state change it shows, quoted exactly.
 3. **Check them:** a difference may only describe what is visible in both images; differences in the object itself must match its verified state for that era (step 5). Anything unverifiable is dropped.
 4. **Play:** the child taps where they see a change; a found difference lights up in both images with its label. "Show me" reveals the rest.
 
 ## Pipeline changes
 
 - **Step 2/3:** after verification, write the children's captions from the verified claims, then verify each again against its source sentence.
-- **Step 4:** paint the children's eras from the same anchor with the picture-book style words (TEST: one style chain or a restyle of the adult paintings, whichever keeps the object more consistent). Both versions are cached.
+- **Step 4:** paint a second set from the same anchor with picture-book style words, from the same verified states. Both versions are cached.
 - **Step 5:** the visual check applies to the children's paintings too.
 - **New step 5b:** spot the difference, as above.
 - **Step 7:** the renderer takes an audience setting (`adult` or `child`) for captions, style and the ending.
 
 ## On the web page
 
-- A switch on the start screen and on the finished film: "For adults / For children". Switching after the film is made shows the other version as soon as it is ready (both are made together, so usually at once).
+- A switch on the finished film: "Adults / Children". It loads the sibling film in the other audience (both are made together, so usually at once).
 - The spot-the-difference game runs in the browser, works with taps on a phone, and needs no account.
 
 ## In the demo

@@ -4,6 +4,10 @@ Probed 26 October 2026 with `identify` and `research --place ... --lang en`
 on one Wikimedia Commons photo each (CC0, public domain or CC BY). Photos
 live in `samples/` (git-ignored); each is reproducible from its file page.
 
+Dates below follow the run records (file timestamps in `out/`), not the
+commit dates: the evening batch of 27 October was first headed 28 October
+and is corrected here.
+
 ## Photos
 
 | Object | Commons file | Licence |
@@ -741,7 +745,7 @@ crown/regalia contents edge and claim splitting for
 burials. Painting blockers: none that silently mistates;
 the open items cost scenes or retries, not false eras.
 
-## Block 1: deterministic fast verify (28 October)
+## Block 1: deterministic fast verify (27 October, evening)
 
 All 12 re-ran with the cache off on the Block 1 code (literal-quote
 fast path, Wikidata build anchor, film-order check): 11 full films,
@@ -817,7 +821,7 @@ card time is identify-bound (vision twice plus busy retries on bad
 runs); speculative confirm overlaps research with the user's
 hesitation only in interactive mode.
 
-## Blocks 3 and 4: painting and the painting check (28 October)
+## Blocks 3 and 4: painting and the painting check (27 October, evening)
 
 De Adriaan painted from one kept reviewed research run, both modes.
 Chain: 5 of 6 in 195 s (1932 safety-blocked). Parallel (every era
@@ -851,7 +855,7 @@ painting prompt only (1982 recovered live after the cut), block retry
 Check on Baseten vision agrees with Meta 6 for 6 on De Adriaan (6 to
 13 s a check); the check stays on Meta, Baseten stays an option.
 
-## Additions 1 and 2: scene 1 from the anchor; pause metric (28 Oct)
+## Additions 1 and 2: scene 1 from the anchor; pause metric (27 October, evening)
 
 Scene 1 paints from the anchor the moment the anchor verifies
 against article text (photo on the first turn, no separate anchor),
@@ -885,7 +889,7 @@ pauses, but starts are late (buffer waits for slow scenes); the one
 live pause (De Adriaan 1932) came from filter retries, not the
 verify tail. No checks were cut.
 
-## Block 5: swap, licence, cost (28 October)
+## Block 5: swap, licence, cost (27 October, evening)
 
 Parliament swapped for the Szechenyi Chain Bridge (CC0 portrait,
 keeps Budapest and Hungarian coverage): full film, 5 verified, 5
@@ -906,4 +910,35 @@ against their source sentences, 3 of 6 scene states (drops honest:
 state detail spanning sentences cannot re-verify against one).
 Figure layers: 22 SAM person cut-outs across 4 of 6 eras (1932
 ruins and 2002 small figures found none), saved per era for
-parallax. One layer viewed: clean cut-out.
+parallax. One layer viewed: clean cut-out. (Figure layers are
+since cut from the film; see Planned in docs/02_pipeline.md.)
+
+## Open-weights support eval (30 October)
+
+Twelve hand-labelled cases through the production Baseten path
+(`baseten_support_respond`, one vote each, completion off): 4 plain
+supports, 2 negations, 2 wrong-object, 2 disputed-date, 2 partial
+support. The strict rule decides: only a literal quote bound to a
+fetched passage accepts.
+
+| Group | Cases | Right |
+|---|---|---|
+| Plain support | 4 | 1 |
+| Negation | 2 | 2 |
+| Wrong object | 2 | 2 |
+| Disputed date | 2 | 2 |
+| Partial support | 2 | 2 |
+| **Total** | **12** | **9** |
+
+Precision on accepts is 100%: zero false accepts, so nothing
+unproven reaches a film. The 3 misses are all false rejects where
+the model judged a paraphrase ("shifted inland, rolling on rails"
+for "moved inland on rails") as non-support; those scenes drop
+honestly rather than risk a wrong one. Single votes were measured;
+production best-of-three may recover some, unmeasured.
+
+Latency: mean 15.3 s a vote, max 40.9 s (the open model reasons
+before it answers). Cost: 69,144 tokens over 21 calls for $0.086,
+about $0.007 a vote at $1.25 per M tokens in and out. Meta
+fallback rate: 0 of 12 (the fallback fired in production runs on
+length cutoffs before the output bound was raised to 16384).

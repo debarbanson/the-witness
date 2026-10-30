@@ -6,11 +6,17 @@ dependencies = [
     "openai",
     "meta_sam_parser",
     "Pillow",
-    "requests",
+    "httpx",
+    "fastapi",
+    "modal",
+    "playwright",
 ]
 
+# System tools, not pip packages: ffmpeg (8.x) and a Playwright
+# Chromium (playwright install chromium) for MP4 recording.
+
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "pip-audit"]
 
 [build-system]
 requires = ["setuptools"]

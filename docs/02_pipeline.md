@@ -31,9 +31,9 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
    - **Article languages per candidate (from the Wikidata sitelinks):** the language of the country where the photo was taken (local Wikipedias know local history best), the user's own language, and English as a fallback.
    - **Reliability:** Overpass returned 502 twice on 26 Oct. One fast try per instance (about 5 s) and identify moves on without it; coordinate lookups stay in memory and are never written to the disk cache.
    - Fair use (OSM wiki, checked 26 Oct): under 10,000 queries and 1 GB a day, a `User-Agent` naming the app, no parallel scripts, cache results, and wait 30 s after a 429 ([Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API)).
-2. **Rank by distance; camera direction is a tie-breaker only.** **Proven 26 Oct:** the owner's photo said 201 degrees while the tower stood at bearing 5 (the camera was pointed upwards, where the compass is unreliable), so direction ranking put the right answer last. Rank by distance, use `GPSImgDirection` only to break ties, and drop candidates whose centre lies beyond the radius (a municipal boundary matched `around` but sat 1,113 m away). Keep the top 5; the vision pick chose correctly from them.
+2. **Rank with quality signals, not distance alone.** Each candidate is scored on distance, notability (Wikidata sitelink count), kind and name match; parts merge into their whole where Wikidata says part-of. Camera direction is a tie-breaker only (**proven 26 Oct:** the owner's photo said 201 degrees while the tower stood at bearing 5, so direction ranking put the right answer last). Drop candidates whose centre lies beyond the radius. Keep the top 10.
 3. **Typed place to coordinates (Nominatim), fallback only.** At most 1 request per second, a `User-Agent` naming the app, results cached, attribution shown; no autocomplete ([usage policy](https://operations.osmfoundation.org/policies/nominatim/)).
-4. **Pick the match (Muse Spark, vision).** `muse-spark-1.3` gets the photo and the ranked candidates (names, kinds, distances, bearings) and returns the best match with a confidence, or "none of these" (then the user types the name). The photo is sent re-encoded, without EXIF.
+4. **Pick the match (Muse Spark, vision).** `muse-spark-1.3` gets the photo and the ranked candidates (names, kinds and descriptions only: no distances, no bearings) and returns the best match with a confidence, or "none of these" (then the user types the name). A second look asks "does this photo show a \<kind\>?" before the pick is accepted. The photo is sent re-encoded, without EXIF.
 5. **Confirm with the user.** "Is this De Adriaan, Haarlem?" Yes, or a correction, before any research runs. The confirmed name, place and Wikidata or Wikipedia link (when present) seed step 2.
 6. OpenStreetMap attribution ("© OpenStreetMap contributors") appears on the end card when OSM data was used.
 
@@ -52,7 +52,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 - Meta notes multi-hop research is less dependable, so ask **one lifespan question** covering the build year and the object's own life (extended, damaged, burnt, demolished, moved, restored, rebuilt), with years. This gives its **state per era**.
 - Each dated event in the answer becomes a claim: `{era, year, kind: "object" | "surroundings", claim, quote_span, sources[]}`. Sources are pooled per answer: every claim from one answer shares its deduped source list. A claim with no `url_citation` is discarded.
 - **Structured facts first (Wikidata, free).** Before any web search, read the confirmed object's Wikidata item (`action=wbgetentities`): inception (P571), architect (P84), significant events (P793, with point in time), demolished or destroyed (P576), heritage designation (P1435), and the image and Commons category (P18, P373). Each dated statement becomes a claim whose source is the Wikidata item URL plus any references on the statement. These seed the state timeline; web search fills in and confirms.
-- **Languages:** sources may be in any language; the research reads the local-language and the user's-language articles first (from step 0). Captions are written in the user's language (on the web page, from the browser's language setting; on the command line, `--lang`, default English). Source links keep their original language.
+- **Languages:** sources may be in any language; the research reads the local-language article first, then English. Captions are English only (other languages are planned).
 - From the object claims, build a state timeline: `{from_year, to_year, state}` where a state is what you would see standing in front of the object: a condition from a fixed list (`under_construction`, `standing`, `damaged`, `burnt`, `ruin`, `rebuilt`, `moved`, `demolished`), a degree (`partial` or `total`), a scope (`whole` or `part`), and a free sourced description of the visible change. One meaning question decides state vs caption: does this change what the object physically looks like? Non-physical history (architect, listing, rename, plans) stays as captions (for example De Adriaan: standing 1779 to 1932; ruin 1932 to 1999; under construction 1999 to 2002; rebuilt from 2002).
 - **Proven 26 Oct:** `web_search` plus structured output works in one call, with the Responses API spelling `text: {"format": {"type": "json_schema", ...}}`. Read the last message only: earlier messages narrate the tool use ("I will research..."). The answer still carries `url_citation` annotations.
 - Research prompts tell the model not to narrate its steps.
@@ -60,18 +60,17 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 
 ## Step 3: Verify (agentic check)
 
-- For each claim, a support call gets the claim and the fetched source passages (never snippets alone) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. Support runs on the open-weights Muse Spark Open via Baseten by default, with Meta fallback per call; research, vision, the search fallback and completion stay on Meta. Web search runs only when no passage was fetched.
+- For each claim, a support call gets the claim and the fetched source passages (never snippets) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. The first two votes run in parallel; a third runs only when they disagree. A model-side web search runs only when no passage was fetched.
 - A deterministic precheck (the claim's year and key words in one passage) sends an `unsupported` answer to a second confrontation judgement instead of accepting it.
 - A literal quote beats a vote. When a support answer quotes a sentence that really appears in the fetched passages (checked in code after normalising whitespace and quotes) and that sentence carries the claim's year and key terms, the claim is supported with no further vote. A quoted answer is never outvoted by quoteless ones.
 - Wikidata anchors the build year. An inception (P571) or official opening (P1619) date with a reference is the fixed build claim; research may add claims but never a second construction year, neither contradicting the anchor nor duplicating it. The anchor is confirmed by a sentence pairing its year with a construction word in the fetched article text (ten languages read; others fall back to a vote), so it holds on every run.
 - Claims verify in film order: the build anchor first, then earliest year first, so the first scene is ready first.
 - The anchor claim and every claim that would set a state get best of three, with every round kept in `research.json`; temperature 0 steadies the calls (probed 27 Oct; `seed` is not in the SDK surface).
 - Completion ("did it really happen?") is asked separately, only for state-setting claims and claims whose own text raises doubt.
-- Only `supported` claims reach the film; `partly` claims are rewritten to what the source says and count only through the rewrite.
+- Only `supported` claims reach the film. `partly` means no: there is no rewrite path, and a partly supported claim counts as unverified. Every accepted claim rests on a literal quote in a fetched passage, bound to that passage's URL; search snippets are never evidence.
 - The same pass applies the content rules from [03_accuracy.md](03_accuracy.md): war, political events and living private persons are filtered out.
 - Owner-reviewed research is kept per object and language, so a demo film never changes between runs; stability itself is measured with the cache off.
-- Model: `muse-spark-1.3`; **TEST** whether `muse-wonder-1.0` (agentic, text out) gives better judgements for the extra cost.
-- **Open-weights option (planned).** Baseten credits were requested on 26 Oct to run this verification step, and the visual check in step 5, on Meta's open-weights model Muse Spark Open (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; Baseten's OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`). Build `verify.py` and `check.py` with the model behind one small setting (provider, base URL, model id, key name), so switching is configuration, not code. Default: the Meta Model API. This targets the "Best Build on Meta Open Weight Models" prize.
+- Support checks run on the open-weights Muse Spark Open via Baseten by default (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`), with per-call Meta fallback. Research, vision, the search fallback and completion stay on Meta (`muse-spark-1.3`). Measured 30 Oct on a 12-case hand-labelled set: 9 of 12 right, zero false accepts, 15 s mean vote latency, $0.007 a vote, no fallbacks (docs/07_test_set.md). This targets the "Best Build on Meta Open Weight Models" prize.
 
 ## Step 3a: Choose the scenes
 
@@ -94,10 +93,10 @@ Never fill a gap by inventing. After verification, count what is left and choose
 | **Too little for a film** | Fewer than 3 verified claims | No film. One card with the verified facts and their sources, and two ways forward (below) |
 | **Not identified** | Step 0 found no match and the user's name for it finds nothing | An honest message; never a film about the wider area presented as the object |
 
-Ways forward when there is too little:
+Ways forward when there is too little (planned, not built):
 
 - **Add a source.** The user pastes a link (a local history society, a municipal page). It goes through steps 2 and 3 like any other source, and the outcome is recounted.
-- **Tell what you know.** The user records or types what they know. A recording is transcribed with `muse-voice-transcribe-1.0` (`POST /v1/asr/transcribe`). It is shown labelled "told by <name>", never as a verified fact, and never counted towards the thresholds above.
+- **Tell what you know.** The user records or types what they know. It is shown labelled "told by <name>", never as a verified fact, and never counted towards the thresholds above.
 
 The thresholds are first guesses; tune them on the demo subjects.
 
@@ -111,10 +110,7 @@ Pattern from Meta's cookbook [Keep an image series consistent](https://dev.meta.
 - **Era turns:** the object's verified state for that year (from the state timeline) plus the verified surroundings (season, period dress and transport) and the shared style words. The object is painted as it was then: whole, burnt, a stump, under scaffolding, rebuilt.
 - **Settings go inside the image tool** (proven 26 Oct; top-level parameters return 400 `unknown parameter`): `tools: [{"type": "image_generation", "size": "1024x1536", "enable_image_search": false}]`. `"1080x1920"` and `"1024x1792"` are rejected; `"1024x1536"` returns 1280x1920, which the renderer crops to 1080x1920.
 - `enable_image_search: false`: its sources are not surfaced, so it cannot back citations, and it could pull images we hold no rights to ([image generation](https://dev.meta.ai/docs/image-generation.md)).
-- **Historical reference images (free; public domain, CC0 or CC BY).** A real photo of the object from an earlier era makes that era's painting far more accurate, and it becomes a source the film can show ("painted from a photograph of 1935").
-  - **Wikimedia Commons:** the files in the object's Commons category (Wikidata P373) and its main image (P18), via the MediaWiki API (`prop=imageinfo&iiprop=url|extmetadata`). Use a file only if its licence is public domain, CC0 or CC BY (`LicenseShortName` in extmetadata; keep `Artist` and `LicenseUrl` for the credit), and take its date from the metadata.
-  - **Europeana** (European collections): the Search API with a free key (`wskey`, in `.env.local` as `EUROPEANA_API_KEY`) and `reusability=open`, keeping only items whose rights statement is public domain (PDM), CC0 or CC BY. **Proven 26 Oct:** `reusability=open` also returns CC BY-SA, so the rights filter must run in our code on every item. Europeana may limit heavy use (HTTP 429), and keys may not be shared. Keys are personal: the owner registers for one.
-  - Each reference is passed as an `input_image` on the era turn whose date it matches, and logged in `sources.md` with its URL, date and licence.
+- **Historical reference images: planned, not built.** A real photo of the object from an earlier era would make that era's painting far more accurate ("painted from a photograph of 1935"). The probes proved the sources: the files in the object's Commons category (Wikidata P373) via the MediaWiki API, and Europeana with `reusability=open` (proven 26 Oct to also return CC BY-SA, so the rights filter must run in our code). Licence rule when built: public domain, CC0 or CC BY only, CC BY credited by author, licence and link.
 
 ## Free sources, and their rules
 
@@ -125,8 +121,8 @@ Every source outside the Meta API is free. They ask for good manners, which the 
 | OpenStreetMap Overpass | Nearby candidates | None | User-Agent naming the app, under 10,000 queries a day, no parallel calls, cache, 30 s pause after 429 |
 | Nominatim | Typed place to coordinates | None | At most 1 request per second, User-Agent, cache, attribution, no autocomplete |
 | Wikidata and Wikipedia (MediaWiki API) | Nearby items, structured facts, articles | None | User-Agent with contact details, one request per site at a time (the two geosearch calls run in parallel on different hosts), cache, back off on `ratelimited` ([etiquette](https://www.mediawiki.org/wiki/API:Etiquette), [User-Agent policy](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy)) |
-| Wikimedia Commons | Historical reference images | None | As Wikidata; public domain, CC0 or CC BY files only, CC BY credited by author, licence and link |
-| Europeana | Historical reference images | Free personal key | A personal key is for "individual, non-production use": use it for building and for the demo films; the public web page uses Commons only unless a Europeana project key is granted. Key never shared or committed. All API use is logged; reasonable limits (429). Use each image only as its own `edm:rights` statement allows (public domain, CC0 or CC BY here), keep its rights URL and provider link with it, credit the provider, and remove an image on Europeana's request ([terms of use](https://www.europeana.eu/en/rights/terms-of-use)) |
+| Wikimedia Commons | Reference images, planned | None | As Wikidata when built; public domain, CC0 or CC BY files only, CC BY credited by author, licence and link |
+| Europeana | Reference images, planned | Free personal key | A personal key is for "individual, non-production use". Key never shared or committed. Use each image only as its own `edm:rights` statement allows, keep its rights URL and provider link with it, credit the provider, and remove an image on Europeana's request ([terms of use](https://www.europeana.eu/en/rights/terms-of-use)) |
 
 The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson/the-witness)`. Wikimedia's policy accepts a website as the contact, so no email address goes into public code.
 - **Consistency, measured 28 Oct:** branching every era from the anchor holds the object's centre within 0.3 percent of the frame (3.6 percent for the serial chain).
@@ -157,42 +153,50 @@ The period-figure layers are cut from this version. The object cut-out from step
 
 ## Time budget per film
 
-A visitor will not watch a spinner for minutes, but will wait about two minutes if every few seconds brings something worth seeing. Targets (our judgement, to be measured; step timings are logged per object):
+The finished film plays with honest progress and a timer while it is made. Targets (step timings are logged per object; end-to-end times are measured on staging):
 
 | Moment | What the user sees | Target |
 |---|---|---|
 | Object recognised | "Is this De Adriaan, Haarlem?" | within 15 s |
-| The story | The verified timeline, each fact with its source, readable while the rest is made | within 60 s of confirming |
-| The paintings | Eras appear one by one in the timeline | first within 90 s, all within 2 min |
-| The film | Plays in the browser | within 2 to 3 min of confirming |
-| Any moment | Never more than 10 to 15 s without visible progress | always |
+| The film | Plays in the browser | within a few minutes of confirming |
+| Any moment | Honest progress with a timer, never more than 10 to 15 s without it | always |
 
 How the budget is met:
 
-- **Research and verify in 60 to 90 s:** choose the scenes before verifying, verify in parallel, lighter reasoning for checks, cache (steps 2, 3 and 3a).
-- **Paint in 30 to 60 s:** parallel eras branched from the anchor (step 4), checks in parallel (step 5).
+- **Verify in parallel:** the first two votes run together, a third only on disagreement; claims verify in film order (steps 3 and 3a).
+- **Paint in parallel:** all eras branch from the anchor at once (step 4), checks run together (step 5).
 - **No rendering wait:** the film plays in the browser; MP4 only on request (step 7).
-- **Cache per object:** a researched and painted object (Wikidata id plus language) is kept, so the next visitor of the Eiffel Tower gets the film at once. For the demo, famous objects open instantly, while a judge's own photo runs live.
+- **Cache per object:** reviewed research and paintings are kept by Wikidata id, so a known object opens at once.
 
-## Cost per film (estimate from the published prices)
+Measured 30 Oct: one Baseten support vote takes 15 s on average (12-case eval, votes=1). At about 2 votes per claim over a dozen claims, verification alone is a few minutes; staging measures the whole.
 
-| Item | Count | Cost |
+## Cost per film (modelled 30 Oct from the price table and measured call counts)
+
+Prices live in `witness/models.py`: Muse Spark $1.25 per M tokens in, $4.25 out; Baseten open-weights $1.25 per M in and out; Muse Image $0.01 a picture; SAM $0.0025 a picture; web search $0.0025 a search. A measured Baseten support vote costs $0.007.
+
+| Item | Count per adult film | Cost |
 |---|---|---|
-| Web searches | ~12 | ~$0.03 |
-| Muse Spark tokens | ~150k in, ~20k out | ~$0.27 |
-| Muse Image | ~8 images | ~$0.08 |
-| SAM 3.1 | ~10 images | ~$0.03 |
-| **Total** | | **under $0.50** |
+| Research (Meta, with ~12 searches) | 1 call | ~$0.10 |
+| Support votes (Baseten) | ~25 | ~$0.18 |
+| Paintings | anchor + up to 4 eras | ~$0.05 |
+| Painting and caption checks (Meta vision) | ~8 | ~$0.05 |
+| SAM cut-out | 1 | under $0.01 |
+| **Adult total** | | **about $0.30 to $0.50** |
+| Children's extra (paintings, checks, captions, game) | ~10 calls | ~$0.12 to $0.15 |
+
+Every billable call reserves its ceiling with one budget authority before it runs; the web page refuses new films past the daily quota.
 
 ## Output layout
 
 ```
 out/<slug>/
-  object.png  mask.png
   research.json       claims with sources and verdicts
-  eras/<n>.webp       painted eras, raw
-  layers/<n>/*.png    figure layers
-  film.mp4  sources.md
+  eras_parallel_strict/<year>.png   painted eras, raw
+  film/
+    film.html film.json   the finished film and its evidence
+    era_<year>.webp       served paintings
+    today.jpg             the visitor's photo, cleaned
+    film.mp4              only when requested
 ```
 
 ## Planned (cut from this version)
@@ -203,14 +207,10 @@ out/<slug>/
 - Automatic reference images from Commons or Europeana.
 - Films of 5 to 7 scenes.
 
-## Streaming (28 Oct)
+## Streaming (cut 29 Oct)
 
-Cut from the viewing experience; the build still verifies in film order and paints scenes as their claims land. The rule that guards quality: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
+The 28 Oct streaming experiment is cut from the viewing experience and from the build. The rule that guards quality stands: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
 
-1. Opening card within seconds. Confirm the object and a card appears over the user's own photo: name, kind and "I have stood here since {year}". The year is the Wikidata build anchor, already verified, so the card needs no model call. Without an anchor the year line is omitted, never guessed. A historical photo joins the card only from a licence-checked cache.
-2. Speculative start. Facts, research and job building start while the user still looks at "Is this X?". On no the work is thrown away and its token cost is logged; on yes the wait is already over.
-3. Film order. Claims verify anchor-first then chronological, and each claim's completion streams out; when every checked claim of a draft scene is judged, that scene is verified and painting starts on it.
-4. Buffer playback. Cut: the finished film plays straight through instead.
-5. Scene events. A ready scene emits number, year, captions with sources and image path. Known objects open instantly from reviewed or cached research.
-
-New measures: time to the opening card, time to the first painted scene (target 60 s, aim 30 s) and time to the full film.
+- The opening card, the speculative start during confirm (it spent about $0.55 on visitors who said no) and buffer playback are gone. Only free facts fetch while the visitor decides; a refusal spends nothing beyond identify.
+- The build still verifies in film order (anchor first, then chronological) and paints scenes as their claims land, but the film plays only when finished, with honest progress and a timer meanwhile.
+- Known objects open instantly from reviewed research and paintings.

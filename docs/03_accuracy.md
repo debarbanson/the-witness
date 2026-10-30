@@ -3,7 +3,7 @@
 ## No source, no claim
 
 1. Every caption in a film comes from a claim with at least one `url_citation`.
-2. Every claim passes the verification step: the source text must support it. Unsupported claims are dropped, partly supported ones are rewritten to what the source says.
+2. Every claim passes the verification step: the source text must support the complete claim. Unsupported and partly supported claims are dropped; "partly" means no. Every accepted claim rests on a literal quote inside a page we fetched, bound to that page's URL. Search snippets are never evidence.
 3. **Source quality.** Encyclopedias (Wikipedia, Wikidata), heritage registers, official sites of the object or its owner or municipality, newspapers, archives and books count as sources. User-written and aggregator sites (review sites such as Tripadvisor, place and booking aggregators such as AroundUs and GetYourGuide, forums, social media) may confirm a claim but never stand alone as its only source.
    - **Quality is judged on the sources that support the claim,** not on every source listed. A claim whose supporting text is found only on a weak source (for example the water tower's 1990 storm, found only on Tripadvisor) is not verified, even if a good source is also listed.
    - **A plan, promise or attempt is not an event.** "Haarlem took on the duty to rebuild in 1963; nothing happened" means the mill stayed a ruin. Only completed changes (built, burnt, demolished, restored, rebuilt, repurposed) change the object's state; plans and attempts may be captions, never states.
@@ -16,7 +16,8 @@
 
 - The painted eras are illustrations, not documents. The end card says so: "Scenes are AI-generated illustrations based on the sources listed."
 - Scene details (dress, transport, surroundings) follow the era in general; specific events are only depicted when a verified claim names them.
-- **The object is shown in its verified state for each era.** If it burned, it is shown burnt; if it was rebuilt, the rebuilt form appears from that year. With no sourced change, it keeps the form of the previous era. Each painting is checked against that state before it is used.
+- **The object is shown in its verified state for each era.** If it burned, it is shown burnt; if it was rebuilt, the rebuilt form appears from that year. With no sourced change, it keeps the form of the previous era. Each painting is checked against that state and the final caption before it is used.
+- Each final scene carries an immutable evidence reference (claim, URL, quote); the renderer refuses a scene without one. A caption sentence counts only when fully supported, rechecked after every rewrite.
 - The film ends on the user's own photo, the only photographic image in it.
 
 ## Excluded content
@@ -29,7 +30,7 @@
 
 - Each film carries a visible "AI-generated imagery" label on the end card.
 - Meta's provenance signals on generated images are never removed ([Acceptable Use Policy](https://dev.meta.ai/legal/acceptable-use-policy)).
-- Reference images are public domain, CC0 or CC BY only. CC BY images are credited by author, licence and link on the end card and in `sources.md`. Never CC BY-SA (share-alike could bind the film's own licence), NC or ND, and never an image without a clear licence.
+- Reference images are planned, not built. When built: public domain, CC0 or CC BY only. CC BY images are credited by author, licence and link on the end card. Never CC BY-SA (share-alike could bind the film's own licence), NC or ND, and never an image without a clear licence.
 
 ## Choosing demo subjects
 

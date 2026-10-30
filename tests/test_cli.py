@@ -220,6 +220,37 @@ def test_run_job_paints_no_blanked_visible_change(tmp_path, monkeypatch):
     assert scene["state"]["description"] == ""
 
 
+def test_run_job_refuses_a_war_subject_before_research(tmp_path, monkeypatch):
+    import types
+
+    from witness import cli as cli_module
+    from witness import identify as identify_module
+
+    _stub_job(monkeypatch)
+    found = _job_found()
+    object.__setattr__(found, "name", "War Memorial Park")
+    monkeypatch.setattr(
+        cli_module, "identify", types.SimpleNamespace(
+            identify=lambda *a, **k: found,
+            capture_year=identify_module.capture_year,
+            NoGpsError=identify_module.NoGpsError,
+            NotIdentifiedError=identify_module.NotIdentifiedError,
+            SourceError=identify_module.SourceError))
+
+    def bomb(respond, question):
+        raise AssertionError("research must not run for a refused object")
+
+    monkeypatch.setattr(cli_module.research, "ask_lifespan", bomb)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"))
+    assert result["confirmed"] is True
+    assert result["result"]["outcome"] == "too_little"
+    assert "war subject" in result["result"]["reason"]
+    assert result["chosen"] == []
+
+
 def test_cmd_children_writes_sentence_next_to_adult_one(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module
@@ -689,6 +720,61 @@ def test_draft_scenes_match_plan_scene_years():
     to_check, _ = plan_checks(kept)
     scene_years = {s["from_year"] for s in draft if isinstance(s["from_year"], int)}
     assert scene_years <= {c["year"] for c in to_check}
+
+
+def test_draft_scenes_carry_no_unverified_text():
+    from witness.cli import draft_scenes
+
+    made = kept_claim(1900, "rebuilt", "The tower was rebuilt.")
+    made["quote_span"] = "The tower was rebuilt with a golden roof."
+    made["visible_change"] = "Rebuilt with a golden roof."
+    draft = draft_scenes([made])
+    assert draft and draft[0]["from_year"] == 1900
+    assert draft[0]["state"]["description"] == ""
+    assert draft[0]["caption_lines"] == []
+
+
+def test_run_job_emits_only_filmed_scenes(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import research as research_module
+
+    _stub_job(monkeypatch)
+
+    def bombed(respond, question):
+        answer = _job_answer()
+        answer["events"][0]["event"] = "bombed"
+        answer["events"][0]["detail"] = "The mill was bombed in 1900."
+        return answer
+
+    monkeypatch.setattr(research_module, "ask_lifespan", bombed)
+    seen = {"scenes": []}
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"),
+        on_scene=lambda scene, number: seen["scenes"].append(scene))
+    assert 1900 not in {s["from_year"] for s in seen["scenes"]}
+    live = next(s for s in seen["scenes"] if s["from_year"] == 1920)
+    assert live["state"]["description"] == "mill whole and white again"
+    assert result["chosen"] and all(
+        s["from_year"] != 1900 for s in result["chosen"])
+
+
+def test_collect_era_files_skips_years_missing_from_the_film(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_stream"
+    era_dir.mkdir(parents=True)
+    (era_dir / "1944.png").write_bytes(b"fake-bytes")
+    chosen = [{"from_year": 1900, "caption_lines": [],
+               "caption_sentence": {"text": "I stood."}}]
+    (out_dir / "research.json").write_text("{}")
+    entries = [{"year": 1944, "verdict": "matches", "attempts": 1,
+                "caption": ""}]
+    files = cli_module.collect_era_files(out_dir, entries, chosen,
+                                         "eras_stream")
+    assert "1944" not in files
 
 
 def test_report_and_save_writes_research_json(tmp_path, monkeypatch):
@@ -2583,7 +2669,7 @@ def test_render_uses_separate_knowledge_cache(tmp_path, monkeypatch):
     research_path = out_dir / "research.json"
     research = json.loads(research_path.read_text())
     research["claims"] = [
-        {"year": 1850, "verdict": "supported", "claim": "stood",
+        {"year": 1850, "verdict": "supported", "claim": "opened in 1850",
          "url": "https://a.example/x",
          "quote": "I opened my doors to the town that spring."}]
     research_path.write_text(json.dumps(research))
@@ -2654,11 +2740,13 @@ def test_verify_wiring_meta_and_both():
     assert both["completion"] is cli_module.support_respond
 
 
-def test_judge_batch_uses_wiring_completion():
+def test_judge_batch_uses_wiring_completion(monkeypatch):
     import json as _json
 
     from witness import cli as cli_module
 
+    monkeypatch.setattr(cli_module.verify, "sentence_disputed",
+                        lambda *a, **k: False)
     seen = []
 
     quote = "The old mill was built in 1850 here by the river bank."
@@ -2794,6 +2882,10 @@ def _stub_job(monkeypatch, calls=None):
     monkeypatch.setattr(cli_module, "SourceTexts", _JobTexts)
     monkeypatch.setattr(cli_module, "support_respond", _job_respond)
     monkeypatch.setattr(cli_module, "baseten_support_respond", _job_respond)
+    # Stub pages are readable and undisputed; unreadable pages count as
+    # disputed (test_sentence_disputed_treats_an_unreadable_page_as_disputed).
+    monkeypatch.setattr(cli_module.verify, "sentence_disputed",
+                        lambda *a, **k: False)
 
 
 def test_research_question_uses_municipality_never_typed_place(tmp_path, monkeypatch):

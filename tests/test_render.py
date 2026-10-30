@@ -147,10 +147,10 @@ def test_adult_caption_ignores_the_childrens_sentence():
     assert sentence == "Adult words for 1779."
 
 
-def test_refusal_matches_the_claim_by_its_quote():
+def test_refusal_matches_the_claim_by_its_text():
     made = scene(1932, sentence="I burnt down.")
-    made["caption_sentence"]["evidence"]["quote"] = "Second quote here."
     made["caption_sentence"]["evidence"]["claim"] = "second thing"
+    made["caption_sentence"]["evidence"]["quote"] = "The sentence that supported it."
     claims = [
         {"year": 1932, "url": "https://a.example/x", "verdict": "supported",
          "claim": "first thing", "quote": "First quote here."},
@@ -158,9 +158,23 @@ def test_refusal_matches_the_claim_by_its_quote():
          "claim": "second thing", "quote": "Second quote here."},
     ]
     assert builder.refusal_reason(made, claims) is None
-    made["caption_sentence"]["evidence"]["quote"] = "Edited afterwards."
+    made["caption_sentence"]["evidence"]["claim"] = "renamed afterwards"
     assert (builder.refusal_reason(made, claims)
             == "its claim changed since the caption was written")
+
+
+def test_refusal_checks_every_matching_claim():
+    shared = "In 1900 the mill received new sails and a new cap from the town."
+    made = scene(1900, sentence="I got new sails.")
+    made["caption_sentence"]["evidence"]["claim"] = "Old claim the caption was written from"
+    other = {"year": 1900, "url": "https://a.example/x", "verdict": "supported",
+             "claim": "A different claim on the same sentence", "quote": shared}
+    stale = {"year": 1900, "url": "https://a.example/x", "verdict": "unsupported",
+             "claim": "Old claim the caption was written from", "quote": shared}
+    assert builder.refusal_reason(made, [other, stale]) == "its claim is no longer supported"
+    renamed = {"year": 1900, "url": "https://a.example/x", "verdict": "supported",
+               "claim": "Totally rewritten claim text", "quote": shared}
+    assert builder.filmable(made, [renamed]) is False
 
 
 def test_child_film_refuses_a_scene_without_a_childrens_sentence():
@@ -175,7 +189,7 @@ def test_child_film_refuses_a_scene_without_a_childrens_sentence():
 
 def test_child_film_keeps_the_adult_evidence_rule():
     made = child_scene(1779, "Little mill words.")
-    made["caption_sentence"]["evidence"]["quote"] = "Changed afterwards."
+    made["caption_sentence"]["evidence"]["claim"] = "Changed afterwards."
     claims = claims_for([scene(1779, sentence="Adult words for 1779.")])
     assert (builder.refusal_reason(made, claims, audience="child")
             == "its claim changed since the caption was written")
@@ -326,7 +340,8 @@ def test_filmable_refuses_a_changed_claim():
         "claim": "something happened in 1779",
         "url": "https://a.example/x",
         "quote": "The mill opened in 1779 after years of work."}
-    changed = kept_claim(quote="The mill opened in 1780 after years of work.")
+    changed = kept_claim()
+    changed["claim"] = "renamed afterwards"
     assert builder.filmable(made, [changed]) is False
     dropped = kept_claim()
     dropped["verdict"] = "unsupported"
@@ -349,58 +364,62 @@ class DictCache:
 LONG_QUOTE = "The old mill burnt down completely on the evening in question."
 
 
-def test_end_sources_dedupe_urls():
-    claims = [
-        {"url": "https://a.example/1", "quote": LONG_QUOTE, "verdict": "supported"},
-        {"url": "https://a.example/1", "quote": LONG_QUOTE, "verdict": "supported"},
-        {"url": "https://b.example/2", "quote": LONG_QUOTE, "verdict": "partly"},
-        {"url": "https://c.example/3", "quote": LONG_QUOTE, "verdict": "unsupported"},
-    ]
+def cited_scene(year, url):
+    made = scene(year, sentence=f"Words for {year}.", claim_url=url)
+    made["caption_sentence"]["evidence"]["sentence_url"] = url
+    return made
+
+
+def test_end_sources_list_only_filmed_scenes():
+    scenes = [cited_scene(1900, "https://a.example/1"),
+              cited_scene(1900, "https://a.example/1")]
+    claims = claims_for(scenes)
+    claims.append({"year": 1930, "url": "https://b.example/2",
+                   "verdict": "supported", "claim": "trimmed era",
+                   "quote": LONG_QUOTE})
     cache = DictCache({"https://a.example/1": f"Intro. {LONG_QUOTE} Outro.",
                        "https://b.example/2": f"Intro. {LONG_QUOTE} Outro."})
-    assert [entry["url"] for entry in builder.end_sources(claims, cache)] == [
+    assert [entry["url"] for entry in builder.end_sources(scenes, claims, cache)] == [
         "https://a.example/1"]
 
 
 def test_end_sources_carry_site_and_title():
-    claims = [
-        {"url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
-         "quote": LONG_QUOTE, "verdict": "supported"},
-    ]
-    cache = DictCache({"https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem":
-                       f"Intro. {LONG_QUOTE} Outro."})
-    (entry,) = builder.end_sources(claims, cache)
+    url = "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+    scenes = [cited_scene(1900, url)]
+    cache = DictCache({url: f"Intro. {LONG_QUOTE} Outro."})
+    (entry,) = builder.end_sources(scenes, claims_for(scenes), cache)
     assert entry["site"] == "Wikipedia"
     assert entry["title"] == "De Adriaan, Haarlem"
 
 
 def test_end_sources_prefers_the_pages_real_title():
     url = "https://example.com/tours-services/"
-    claims = [{"url": url, "quote": LONG_QUOTE, "verdict": "supported"}]
+    scenes = [cited_scene(1900, url)]
     cache = DictCache({url: f"Intro. {LONG_QUOTE} Outro.",
                        url + "#title": "Tours & Services | Mill"})
-    (entry,) = builder.end_sources(claims, cache)
+    (entry,) = builder.end_sources(scenes, claims_for(scenes), cache)
     assert entry["title"] == "Tours & Services | Mill"
 
 
 def test_end_sources_keeps_wikipedia_titles_from_the_url():
     url = "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
-    claims = [{"url": url, "quote": LONG_QUOTE, "verdict": "supported"}]
+    scenes = [cited_scene(1900, url)]
     cache = DictCache({url: f"Intro. {LONG_QUOTE} Outro.",
                        url + "#title": "De Adriaan, Haarlem - Wikipedia"})
-    (entry,) = builder.end_sources(claims, cache)
+    (entry,) = builder.end_sources(scenes, claims_for(scenes), cache)
     assert entry["title"] == "De Adriaan, Haarlem"
 
 
 def test_end_sources_comes_from_the_stored_bundle():
-    claims = [
-        {"url": "https://a.example/1", "quote": LONG_QUOTE, "verdict": "supported"},
-        {"url": "https://b.example/2", "quote": LONG_QUOTE, "verdict": "supported",
-         "war_politics_only": True},
-        {"url": "https://c.example/3", "quote": "", "verdict": "supported"},
-        {"url": "https://d.example/4", "quote": LONG_QUOTE, "verdict": "unsupported"},
-    ]
-    entries = builder.end_sources(claims, None)
+    kept = cited_scene(1900, "https://a.example/1")
+    refused = cited_scene(1900, "https://b.example/2")
+    refused["caption_sentence"]["evidence"]["claim"] = "war thing"
+    scenes = [kept, refused]
+    claims = claims_for([kept])
+    claims.append({"year": 1900, "url": "https://b.example/2",
+                   "verdict": "supported", "claim": "war thing",
+                   "quote": LONG_QUOTE, "war_politics_only": True})
+    entries = builder.end_sources(scenes, claims, None)
     assert [entry["url"] for entry in entries] == ["https://a.example/1"]
     assert entries[0]["site"] == "a.example"
     assert entries[0]["title"] == "1"
@@ -691,12 +710,14 @@ def test_record_failure_leaves_no_mp4_and_kills_everything(
     assert proc.killed[0] == "terminate"
 
 
-def test_scene_site_falls_back_to_year_claims():
-    assert builder.scene_site(
-        scene(1865), [{"year": 1865, "url": "https://nl.wikipedia.org/wiki/Y",
-                       "verdict": "supported"}]) == "Wikipedia"
-    assert builder.scene_site(scene(1865), [{"year": 1900, "url": "https://x.example/",
-                                             "verdict": "supported"}]) == ""
+def test_scene_site_uses_the_captions_own_evidence_url():
+    made = scene(1865, sentence="I stood.")
+    made["caption_sentence"]["evidence"]["sentence_url"] = \
+        "https://nl.wikipedia.org/wiki/Y"
+    assert builder.scene_site(made, [{"year": 1865,
+                                      "url": "https://x.example/",
+                                      "verdict": "supported"}]) == "Wikipedia"
+    assert builder.scene_site(scene(1865), []) == ""
 
 
 def test_caption_never_cuts_a_sentence():

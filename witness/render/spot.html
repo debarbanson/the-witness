@@ -48,7 +48,8 @@
 const game = JSON.parse(document.getElementById("spot-data").textContent);
 document.getElementById("then").src = game.era;
 document.getElementById("now").src = game.photo;
-document.getElementById("thencap").textContent = "Long ago, in " + game.year;
+document.getElementById("thencap").textContent =
+  "Long ago, in " + game.year + " (AI-painted)";
 document.getElementById("sub").textContent =
   "Tap a covered card when you spot it in the pictures.";
 const tiles = document.getElementById("tiles");

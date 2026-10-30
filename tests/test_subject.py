@@ -102,10 +102,6 @@ def test_refused_claims_match_no_caption():
 
 
 def test_refused_claims_never_become_sources():
-    class Cache:
-        def get(self, key):
-            return f"Intro. {key} quote here for provenance. Outro."
-
     for cases in (EN, NL):
         kept = case_claims(cases)
         for made in kept:
@@ -114,5 +110,44 @@ def test_refused_claims_never_become_sources():
             else:
                 made["url"] = "https://kept.example/x"
             made["quote"] = f"{made['url']} quote here for provenance."
-        urls = [entry["url"] for entry in builder.end_sources(kept, Cache())]
+        filmed_scenes = [{
+            "from_year": made["year"], "date_label": str(made["year"]),
+            "state": {"condition": "standing"}, "caption_lines": [],
+            "caption_sentence": {
+                "text": f"Words for {made['year']}.",
+                "claim_year": made["year"], "claim_url": made["url"],
+                "evidence": {"claim": made["claim"], "url": made["url"],
+                             "quote": made["quote"]}}}
+            for made in kept]
+        urls = [entry["url"]
+                for entry in builder.end_sources(filmed_scenes, kept, None)]
         assert urls == ["https://kept.example/x"]
+
+
+def test_flag_content_marks_the_theme_in_four_languages():
+    assert verify.flag_content("The regiment shelled the mill.") == {"war"}
+    assert verify.flag_content("The council nationalised the mill.") == {"politics"}
+    assert verify.flag_content("The mill's political history is long.") == {"politics"}
+    assert verify.flag_content("Het regiment beschoot de molen.") == {"war"}
+    assert verify.flag_content("De gemeente nationaliseerde de molen.") == {"politics"}
+    assert verify.flag_content("Das Regiment beschoss die Mühle im Krieg.") == {"war"}
+    assert verify.flag_content("Die Wahl des Bürgermeisters war knapp.") == {"politics"}
+    assert verify.flag_content("Le régiment a bombardé le moulin pendant la guerre.") == {"war"}
+    assert verify.flag_content("L'élection du maire a fait débat.") == {"politics"}
+    assert verify.flag_content("The mill was restored in 1960.") == set()
+
+
+def test_flag_content_treats_survival_as_a_mention_not_a_theme():
+    assert verify.flag_content("The mill survived the war undamaged.") == set()
+    assert verify.flag_content("De molen overleefde de oorlog onbeschadigd.") == set()
+    assert verify.flag_content("Die Mühle überstand den Krieg unbeschadet.") == set()
+    assert verify.flag_content("Le moulin a survécu à la guerre intact.") == set()
+    assert verify.flag_content("The mill was bombed in the war.") == {"war"}
+
+
+def test_object_gate_refuses_war_and_politics_subjects():
+    assert verify.object_refused("War Memorial", "memorial", "") == {"war"}
+    assert verify.object_refused("Oorlogsmonument", "monument", "") == {"war"}
+    assert verify.object_refused("Hungarian Parliament Building", "parliament", "") == {"politics"}
+    assert verify.object_refused("Reichstag", "parliament building", "") == {"politics"}
+    assert verify.object_refused("De Adriaan", "windmill", "") == set()

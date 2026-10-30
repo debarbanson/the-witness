@@ -68,7 +68,19 @@ def test_thin_evidence_returns_facts_only(tmp_path, monkeypatch):
     def fake_run(*args, **kwargs):
         return {"confirmed": True, "identified": True, "cached": False,
                 "slug": "q1-mill", "found": found, "order": ["en"],
-                "kept": [{"year": 1850, "claim": "stood"}],
+                "kept": [{"year": 1850, "claim": "stood",
+                          "verdict": "supported",
+                          "url": "https://a.example/x",
+                          "quote": "The mill stood in 1850."},
+                         {"year": 1860, "claim": "bombed",
+                          "verdict": "supported",
+                          "war_politics_only": True,
+                          "url": "https://a.example/y",
+                          "quote": "The mill was bombed in 1860."},
+                         {"year": 1870, "claim": "maybe",
+                          "verdict": "unsupported",
+                          "url": "https://a.example/z",
+                          "quote": "Nothing here."}],
                 "timeline": [], "chosen": [],
                 "result": {"outcome": "too_little"}, "timings": {},
                 "failures": [], "comparison": None, "tokens": {},
@@ -80,7 +92,10 @@ def test_thin_evidence_returns_facts_only(tmp_path, monkeypatch):
     try:
         assert run_web_film(spec, store, authority=None) == {"status": "facts_only"}
         result = store.get_job("job-1")["result"]
-        assert result["claims"] == [{"year": 1850, "claim": "stood"}]
+        assert result["claims"] == [
+            {"year": 1850, "claim": "stood",
+             "url": "https://a.example/x",
+             "quote": "The mill stood in 1850."}]
         assert "Too little" in result["message"]
     finally:
         models.configure_spending(None)

@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from witness import states
+from witness import children, states
 from witness.verify import filmed, normalise_text
 
 TITLE_S = 3
@@ -40,10 +40,10 @@ def refusal_reason(scene, claims, audience="adult") -> str | None:
     if not same_page:
         return "its claim is gone from the research"
     matched = [claim for claim in same_page
-               if claim.get("quote") == evidence["quote"]]
+               if claim.get("claim") == evidence["claim"]]
     if not matched:
         return "its claim changed since the caption was written"
-    if not filmed(matched[0]):
+    if not any(filmed(claim) for claim in matched):
         return "its claim is no longer supported"
     if audience == "child" and not (stored.get("child") or {}).get("text"):
         return "no children's sentence"
@@ -85,25 +85,29 @@ def source_title(url) -> str:
     return parsed.netloc.lower().removeprefix("www.")
 
 
-def end_sources(claims, cache=None) -> list:
-    """Unique sources behind the verified claims: URL kept for the web
-    page, site plus title for the film end card. Provenance comes from
-    the stored evidence bundle (every accepted quote was bound to its
-    page at verify time), so the end card survives cache expiry."""
-    seen = []
-    entries = []
-    for claim in claims:
-        url = claim.get("url")
-        if not url or url in seen:
+def end_sources(scenes, claims, cache=None) -> list:
+    """Unique sources behind the filmed scenes: the cited claims of
+    filmable scenes plus their caption lines. URL kept for the web
+    page, site plus title for the film end card. Provenance comes
+    from the stored evidence bundle, so the end card survives cache
+    expiry. A claim no filmed scene cites is never listed."""
+    urls = []
+    for scene in scenes:
+        if not filmable(scene, claims):
             continue
-        if not filmed(claim):
-            continue
-        if not (claim.get("quote") or "").strip():
-            continue
-        seen.append(url)
-        entries.append({"url": url, "site": source_site(url),
-                        "title": end_title(url, cache)})
-    return entries
+        stored = scene.get("caption_sentence") or {}
+        evidence = stored.get("evidence") or {}
+        for url in (stored.get("claim_url"), evidence.get("url"),
+                    evidence.get("sentence_url")):
+            if url and url not in urls:
+                urls.append(url)
+        for line in scene.get("caption_lines", []):
+            entry = children.claim_for_line(
+                claims, line.get("year"), line.get("url"))
+            if entry and entry.get("url") and entry["url"] not in urls:
+                urls.append(entry["url"])
+    return [{"url": url, "site": source_site(url),
+             "title": end_title(url, cache)} for url in urls]
 
 
 def end_title(url, cache=None) -> str:
@@ -153,17 +157,12 @@ def today_card(photo_year, own_photo, last_scene, claims=()) -> tuple:
 
 
 def scene_site(scene, claims=()) -> str:
-    """On-screen source for one scene: its caption lines first, then
-    the verified claims of its year, so every scene names a source."""
-    for line in scene.get("caption_lines", []):
-        if line.get("url"):
-            return source_site(line["url"])
-    for claim in claims:
-        if (claim.get("year") == scene.get("from_year")
-                and claim.get("url")
-                and filmed(claim)):
-            return source_site(claim["url"])
-    return ""
+    """On-screen source for one scene: the caption's own evidence
+    URL, the page whose sentence supported the caption."""
+    del claims
+    evidence = (scene.get("caption_sentence") or {}).get("evidence") or {}
+    url = evidence.get("sentence_url") or evidence.get("url")
+    return source_site(url) if url else ""
 
 
 def anchor_card(first_scene) -> dict:
@@ -310,7 +309,8 @@ def _build_film(film_dir, research, images, photo, photo_credit,
             "anchor": anchor_card(first),
             "attribution": attribution,
             "ai_label": "Painted scenes are AI imagery, checked against verified sources.",
-            "sources": end_sources(research.get("claims", []), cache),
+            "sources": end_sources(research.get("scenes", []),
+                                   research.get("claims", []), cache),
             "segments": plan, "scenes": film_scenes,
             "audience": audience, "sibling": sibling,
             "spot": "spot.html" if spot is not None else None}

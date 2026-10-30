@@ -95,6 +95,24 @@ for (const t of [5.0, 8.5, 11.9]) {
 }
 assert.ok(!seenIds.includes("layers"), "no layers element touched");
 
+// Every painted scene carries a visible AI label while on screen;
+// the photo and the cards never do.
+const badge = () => sandbox.document.getElementById("painted");
+render(1.0);
+assert.strictEqual(badge().style.display, "none",
+  "no label on the title card");
+render(8.5);
+assert.strictEqual(badge().style.display, "block",
+  "label on the painted era");
+assert.ok(badge().textContent.includes("AI"),
+  "label names AI imagery");
+render(19.0);
+assert.strictEqual(badge().style.display, "none",
+  "no label on the photo");
+render(26.0);
+assert.strictEqual(badge().style.display, "none",
+  "no label on the end card");
+
 // Dissolving into today hides the era caption; era-to-era keeps it.
 render(11.5);
 assert.strictEqual(sandbox.document.getElementById("caption").style.display,

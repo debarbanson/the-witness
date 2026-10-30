@@ -461,6 +461,22 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         progress("declined", {"spent_tokens": spent})
         return {"confirmed": False, "identified": True, "cached": False,
                 "spent": spent}
+    subject_flags = verify.object_refused(
+        found.name, found.kind, found.description or "")
+    if subject_flags:
+        kind = sorted(subject_flags)[0]
+        refused = {"outcome": "too_little", "verified": 0, "eras": 0,
+                   "good_sources": 0, "build_year": False,
+                   "reason": f"object is a {kind} subject; not filmed"}
+        timings["total_s"] = round(time.perf_counter() - start, 1)
+        progress("complete", {"outcome": "too_little", "slug": slug,
+                              "cost_usd": models.current_cost_usd()})
+        return {"confirmed": True, "identified": True, "cached": False,
+                "slug": slug, "found": found, "order": order, "kept": [],
+                "timeline": [], "chosen": [], "result": refused,
+                "timings": timings, "failures": {},
+                "comparison": {}, "tokens": models.usage_totals(),
+                "cost_usd": models.current_cost_usd()}
     anchor_year = None
     anchor_claim = next((c for c in first["claims"] if c.get("anchor") == "build"), None)
     if anchor_claim is not None:
@@ -502,13 +518,16 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         if on_claim is not None:
             on_claim(index, claim)
         judged_years.append(claim["year"])
-        if claim["verdict"] == "supported":
+        if verify.filmed(claim):
             supported_years.append(claim["year"])
         for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years,
                                                emitted, supported_years):
+            live = live_scene(scene["from_year"], to_check)
+            if live is None:
+                continue
             emitted.add(scene["from_year"])
             if on_scene is not None:
-                on_scene(scene, numbers[scene["from_year"]])
+                on_scene(live, numbers[scene["from_year"]])
     fast = sum(1 for c in to_check if c.get("fast_path"))
     if fast and not quiet:
         print(f"fast paths: {fast} of {len(to_check)} decided without a vote")
@@ -996,15 +1015,29 @@ def keep_quality(claims, quiet=False) -> list:
 
 
 def draft_scenes(kept) -> list:
-    """First-guess scenes from unverified claims; streaming verifies
-    towards these, and the final choice re-runs on verified claims."""
+    """First-guess scene structure from unverified claims: years and
+    conditions for numbering and planning only. Descriptions and
+    caption lines are cleared: no unverified text may reach paint,
+    and emission rebuilds each scene from filmed claims."""
     draft_events = [
         {"year": c["year"], "event": c.get("event", "stood"),
          "detail": c.get("quote_span") or c["claim"],
          "visible_change": c.get("visible_change", "")}
         for c in kept
     ]
-    return scenes.choose_scenes(research.build_timeline(draft_events), kept)
+    draft = scenes.choose_scenes(research.build_timeline(draft_events), kept)
+    for scene in draft:
+        scene["state"]["description"] = ""
+        scene["caption_lines"] = []
+    return draft
+
+
+def live_scene(year, claims):
+    """The emission-time scene rebuilt from filmed claims only, or
+    None when the year has no filmed claim (refused, unverified, or
+    merged away)."""
+    _, _, chosen = refresh_film(claims)
+    return next((s for s in chosen if s["from_year"] == year), None)
 
 
 def plan_checks(kept) -> tuple:
@@ -2039,7 +2072,9 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
 
 
 def collect_era_files(out_dir, entries, scenes, era_dir, audience="adult"):
-    """Kept paintings whose check caption still matches, per audience."""
+    """Kept paintings whose check caption still matches, per audience.
+    Only final-scene years are collected: a draft painting for a year
+    the film dropped never reaches the film."""
     sentences = {s.get("from_year"): paint.scene_caption(s, audience=audience)
                  for s in scenes}
     rerun = "children" if audience == "child" else "captions"
@@ -2047,7 +2082,9 @@ def collect_era_files(out_dir, entries, scenes, era_dir, audience="adult"):
     for entry in entries:
         if entry.get("verdict") not in ("matches", "recovered"):
             continue
-        if entry.get("caption") != sentences.get(entry.get("year"), ""):
+        if entry.get("year") not in sentences:
+            continue
+        if entry.get("caption") != sentences[entry.get("year")]:
             print(f"{entry.get('year')}: refused (painting was checked "
                   f"against a different caption; rerun {rerun})")
             continue

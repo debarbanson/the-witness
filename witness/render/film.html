@@ -32,6 +32,9 @@
               color: #ffd98a; }
   #clock { position: absolute; top: 36px; right: 48px; font-size: 44px;
            font-family: monospace; color: #fff; opacity: .85; display: none; }
+  #painted { position: absolute; top: 36px; left: 48px; font-size: 34px;
+             font-style: italic; color: #fff; opacity: .85; display: none;
+             background: rgba(0,0,0,.45); padding: 8px 20px; border-radius: 8px; }
   #sources { font-size: 30px; text-align: left; max-width: 860px;
              word-break: break-all; max-height: 900px; overflow: hidden; }
   #sources li { margin: 10px 0; }
@@ -58,6 +61,7 @@
   <div id="caption" style="display:none"><span id="cap1"></span><br><span id="cap2"></span><span class="site" id="capsite"></span></div>
   <div id="progress" style="display:none"></div>
   <div id="clock"></div>
+  <div id="painted"></div>
   <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button><button id="audience" style="display:none"></button><button id="spotbtn" style="display:none">Spot the difference</button></div>
 </div>
 <script id="film-data" type="application/json">__FILM_JSON__</script>
@@ -102,8 +106,10 @@ function render(t) {
   const endcard = document.getElementById("endcard");
   const caption = document.getElementById("caption");
   const progress = document.getElementById("progress");
+  const painted = document.getElementById("painted");
   card.style.display = "none"; endcard.style.display = "none";
   caption.style.display = "none"; progress.style.display = "none";
+  painted.style.display = "none";
   imgA.style.opacity = 0; imgB.style.opacity = 0;
   imgA.style.transform = ""; imgB.style.transform = "";
 
@@ -205,6 +211,8 @@ function render(t) {
     document.getElementById("cap2").textContent = scene.caption[1];
     document.getElementById("capsite").textContent = scene.site;
   }
+  painted.style.display = "block";
+  painted.textContent = "AI-painted imagery";
   showClock();
 }
 

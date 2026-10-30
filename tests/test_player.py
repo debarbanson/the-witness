@@ -85,6 +85,17 @@ def test_spot_page_reveals_differences_on_tap():
     assert "film.html" in page
 
 
+def test_painted_scenes_carry_a_visible_ai_label():
+    template = TEMPLATE.read_text()
+    assert 'id="painted"' in template
+    assert "AI-painted imagery" in template
+
+
+def test_spot_page_labels_the_painted_era():
+    page = (TEMPLATE.parent / "spot.html").read_text()
+    assert "AI-painted" in page
+
+
 def test_player_behavior_in_node():
     node = shutil.which("node")
     if node is None:

@@ -4,7 +4,16 @@ import time as _time
 
 from witness import cli, models
 from witness.cache import Cache
+from witness.verify import filmed
 from witness.webapp import DECIDE_TIMEOUT_SECONDS
+
+
+def public_claims(kept) -> list:
+    """Facts-only payload: filmed claims with their evidence, nothing
+    else. Unsupported, partly and refused claims never leave the API."""
+    return [{"year": claim.get("year"), "claim": claim.get("claim", ""),
+             "url": claim.get("url"), "quote": claim.get("quote", "")}
+            for claim in kept if filmed(claim)]
 
 
 def run_web_film(spec, store, authority, clock=None):
@@ -89,14 +98,14 @@ def run_web_film(spec, store, authority, clock=None):
                                 cache=knowledge) == 2:
                 return finish(
                     {"message": "Research is done but captions failed.",
-                     "claims": result["kept"],
+                     "claims": public_claims(result["kept"]),
                      "cost_usd": total_cost()}, "facts_only")
             progress("painting", {"slug": slug})
             if cli.cmd_paint(slug, spec["photo"], mode="parallel",
                              out_dir=spec["job_dir"]) != 0:
                 return finish(
                     {"message": "Research is done but painting failed.",
-                     "claims": result["kept"],
+                     "claims": public_claims(result["kept"]),
                      "cost_usd": total_cost()}, "facts_only")
             audiences = "adult"
             progress("children", {"slug": slug})
@@ -114,7 +123,7 @@ def run_web_film(spec, store, authority, clock=None):
                               out_dir=spec["job_dir"], cache=knowledge) != 0:
                 return finish(
                     {"message": "Research is done but the film failed.",
-                     "claims": result["kept"],
+                     "claims": public_claims(result["kept"]),
                      "cost_usd": total_cost()}, "facts_only")
             return finish(
                 {"film_url": f"/film/{job_id}/{spec['token']}/film.html",
@@ -122,4 +131,4 @@ def run_web_film(spec, store, authority, clock=None):
                  "audiences": audiences}, "film")
         return finish(
             {"message": "Too little evidence for a film; the facts are below.",
-             "claims": result["kept"]}, "facts_only")
+             "claims": public_claims(result["kept"])}, "facts_only")

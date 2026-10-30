@@ -23,6 +23,10 @@ from witness.web import USER_AGENT, WebError, fetch_public, mediawiki_get
 
 VERDICTS = ("supported", "unsupported", "partly")
 
+# A quote shorter than this never grounds anything: it cannot carry
+# the object, the date and the event together.
+MIN_QUOTE_CHARS = 30
+
 # Quote preference among supporting sources: encyclopedias first, then
 # heritage and public bodies, then the rest, weak sites never.
 GOOD_HOST_HINTS = ("heritage", "museum", "archive", "register")
@@ -144,6 +148,8 @@ def check_completion(respond, claim, evidence="") -> dict:
         raise VerifyError(f"bad completion quote: {quote!r}")
     if parsed["completed"] and not quote.strip():
         raise VerifyError("completion has no quote")
+    if parsed["completed"] and len(normalise_text(quote)) < MIN_QUOTE_CHARS:
+        raise VerifyError("completion quote too short to bind")
     return {"completed": parsed["completed"], "quote": quote}
 
 
@@ -185,7 +191,7 @@ def _judge_support(response) -> dict:
         "url": url,
         "support": support,
         "note": note,
-        "rewritten": parsed.get("rewritten"),
+        "rewritten": parsed.get("rewritten") if verdict == "partly" else None,
         "war_politics_only": bool(parsed.get("war_politics_only", False)),
         "refused_content": bool(parsed.get("refused_content", False)),
     }
@@ -209,7 +215,7 @@ def _source_rank(url: str) -> int:
 def precheck_hit(year, keywords, passages) -> bool:
     """Deterministic evidence signal: one passage holds the claim's year
     and at least one of its key words."""
-    if year is None:
+    if not year:
         return False
     for passage in passages:
         lowered = passage.lower()
@@ -258,6 +264,67 @@ ANCHOR_REJECT_STEMS = (
     "reconstru", "ricostru", "genopbyg", "återuppbygg",
 )
 
+# An anchor sentence that negates the building, plans it, or talks
+# about another object never confirms the build (en, nl, de, fr).
+ANCHOR_NEGATIONS = (
+    "not", "never", "n't", "no", "without",
+    "niet", "geen", "nooit", "nicht", "kein", "keine", "keinen",
+    "sans", "jamais",
+)
+ANCHOR_PLANNED = (
+    "planned", "proposed", "proposal", "would be", "to be built",
+    "was to be", "is to be", "gepland", "voorgesteld", "geplant",
+    "vorgeschlagen", "planifié", "prévu", "proposé",
+)
+ANCHOR_OTHER = (
+    "nearby", "neighbouring", "neighboring", "another", "adjacent",
+    "other",
+)
+
+
+def _anchor_built_at(lowered: str):
+    """First construction word found and its position, else (None, -1)."""
+    for word in sorted(ANCHOR_BUILT_WORDS, key=len, reverse=True):
+        at = lowered.find(word)
+        if at >= 0:
+            return word, at
+    return None, -1
+
+
+def _anchor_built_positions(lowered: str) -> list:
+    """Every position of every construction word."""
+    positions = []
+    for word in ANCHOR_BUILT_WORDS:
+        start = 0
+        while True:
+            at = lowered.find(word, start)
+            if at < 0:
+                break
+            positions.append(at)
+            start = at + 1
+    return positions
+
+
+def _anchor_rejected(lowered: str) -> bool:
+    """Negated, planned or other-object anchor sentences, never evidence."""
+    if any(stem in lowered for stem in ANCHOR_REJECT_STEMS):
+        return True
+    if any(phrase in lowered for phrase in ANCHOR_PLANNED if " " in phrase):
+        return True
+    words = set(re.findall(r"[a-zà-ÿ]+", lowered))
+    if words & (set(ANCHOR_PLANNED) | set(ANCHOR_OTHER)):
+        return True
+    positions = _anchor_built_positions(lowered)
+    if not positions:
+        return True
+    for at in positions:
+        before = lowered[max(0, at - 40):at]
+        if "n't" in before:
+            return True
+        if set(re.findall(r"[a-zà-ÿ]+", before)) & set(ANCHOR_NEGATIONS):
+            return True
+    return False
+
 
 def _fetched_para(passage: str):
     """Split a fetched "url\\nparagraph" passage; None for snippets."""
@@ -272,8 +339,9 @@ def _fetched_para(passage: str):
 def anchor_hit(passages, year):
     """A sentence pairing the anchor year with a construction word, from
     the best-ranked fetched source. Weak sources and search snippets
-    never decide; rebuild and restoration sentences do not confirm an
-    inception. Returns (url, sentence) or None."""
+    never decide; rebuild, negated, planned and other-object
+    sentences do not confirm an inception. Returns (url, sentence)
+    or None."""
     if year is None:
         return None
     ordered = []
@@ -290,22 +358,23 @@ def anchor_hit(passages, year):
     for _, url, para in ordered:
         for sentence in re.split(r"(?<=[.!?…。！？])\s+", para):
             cleaned = sentence.strip()
-            if len(cleaned) < 30 or str(year) not in cleaned:
+            if len(cleaned) < MIN_QUOTE_CHARS or str(year) not in cleaned:
                 continue
             lowered = cleaned.lower()
-            if not any(w in lowered for w in ANCHOR_BUILT_WORDS):
+            if _anchor_built_at(lowered)[0] is None:
                 continue
-            if any(stem in lowered for stem in ANCHOR_REJECT_STEMS):
+            if _anchor_rejected(lowered):
                 continue
             return url, cleaned
     return None
 
 
-def is_literal_quote(quote, passages, year, keywords, min_chars=30) -> bool:
+def is_literal_quote(quote, passages, year, keywords, min_chars=MIN_QUOTE_CHARS) -> bool:
     """The quote really appears in a fetched passage and carries the
-    claim's year plus a key word: evidence checked in code, not by
-    vote. Search snippets never count, even when they hold the words."""
-    if year is None or not keywords:
+    claim's year plus two of its key words: the event and the object,
+    not one word alone. Evidence checked in code, not by vote.
+    Search snippets never count, even when they hold the words."""
+    if not year or not keywords:
         return False
     norm = normalise_text(quote)
     if len(norm) < min_chars:
@@ -313,7 +382,8 @@ def is_literal_quote(quote, passages, year, keywords, min_chars=30) -> bool:
     lowered = norm.lower()
     if str(year) not in lowered:
         return False
-    if not any(k.lower() in lowered for k in keywords):
+    hits = {k.lower() for k in keywords if k.lower() in lowered}
+    if len(hits) < 2:
         return False
     fetched = [para for passage in passages
                if (split := _fetched_para(passage)) is not None
@@ -322,7 +392,7 @@ def is_literal_quote(quote, passages, year, keywords, min_chars=30) -> bool:
     return norm in joined
 
 
-def evidence_binding(quote, passages, min_chars=30):
+def evidence_binding(quote, passages, min_chars=MIN_QUOTE_CHARS):
     """The fetched source holding this quote: the URL of the first
     fetched passage containing it literally, else None. Every
     acceptance is bound this way; snippets never bind."""
@@ -355,10 +425,14 @@ def judge_claim(support_respond, job, completion_respond=None,
               completion=True, dispute_check=None) -> dict:
     """One claim judged end to end: support vote, second judgement when
     the precheck says evidence is present, completion for state-setting
-    claims. Every round is kept in the answer. A verdict is accepted
-    only on a quote bound to a fetched passage; a supporting sentence
-    carrying a dispute tag does not support, and the winner is
-    repicked from a clean bound quote or the claim drops."""
+    claims. Every round is kept in the answer. Doubt wins: a claim is
+    accepted only when every decided round says supported, and the
+    literal-quote shortcut needs that unanimity too. The confrontation
+    round is the final word after unanimous unsupported. A verdict is
+    accepted only on a quote bound to a fetched passage; a supporting
+    sentence carrying a dispute tag does not support, and the winner
+    is repicked from a clean bound quote of a supported round or the
+    claim drops."""
     passages = job.get("passages") or []
     votes = max(1, job.get("votes", 1))
     fast_path = None
@@ -390,9 +464,6 @@ def judge_claim(support_respond, job, completion_respond=None,
 
         one_more = lambda: _support_round(support_respond, job["claim"], passages)
         rounds = _vote_rounds(one_more, votes, stop=quoted_supported)
-        stopper = next((found for found in rounds if quoted_supported(found)), None)
-        if stopper is not None:
-            fast_path = "literal_quote"
         decided_first = [r for r in rounds if r["verdict"] != "error"]
         if (
             decided_first
@@ -421,17 +492,41 @@ def judge_claim(support_respond, job, completion_respond=None,
             "war_politics_only": False, "refused_content": False, "rounds": _slim(rounds),
             "votes": len(rounds), "fast_path": None,
         }
-    if fast_path == "literal_quote":
-        winner = stopper
+    second = next((r for r in decided if r.get("second_judgement")), None)
+    if second is not None:
+        # The confrontation re-examined the claim against the
+        # highlighted evidence after unanimous unsupported: final word.
+        verdict = second["verdict"]
+        winner = second
+        overruled = verdict != "unsupported"
+        note = ("second judgement overruled unanimous unsupported"
+                if overruled else "second judgement confirmed unsupported")
+        prior = winner.get("note")
+        winner = {**winner, "note": f"{prior}; {note}" if prior else note}
+    elif all(r["verdict"] == "supported" for r in decided):
         verdict = "supported"
+        stopper = next((found for found in decided
+                        if quoted_supported(found)), None)
+        if stopper is not None:
+            fast_path = "literal_quote"
+            winner = stopper
+        else:
+            winner = decided[-1]
+    elif len({r["verdict"] for r in decided}) > 1:
+        # Doubt wins: any dissent blocks acceptance, and the most
+        # skeptical decided verdict stands.
+        order = {"unsupported": 0, "partly": 1, "supported": 2}
+        verdict = min((r["verdict"] for r in decided),
+                      key=lambda v: order[v])
+        winner = next(r for r in reversed(decided)
+                      if r["verdict"] == verdict)
+        seen = ",".join(sorted({r["verdict"] for r in decided}))
+        note = f"split vote ({seen}); no acceptance on dissent"
+        prior = winner.get("note")
+        winner = {**winner, "note": f"{prior}; {note}" if prior else note}
     else:
-        counts: dict = {}
-        for found in decided:
-            counts[found["verdict"]] = counts.get(found["verdict"], 0) + 1
-        top = max(counts.values())
-        winners = [v for v, n in counts.items() if n == top]
-        verdict = decided[-1]["verdict"] if len(winners) > 1 else winners[0]
-        winner = next(r for r in reversed(decided) if r["verdict"] == verdict)
+        verdict = decided[-1]["verdict"]
+        winner = decided[-1]
     if verdict == "supported":
         support = [dict(entry) for entry in winner.get("support", [])]
         if dispute_check is not None:
@@ -507,12 +602,15 @@ def judge_claim(support_respond, job, completion_respond=None,
 def _repick(decided, winner, passages, dispute_check):
     """Ground a supported verdict: the first supporting quote that is
     bound to a fetched passage and carries no dispute tag, from the
-    winner's entries then the other decided rounds, newest first.
+    winner's entries then the other supported rounds, newest first.
+    Rounds that said anything else never lend their quotes.
     Returns (quote, url, saw_bound); saw_bound tells whether any
     supporting quote bound at all."""
     ordered = [winner] + [r for r in reversed(decided) if r is not winner]
     saw_bound = False
     for round in ordered:
+        if round.get("verdict") != "supported":
+            continue  # a supported verdict never borrows a partly round's quote
         for entry in round.get("support", []):
             if not entry.get("supports"):
                 continue
@@ -581,7 +679,9 @@ def _second_judgement(respond, job, passages) -> dict:
         "about a private individual rather than a public figure}."
     )
     try:
-        return _judge_support(respond(prompt))
+        judged = _judge_support(respond(prompt))
+        judged["second_judgement"] = True
+        return judged
     except VerifyError as exc:
         return {"verdict": "error", "note": f"verify failed: {exc}"}
 

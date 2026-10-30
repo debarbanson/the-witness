@@ -503,7 +503,7 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
                     "verdict": "matches", "attempts": attempt + 1,
                     "note": verdict["note"]}
         prev_id = result["response_id"]
-        prompt = (f"{scene_prompt(scene, object_name, municipality, season, excluded, claims)} "
+        prompt = (f"{scene_prompt(scene, object_name, municipality, season, excluded, claims, audience=audience)} "
                   f"The previous attempt differed: {verdict['note']} Fix exactly that.")
     return {"year": year, "image": None, "response_id": None,
         "caption": caption,

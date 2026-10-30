@@ -467,10 +467,8 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         phase = time.perf_counter()
         fetched.fetch([anchor_claim], article_urls, verify_with, quiet)
         timings["fetch_s"] = round(timings.get("fetch_s", 0) + time.perf_counter() - phase, 1)
-        job = build_jobs([anchor_claim], fetched.texts, [], anchor_claim["year"])[0]
-        if (job["anchor"] == "build" and job["passages"]
-                and verify.anchor_hit(job["passages"], job["year"])):
-            anchor_year = anchor_claim["year"]
+        anchor_year = confirm_build_anchor(anchor_claim, fetched.texts,
+                                           cache=cache)
     first["verified_anchor"] = anchor_year
     progress("facts", {"claims": len(first["claims"]), "anchor": anchor_year})
     if on_facts is not None:
@@ -946,6 +944,23 @@ def film_facts(found, lang, cache, timings, quiet=False) -> dict:
     return {"facts": facts, "claims": claims, "build_anchor_year": build_anchor_year}
 
 
+def confirm_build_anchor(anchor_claim, texts, cache=None):
+    """The anchor year when a clean article sentence confirms the build,
+    else None. The sentence must pair the year with a construction
+    word; negated, planned and other-object sentences never confirm,
+    and neither does a sentence carrying a dispute tag."""
+    job = build_jobs([anchor_claim], texts, [], anchor_claim["year"])[0]
+    if job["anchor"] != "build" or not job["passages"]:
+        return None
+    hit = verify.anchor_hit(job["passages"], job["year"])
+    if hit is None:
+        return None
+    url, sentence = hit
+    if verify.sentence_disputed(url, sentence, cache=cache):
+        return None
+    return anchor_claim["year"]
+
+
 def film_anchor_scene(object_name, anchor_year) -> dict:
     """Scene 1 from the anchor alone: the object as built, painted
     while research still runs."""
@@ -1091,6 +1106,7 @@ def timeline_events(verified) -> list:
         events.append({"year": c["year"], "event": c.get("event", "stood"), "detail": detail,
                        "completed": c.get("completed", True), "verdict": "supported",
                        "visible_change": c.get("visible_change", ""),
+                       "visible_change_checked": c.get("visible_change_checked", False),
                        "date_text": c.get("date_text", "")})
     return events
 
@@ -1507,12 +1523,22 @@ def child_rewrite_respond(adult, source, plain, gentle=False, stamp=""):
     return "\n".join(texts).strip()
 
 
-def child_support_respond(line, passages):
-    """Re-verify a rewrite against its bound passages."""
-    job = {"claim": line, "event": "stood", "detail": line, "year": 0,
-           "keywords": [], "passages": list(passages), "urls": [],
-           "votes": 1}
-    return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
+def child_support_respond(line, passages, year=0, keywords=()):
+    """Re-verify a rewrite against its bound passages, bound to the
+    claim's year and key words like the adult check. Numbers the
+    passages never state reject the line before any model call.
+    Returns the verdict plus the sentence that supported it."""
+    texts = [p.split("\n", 1)[1] if "\n" in p else p for p in passages]
+    if not captions.numbers_supported(line, "\n".join(texts)):
+        return {"verdict": "unsupported", "quote": "", "url": None,
+                "note": "numbers the evidence never states"}
+    job = {"claim": line, "event": "stood", "detail": line, "year": year,
+           "keywords": list(keywords), "passages": list(passages),
+           "urls": [], "votes": 3}
+    result = verify.judge_claim(baseten_support_respond, job,
+                                completion=False)
+    return {"verdict": result["verdict"], "quote": result.get("quote", ""),
+            "url": result.get("url")}
 
 
 def caption_rewrite_respond(detail, quote, year, plain, stamp=""):
@@ -1530,20 +1556,33 @@ def caption_rewrite_respond(detail, quote, year, plain, stamp=""):
     return "\n".join(texts).strip()
 
 
-def caption_support_respond(sentence, passages):
-    """Re-verify a caption sentence against its bound passages."""
-    job = {"claim": sentence, "event": "stood", "detail": sentence, "year": 0,
-           "keywords": [], "passages": list(passages), "urls": [],
-           "votes": 3}
-    return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
+def caption_support_respond(sentence, passages, year=0, keywords=()):
+    """Re-verify a caption sentence against its bound passages, bound
+    to the claim's year and key words. Numbers the passages never
+    state reject the sentence before any model call. Returns the
+    verdict plus the sentence that supported it."""
+    texts = [p.split("\n", 1)[1] if "\n" in p else p for p in passages]
+    if not captions.numbers_supported(sentence, "\n".join(texts)):
+        return {"verdict": "unsupported", "quote": "", "url": None,
+                "note": "numbers the evidence never states"}
+    job = {"claim": sentence, "event": "stood", "detail": sentence,
+           "year": year, "keywords": list(keywords),
+           "passages": list(passages), "urls": [], "votes": 3}
+    result = verify.judge_claim(baseten_support_respond, job,
+                                completion=False)
+    return {"verdict": result["verdict"], "quote": result.get("quote", ""),
+            "url": result.get("url")}
 
 
 def description_support_respond(support_respond, claim, object_name) -> str:
     """One vote: does the accepted quote state this visible change?
-    Year 0: the date is established; only the detail is judged."""
+    Bound to the claim's year and the change's key words, like every
+    other check."""
     text = f"In {claim['year']}, {object_name}: {claim.get('visible_change', '')}"
-    job = {"claim": text, "event": "stood", "detail": text, "year": 0,
-           "keywords": [],
+    job = {"claim": text, "event": "stood", "detail": text,
+           "year": claim["year"],
+           "keywords": verify.keywords_for_claim(
+               claim.get("visible_change", "")),
            "passages": [f"{claim['url']}\n{claim['quote']}"], "urls": [],
            "votes": 1}
     return verify.judge_claim(support_respond, job, completion=False)["verdict"]
@@ -1558,12 +1597,17 @@ def verify_visible_changes(claims, support_respond, object_name) -> list:
         if claim.get("verdict") != "supported" or not claim.get("visible_change"):
             continue
         if not claim.get("url") or not claim.get("quote"):
+            claim["visible_change"] = ""
+            claim["visible_change_note"] = "uncheckable detail is not painted"
+            claim["visible_change_checked"] = True
+            blanked.append(claim["year"])
             continue
         try:
             verdict = description_support_respond(
                 support_respond, claim, object_name)
         except Exception:  # noqa: BLE001 - an uncheckable detail is not painted
             verdict = "unverified"
+        claim["visible_change_checked"] = True
         if verdict != "supported":
             claim["visible_change"] = ""
             claim["visible_change_note"] = "not stated in the accepted quote"
@@ -1704,12 +1748,14 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
             failed.append(year)
             print(f"{year}: sentence failed verification")
             continue
+        supporting = out.get("evidence") or {}
         scene["caption_sentence"] = {
             "text": out["sentence"], "claim_year": year,
             "claim_url": claim.get("url"),
             "evidence": {"claim": claim.get("claim", ""),
                          "url": claim.get("url"),
-                         "quote": claim.get("quote", "")}}
+                         "quote": supporting.get("quote") or claim.get("quote", ""),
+                         "sentence_url": supporting.get("url") or claim.get("url")}}
         print(f"{year}: {out['sentence']}"[:140])
     try:
         for year, kept in recheck_paintings(
@@ -1751,7 +1797,8 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out",
             try:
                 out = children.child_caption(
                     rewrite, support, stored["text"], evidence["quote"],
-                    evidence["url"], gentle=gentle,
+                    evidence.get("sentence_url") or evidence["url"],
+                    gentle=gentle,
                     year=scene.get("from_year", 0), object_name=name,
                     texts=texts,
                     stamp=scene.get("date_label", "") or "")
@@ -1833,8 +1880,11 @@ def cmd_spot(slug, photo, vision_call=None, out_dir="out"):
     data = json.loads(path.read_text())
     scenes, claims = data.get("scenes", []), data.get("claims", [])
     year = spot.pick_year(scenes, claims, set(painted))
-    changes = spot.verified_changes(scenes, claims)
-    if year is None or len(changes) < spot.MIN_DIFFERENCES:
+    if year is None:
+        print("too little verified change for spot-the-difference")
+        return 0
+    changes = spot.verified_changes(scenes, claims, year)
+    if len(changes) < spot.MIN_DIFFERENCES:
         print("too little verified change for spot-the-difference")
         return 0
     try:

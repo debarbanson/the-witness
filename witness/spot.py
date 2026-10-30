@@ -1,9 +1,11 @@
 """Spot the difference: one painted era against today's photo.
 
-A vision call names 3 to 5 differences, each tied to one verified
-state change quoted exactly. Code keeps only differences whose
-grounding line is really in the research; anything invented is
-dropped, and fewer than three grounded differences means no game.
+A vision call picks 3 to 5 visible differences, each tied to one
+verified state change quoted exactly. The child sees the verified
+change line itself, never the vision model's wording. Code keeps
+only differences whose grounding line is really in the research;
+anything invented is dropped, several items on one change count as
+one, and fewer than three grounded differences means no game.
 """
 
 from witness.verify import filmed
@@ -19,10 +21,9 @@ DIFFERENCE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string"},
                     "change": {"type": "string"},
                 },
-                "required": ["text", "change"],
+                "required": ["change"],
                 "additionalProperties": False,
             },
         },
@@ -32,16 +33,19 @@ DIFFERENCE_SCHEMA = {
 }
 
 
-def verified_changes(scenes, claims) -> list:
-    """One grounding line per scene with a verified description: the
-    scene's own supported claim plus a non-empty state description."""
+def verified_changes(scenes, claims, year) -> list:
+    """One grounding line per scene from the painted era through
+    today with a verified description: the scene's own supported
+    claim plus a non-empty state description. Earlier scenes never
+    ground a game about what changed since."""
     supported = {c.get("year") for c in claims if filmed(c)}
     lines = []
     for scene in scenes:
-        year = scene.get("from_year")
+        scene_year = scene.get("from_year")
         description = (scene.get("state") or {}).get("description", "")
-        if year in supported and description.strip():
-            lines.append(f"{year}: {description.strip()}")
+        if (isinstance(scene_year, int) and scene_year >= year
+                and scene_year in supported and description.strip()):
+            lines.append(f"{scene_year}: {description.strip()}")
     return lines
 
 
@@ -77,13 +81,15 @@ def spot_prompt(changes) -> str:
         "and only these; quote its line exactly in \"change\":\n"
         f"{numbered}\n"
         "Never list a difference you cannot tie to one of the lines. "
-        "Keep each difference to one short sentence.")
+        "Answer with the quoted lines only.")
 
 
 def choose(vision_call, era_bytes, photo_bytes, changes):
     """Grounded differences only: the change must quote a line exactly.
 
-    Drops invented, empty and repeat groundings; keeps at most five.
+    The kept entry carries the verified line itself; the vision
+    wording is never shown. Drops invented and repeat groundings
+    (several items on one change count as one); keeps at most five.
     Returns None when fewer than three survive or the call fails."""
     if len(changes) < MIN_DIFFERENCES:
         return None
@@ -98,12 +104,11 @@ def choose(vision_call, era_bytes, photo_bytes, changes):
     for entry in visions:
         if not isinstance(entry, dict):
             continue
-        text = (entry.get("text") or "").strip()
         change = (entry.get("change") or "").strip()
-        if not text or change not in allowed or text.lower() in seen:
+        if change not in allowed or change in seen:
             continue
-        seen.add(text.lower())
-        kept.append({"text": text, "change": change})
+        seen.add(change)
+        kept.append({"change": change})
         if len(kept) == MAX_DIFFERENCES:
             break
     if len(kept) < MIN_DIFFERENCES:
@@ -112,23 +117,24 @@ def choose(vision_call, era_bytes, photo_bytes, changes):
 
 
 def check_game(game, scenes, claims, painted) -> bool:
-    """Revalidate a stored game at render: the year is painted, the
-    count is 3 to 5, and every grounding still quotes the research."""
+    """Revalidate a stored game at render: the year is painted, 3 to 5
+    distinct groundings survive, and every grounding still quotes the
+    research between the game's era and today."""
     if not isinstance(game, dict):
         return False
     if game.get("year") not in [int(y) for y in painted
                                 if str(y).isdigit()]:
         return False
     differences = game.get("differences")
-    if (not isinstance(differences, list)
-            or not MIN_DIFFERENCES <= len(differences) <= MAX_DIFFERENCES):
+    if not isinstance(differences, list) or len(differences) > MAX_DIFFERENCES:
         return False
-    allowed = set(verified_changes(scenes, claims))
+    allowed = set(verified_changes(scenes, claims, game["year"]))
+    grounded = set()
     for entry in differences:
         if not isinstance(entry, dict):
             return False
-        if not (entry.get("text") or "").strip():
+        change = (entry.get("change") or "").strip()
+        if change not in allowed:
             return False
-        if (entry.get("change") or "").strip() not in allowed:
-            return False
-    return True
+        grounded.add(change)
+    return len(grounded) >= MIN_DIFFERENCES

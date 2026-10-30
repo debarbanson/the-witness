@@ -337,3 +337,15 @@ def test_date_label_prefers_ranges_over_sort_year(date_text, year, expected):
 )
 def test_is_age_range(label, expected):
     assert states.is_age_range(label) == expected
+
+
+def test_checked_blank_visible_change_leaves_no_description():
+    state = states.classify("rebuilt", "rebuilt with a golden roof", "",
+                            checked=True)
+    assert state["condition"] == "rebuilt"
+    assert state["description"] == ""
+
+
+def test_unchecked_claims_keep_the_detail_fallback():
+    state = states.classify("rebuilt", "rebuilt with a golden roof", "")
+    assert state["description"] == "rebuilt with a golden roof"

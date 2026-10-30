@@ -263,12 +263,15 @@ def scope_of(event: str, detail: str = "") -> str:
 
 
 def classify(event: str, detail: str = "", visible_change: str = "",
-             previous: str | None = None) -> dict | None:
+             previous: str | None = None, checked: bool = False) -> dict | None:
     """Meaning classification: a state dict, or None for caption only.
 
     `previous` is the condition of the preceding segment, so a facelift
     after standing ("rebuilt" meaning redecorated) is not mistaken for
-    a genuine rebuild after ruin.
+    a genuine rebuild after ruin. `checked` means the visible change
+    was judged against the accepted quote: a blanked change then
+    leaves an empty description, never the research free text, so no
+    painted change rests on an unverified phrase.
     """
     text = f"{event} {detail} {visible_change}".lower()
     for phrase in INNOCENT_PHRASES:
@@ -288,7 +291,10 @@ def classify(event: str, detail: str = "", visible_change: str = "",
         return None
     if _has(lowered, INTERIOR) and not constructive:
         return None
-    description = visible_change.strip() or " ".join(detail.split())[:140]
+    if checked:
+        description = visible_change.strip()
+    else:
+        description = visible_change.strip() or " ".join(detail.split())[:140]
 
     def state(condition, degree="total", scope="whole"):
         return {"condition": condition, "degree": degree,

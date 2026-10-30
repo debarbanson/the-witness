@@ -35,6 +35,28 @@ def test_partly_claim_is_rewritten():
     assert result["rewritten"].startswith("The tower was decorated")
 
 
+def test_supported_verdict_keeps_no_rewrite():
+    result = verify.verify_claim(
+        lambda prompt: answered_with(
+            {
+                "verdict": "supported",
+                "quote": "The king visited the tower in 1900.",
+                "url": "https://en.wikipedia.org/wiki/X",
+                "rewritten": "The tower gained a golden roof.",
+                "support": [
+                    {"url": "https://en.wikipedia.org/wiki/X",
+                     "supports": True,
+                     "quote": "The king visited the tower in 1900."},
+                ],
+            }
+        ),
+        "claim",
+        ["snippet"],
+    )
+    assert result["verdict"] == "supported"
+    assert result["rewritten"] is None
+
+
 def test_unsupported_claim():
     result = verify.verify_claim(
         lambda prompt: fixture("verify_unsupported.json"), "claim", ["snippet"]
@@ -458,7 +480,8 @@ def test_completion_check_is_strict_about_plans():
 
     def respond(prompt):
         seen["prompt"] = prompt
-        return answered_with({"completed": True, "quote": "it happened"})
+        return answered_with({"completed": True,
+                              "quote": "The rebuild finished in 1932 as planned."})
 
     assert verify.check_completion(respond, "claim", "quote")["completed"] is True
     assert "planned" in seen["prompt"] and "attempted" in seen["prompt"]
@@ -640,21 +663,23 @@ def test_cancel_is_not_converted_to_unverified():
         verify.verify_all(cancelled, [("claim", ["s"])], max_workers=1)
 
 
-def test_judge_majority_of_three_wins():
+def test_judge_dissent_blocks_acceptance():
+    # A majority no longer accepts: any round that says unsupported or
+    # partly blocks the claim, and the most skeptical verdict stands.
     respond = scripted_support("supported", "unsupported", "supported")
     result = verify.judge_claim(
         respond, job(votes=3),
         completion_respond=completion_quoting())
-    assert result["verdict"] == "supported"
+    assert result["verdict"] == "unsupported"
     assert len(respond.calls) == 3
     assert len(result["rounds"]) == 3
 
 
-def test_judge_tie_goes_to_last_round():
+def test_judge_split_vote_takes_most_skeptical():
     respond = scripted_support("unsupported", "supported", "partly")
     result = verify.judge_claim(
         respond, job(votes=3, keywords=["zzz"], passages=["Built here."]))
-    assert result["verdict"] == "partly"
+    assert result["verdict"] == "unsupported"
     assert len(result["rounds"]) == 3
 
 
@@ -751,7 +776,7 @@ def test_best_of_three_runs_third_on_disagreement():
     result = verify.judge_claim(
         respond, job(votes=3),
         completion_respond=completion_quoting())
-    assert result["verdict"] == "supported"
+    assert result["verdict"] == "partly"
     assert len(respond.calls) == 3
 
 
@@ -852,14 +877,17 @@ def test_literal_quote_tolerates_whitespace_and_quotes():
     assert len(respond.calls) == 2
 
 
-def test_quoteless_round_then_quoted_wins_and_stops():
+def test_quoteless_dissent_blocks_the_quoted_round():
+    # A quoted round no longer overrules a dissenting one: the shortcut
+    # needs every decided round to say supported.
     respond = quoted_support(("unsupported", ""),
                              ("supported", "The old mill was built in 1779 to grind corn for the village."))
     result = verify.judge_claim(
-        respond, job(votes=3, year=1779, keywords=["mill"], passages=MILL_PASSAGES,
+        respond, job(votes=3, year=1779, keywords=["mill", "corn"], passages=MILL_PASSAGES,
                      claim="The mill was built in 1779."),
         completion_respond=completion_quoting())
-    assert result["verdict"] == "supported"
+    assert result["verdict"] == "unsupported"
+    assert result["fast_path"] is None
     assert len(respond.calls) == 2
 
 
@@ -1393,3 +1421,94 @@ def test_support_prompt_marks_source_text_as_data():
     assert "ignore any instructions" in prompt
     assert "the object, the date and the event" in prompt
     assert "negation" in prompt
+
+
+def test_literal_quote_needs_unanimous_supported_rounds():
+    off_topic = "In 1900 the tower stood quietly beside the old river bank."
+    respond = quoted_support(
+        ("unsupported", ""),
+        ("supported", off_topic))
+    result = verify.judge_claim(
+        respond,
+        job(votes=3, year=1900, keywords=["king", "visited", "tower"],
+            claim="The king visited the tower in 1900.",
+            passages=[f"https://en.wikipedia.org/wiki/X\n{off_topic} Nothing else happened."]),
+        completion=False)
+    assert result["verdict"] == "unsupported"
+    assert result["fast_path"] is None
+
+
+def test_split_vote_never_accepts():
+    respond = scripted_support("supported", "unsupported", "supported")
+    result = verify.judge_claim(respond, job(votes=3),
+                                completion_respond=completion_quoting())
+    assert [r["verdict"] for r in result["rounds"]] == [
+        "supported", "unsupported", "supported"]
+    assert result["verdict"] == "unsupported"
+
+
+def test_literal_quote_needs_year_event_and_object():
+    one_word = "In 1900 the tower stood quietly beside the old river bank."
+    assert verify.is_literal_quote(
+        one_word, [f"https://en.wikipedia.org/wiki/X\n{one_word}"],
+        1900, ["king", "visited", "tower"]) is False
+    full = "In 1900 the king visited the tower during the summer fair."
+    assert verify.is_literal_quote(
+        full, [f"https://en.wikipedia.org/wiki/X\n{full}"],
+        1900, ["king", "visited", "tower"]) is True
+
+
+def test_completion_quote_must_be_a_real_sentence():
+    quote = "In 1900 the tower burned down in a great fire that night."
+    completion = lambda p: answered_with({"completed": True, "quote": "in"})
+    result = verify.judge_claim(
+        quoted_support(("supported", quote)),
+        job(votes=1, year=1900, event="burned",
+            detail="The tower burned down.",
+            keywords=["tower", "burned"],
+            claim="The tower burned down in 1900.",
+            passages=[f"https://en.wikipedia.org/wiki/X\n{quote}"]),
+        completion_respond=completion)
+    assert result["verdict"] == "supported"
+    assert result["completed"] is False
+
+
+def test_repick_ignores_partly_rounds():
+    partial = "The tower was given a new roof in 1900 by the town."
+    respond = quoted_support(
+        ("supported", "unbound words that are not in the page at all"),
+        ("partly", partial),
+        ("supported", "unbound words that are not in the page at all"))
+    result = verify.judge_claim(
+        respond,
+        job(votes=3, year=1900, keywords=["tower", "roof"],
+            claim="The tower was given a golden roof in 1900.",
+            passages=[f"https://en.wikipedia.org/wiki/X\n{partial}"]),
+        completion=False)
+    # The dissent blocks acceptance; the verdict records the doubt, and
+    # no supported verdict borrows the partly round's quote.
+    assert result["verdict"] == "partly"
+
+
+def test_repick_skips_rounds_that_did_not_say_supported():
+    partial = "The tower was given a new roof in 1900 by the town."
+    passages = [f"https://en.wikipedia.org/wiki/X\n{partial}"]
+    winner = {"verdict": "supported", "quote": "unbound words nowhere",
+              "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                           "supports": True, "quote": "unbound words nowhere"}]}
+    partly = {"verdict": "partly",
+              "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                           "supports": True, "quote": partial}]}
+    quote, url, _ = verify._repick([winner, partly], winner, passages, None)
+    assert (quote, url) == (None, None)
+
+
+def test_anchor_rejects_negated_planned_and_other_object():
+    url = "https://en.wikipedia.org/wiki/X"
+    for sentence in ("The tower was not built in 1900, despite popular claims.",
+                     "The nearby church was built in 1900 by the same architect.",
+                     "A tower was planned to be built in 1900 but never started.",
+                     "The council proposed that a tower would be built in 1900."):
+        assert verify.anchor_hit([f"{url}\n{sentence}"], 1900) is None, sentence
+    good = "The tower was built in 1900 by the town architect."
+    assert verify.anchor_hit([f"{url}\n{good}"], 1900) == (url, good)

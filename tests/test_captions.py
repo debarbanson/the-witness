@@ -81,18 +81,21 @@ def test_assign_claims_accepts_a_span_covering_the_scene():
 def test_write_sentence_keeps_supported_rewrite():
     out = captions.write_sentence(
         rewrite_call=lambda detail, quote, year, plain, stamp="": "My sails turned for the miller.",
-        support_call=lambda sentence, quote: "supported",
+        support_call=lambda sentence, quote, *a: "supported",
         claim=claim(1865), year=1865)
     assert out == {"sentence": "My sails turned for the miller.",
-                   "verified": True, "attempts": 1}
+                   "verified": True, "attempts": 1,
+                   "evidence": {"quote": "It happened in 1865.",
+                                "url": "https://a.example/x"}}
 
 
 def test_write_sentence_drops_partly_verified_rewrite():
     out = captions.write_sentence(
         rewrite_call=lambda detail, quote, year, plain, stamp="": "I burnt down that evening.",
-        support_call=lambda sentence, passages: "partly",
+        support_call=lambda sentence, passages, *a: "partly",
         claim=claim(1932), year=1932)
-    assert out == {"sentence": None, "verified": False, "attempts": 2}
+    assert out == {"sentence": None, "verified": False, "attempts": 2,
+                   "evidence": {"quote": "", "url": ""}}
 
 
 def test_evidence_passages_carry_bound_quotes_with_urls():
@@ -133,7 +136,7 @@ def test_write_sentence_judges_against_rich_passages():
              "The old mill stood by the river for many years.\n\n"
              "The mill opened in 1779 after years of building work."}
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         seen["passages"] = passages
         return "supported"
 
@@ -158,18 +161,21 @@ def test_write_sentence_retries_empty_answers_without_consuming_attempts():
 
     out = captions.write_sentence(
         rewrite_call=rewrite,
-        support_call=lambda sentence, passages: "supported",
+        support_call=lambda sentence, passages, *a: "supported",
         claim=claim(1779, quote="The mill opened in 1779."), year=1779)
-    assert out == {"sentence": "I opened.", "verified": True, "attempts": 1}
+    assert out == {"sentence": "I opened.", "verified": True, "attempts": 1,
+                   "evidence": {"quote": "The mill opened in 1779.",
+                                "url": "https://a.example/x"}}
     assert seen == [False, False, False]
 
 
 def test_write_sentence_gives_up_after_repeated_empty_answers():
     out = captions.write_sentence(
         rewrite_call=lambda detail, quote, year, plain, stamp="": "",
-        support_call=lambda sentence, passages: "supported",
+        support_call=lambda sentence, passages, *a: "supported",
         claim=claim(1779, quote="The mill opened in 1779."), year=1779)
-    assert out == {"sentence": None, "verified": False, "attempts": 2}
+    assert out == {"sentence": None, "verified": False, "attempts": 2,
+                   "evidence": {"quote": "", "url": ""}}
 
 
 def test_sentence_prompt_forbids_computed_numbers():
@@ -180,7 +186,7 @@ def test_sentence_prompt_forbids_computed_numbers():
 def test_write_sentence_judges_with_object_and_year_context():
     seen = {}
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         seen["judged"] = sentence
         return "supported"
 
@@ -197,7 +203,7 @@ def test_write_sentence_judges_with_object_and_year_context():
 def test_write_sentence_without_context_judges_the_bare_sentence():
     seen = {}
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         seen["judged"] = sentence
         return "supported"
 
@@ -211,7 +217,7 @@ def test_write_sentence_without_context_judges_the_bare_sentence():
 def test_write_sentence_checks_bound_passages_not_bare_text():
     seen = {}
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         seen["passages"] = passages
         return "supported"
 
@@ -238,9 +244,10 @@ def test_write_sentence_retries_shorter_once_then_fails():
 
     out = captions.write_sentence(
         rewrite_call=rewrite,
-        support_call=lambda sentence, quote: "supported",
+        support_call=lambda sentence, quote, *a: "supported",
         claim=claim(1865), year=1865)
-    assert out == {"sentence": None, "verified": False, "attempts": 2}
+    assert out == {"sentence": None, "verified": False, "attempts": 2,
+                   "evidence": {"quote": "", "url": ""}}
     assert calls == [False, True]
 
 
@@ -254,13 +261,13 @@ def test_write_sentence_rejects_borrowed_years_and_cutting():
                "I was saved in 1925, really."]
     out = captions.write_sentence(
         rewrite_call=rewrite,
-        support_call=lambda sentence, quote: "supported",
+        support_call=lambda sentence, quote, *a: "supported",
         claim=claim(1920), year=1920)
     assert out["verified"] is False
     seen[:] = ["Something happened…", "Other things…"]
     out = captions.write_sentence(
         rewrite_call=rewrite,
-        support_call=lambda sentence, quote: "supported",
+        support_call=lambda sentence, quote, *a: "supported",
         claim=claim(1920), year=1920)
     assert out["verified"] is False
 
@@ -358,7 +365,7 @@ def test_write_sentence_forwards_the_stamp():
 
     out = captions.write_sentence(
         rewrite_call=rewrite,
-        support_call=lambda sentence, quote: "supported",
+        support_call=lambda sentence, quote, *a: "supported",
         claim=claim(2019), year=2019, stamp="22 October 2019")
     assert out["verified"] is True
     assert seen["stamp"] == "22 October 2019"
@@ -371,7 +378,7 @@ def test_write_sentence_checks_the_combined_evidence():
         seen["source"] = quote
         return "I burnt down."
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         return ("supported"
                 if any("23 April 1932" in p for p in passages)
                 else "unsupported")
@@ -394,7 +401,7 @@ def test_write_sentence_retries_without_the_contested_detail():
             return "I burnt down in the evening."
         return "I burnt down."
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         if "evening" in sentence:
             return "unsupported"
         return "supported"
@@ -405,5 +412,61 @@ def test_write_sentence_retries_without_the_contested_detail():
         claims=[claim(1932, quote="On Saturday afternoon, April 23rd, 1932 it burnt.",
                       claim="burnt on 23 April 1932")])
     assert out == {"sentence": "I burnt down.",
-                   "verified": True, "attempts": 2}
+                   "verified": True, "attempts": 2,
+                   "evidence": {"quote": "The brigade could not prevent it.",
+                                "url": "https://a.example/x"}}
     assert seen == [False, True]
+
+
+def test_claim_detail_ignores_rewritten_on_supported_verdicts():
+    supported = {"verdict": "supported", "claim": "The king visited.",
+                 "rewritten": "The tower gained a golden roof."}
+    assert captions.claim_detail(supported) == "The king visited."
+    partly = {"verdict": "partly", "claim": "The king visited.",
+              "rewritten": "The king passed by."}
+    assert captions.claim_detail(partly) == "The king passed by."
+
+
+def test_numbers_must_appear_in_the_evidence_quote():
+    quote = "The tower was finished in 1664; the sails were replaced in 1950."
+    assert captions.numbers_supported("I got new sails.", quote) is True
+    assert captions.numbers_supported("I was 236 years old.", quote) is False
+    assert captions.numbers_supported("I was moved 70 metres.", quote) is False
+    assert captions.numbers_supported(
+        "I was moved 70 metres.", "I was moved 70 metres inland.") is True
+    assert captions.numbers_supported(
+        "I cost 70 coins.", "The repair cost 700 coins.") is False
+
+
+def test_write_sentence_binds_the_check_to_year_and_numbers():
+    seen = {}
+
+    def support(judged, passages, year, keywords):
+        seen["year"], seen["keywords"] = year, keywords
+        return {"verdict": "supported", "quote": "The mill burnt down.",
+                "url": "https://a.example/mill"}
+
+    out = captions.write_sentence(
+        rewrite_call=lambda detail, source, year, plain, stamp: "I burnt down.",
+        support_call=support,
+        claim=claim(1932, claim="burnt down in 1932",
+                    quote="The mill burnt down in 1932."),
+        year=1932, claims=[])
+    assert out["verified"] is True
+    assert seen["year"] == 1932
+    assert "burnt" in seen["keywords"]
+    assert out["evidence"] == {"quote": "The mill burnt down.",
+                               "url": "https://a.example/mill"}
+
+
+def test_write_sentence_rejects_numbers_missing_from_the_quote():
+    def support(judged, passages, year, keywords):
+        return "supported"
+
+    out = captions.write_sentence(
+        rewrite_call=lambda detail, source, year, plain, stamp: "I was 236 years old.",
+        support_call=support,
+        claim=claim(1900, claim="sails replaced in 1900",
+                    quote="The sails were replaced in 1900."),
+        year=1900, claims=[])
+    assert out["verified"] is False

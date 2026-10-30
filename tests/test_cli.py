@@ -57,8 +57,10 @@ def test_caption_support_runs_on_bound_passages(monkeypatch):
              "annotations": []}]}]}
 
     monkeypatch.setattr(cli_module, "baseten_support_respond", respond)
-    assert cli_module.caption_support_respond("I burnt down.", [passage]) == "supported"
-    assert cli_module.child_support_respond("I burnt down.", [passage]) == "supported"
+    assert cli_module.caption_support_respond(
+        "I burnt down.", [passage])["verdict"] == "supported"
+    assert cli_module.child_support_respond(
+        "I burnt down.", [passage])["verdict"] == "supported"
 
 
 def test_visible_change_kept_only_when_the_quote_states_it():
@@ -101,6 +103,49 @@ def test_visible_change_kept_only_when_the_quote_states_it():
     assert "accepted quote" in dropped["visible_change_note"]
 
 
+def test_caption_support_binds_year_keywords_and_numbers(monkeypatch):
+    from witness import cli as cli_module
+
+    quote = "The mill burnt down in 1932 after a lightning strike."
+    passage = f"https://a.example/mill\n{quote}"
+    seen = {}
+
+    def fake_judge(respond, job, completion=True):
+        seen.update(job)
+        return {"verdict": "supported", "quote": quote,
+                "url": "https://a.example/mill"}
+
+    monkeypatch.setattr(cli_module.verify, "judge_claim", fake_judge)
+    out = cli_module.caption_support_respond(
+        "In 1932, Mill: I burnt down.", [passage], 1932, ["burnt", "mill"])
+    assert out == {"verdict": "supported", "quote": quote,
+                   "url": "https://a.example/mill"}
+    assert seen["year"] == 1932
+    assert seen["keywords"] == ["burnt", "mill"]
+    assert seen["votes"] == 3
+
+
+def test_caption_support_rejects_unquoted_numbers_without_a_call(monkeypatch):
+    from witness import cli as cli_module
+
+    called = []
+
+    def fake_judge(respond, job, completion=True):
+        called.append(job)
+        return {"verdict": "supported", "quote": "", "url": ""}
+
+    monkeypatch.setattr(cli_module.verify, "judge_claim", fake_judge)
+    out = cli_module.caption_support_respond(
+        "In 1900, Tower: I was 236 years old when my sails were replaced.",
+        ["https://en.wikipedia.org/wiki/Tower\n"
+         "The tower was finished in 1664 on the dike.",
+         "https://en.wikipedia.org/wiki/Tower\n"
+         "The sails of the tower were replaced in 1950 after a storm."],
+        1900, ["sails", "replaced"])
+    assert out["verdict"] == "unsupported"
+    assert called == []
+
+
 def test_cli_has_no_layers_command(capsys):
     import pytest
 
@@ -138,6 +183,43 @@ def test_run_job_blanks_visible_change_missing_from_quote(tmp_path, monkeypatch)
                for c in result["kept"])
 
 
+def test_run_job_paints_no_blanked_visible_change(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import research as research_module
+
+    _stub_job(monkeypatch)
+
+    def inventing(respond, question):
+        answer = _job_answer()
+        answer["events"][0]["detail"] = (
+            "roof holed in a storm, golden weathercock torn away")
+        answer["events"][0]["visible_change"] = (
+            "roof holed, golden weathercock gone")
+        return answer
+
+    monkeypatch.setattr(research_module, "ask_lifespan", inventing)
+
+    def denying(prompt):
+        lines = prompt.split("\n")
+        claim_line = lines[1] if len(lines) > 1 else prompt
+        if claim_line.startswith("In ") and ", Test Mill: " in claim_line:
+            return _answered(
+                {"verdict": "unsupported", "quote": "",
+                 "url": _JOB_WIKI,
+                 "support": [{"url": _JOB_WIKI, "supports": False,
+                              "quote": ""}]})
+        return _job_respond(prompt)
+
+    monkeypatch.setattr(cli_module, "support_respond", denying)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"))
+    scene = next(s for s in result["chosen"] if s["from_year"] == 1900)
+    assert "golden" not in scene["state"]["description"]
+    assert scene["state"]["description"] == ""
+
+
 def test_cmd_children_writes_sentence_next_to_adult_one(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module
@@ -158,7 +240,7 @@ def test_cmd_children_writes_sentence_next_to_adult_one(tmp_path, monkeypatch):
     code = cli_module.cmd_children(
         "q1-test",
         rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I opened long ago.",
-        support_call=lambda line, passages: "supported")
+        support_call=lambda line, passages, *a: "supported")
     assert code == 0
     saved = json.loads((slug_dir / "research.json").read_text())
     child = saved["scenes"][0]["caption_sentence"]["child"]
@@ -184,7 +266,7 @@ def test_cmd_children_judges_lines_with_object_context(tmp_path, monkeypatch):
     (slug_dir / "research.json").write_text(json.dumps(data))
     seen = []
 
-    def support(line, passages):
+    def support(line, passages, *a):
         seen.append(line)
         return "supported"
 
@@ -219,7 +301,7 @@ def test_cmd_children_judges_against_cached_article_text(tmp_path, monkeypatch):
               "The mill opened in 1779 after years of building work.")
     seen = []
 
-    def support(line, passages):
+    def support(line, passages, *a):
         seen.extend(passages)
         return "supported"
 
@@ -254,7 +336,7 @@ def test_cmd_children_stamps_scene_sentences_not_lines(tmp_path, monkeypatch):
         return "I opened long ago."
 
     code = cli_module.cmd_children("q1-test", rewrite_call=rewrite,
-                                   support_call=lambda line, passages: "supported")
+                                   support_call=lambda line, passages, *a: "supported")
     assert code == 0
     assert seen == ["1779"]
 
@@ -283,7 +365,7 @@ def test_cmd_children_marks_heavy_scenes_gentle(tmp_path, monkeypatch):
 
     code = cli_module.cmd_children(
         "q1-test", rewrite_call=rewrite,
-        support_call=lambda line, passages: "supported")
+        support_call=lambda line, passages, *a: "supported")
     assert code == 0
     assert seen["gentle"] is True
 
@@ -394,7 +476,7 @@ def test_cmd_captions_rechecks_child_paintings_against_child_lines(
     code = cli_module.cmd_captions(
         "q1-test",
         rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
-        support_call=lambda sentence, passages: "supported",
+        support_call=lambda sentence, passages, *a: "supported",
         check_call=check)
     assert code == 0
     assert len(checked) == 1
@@ -886,9 +968,29 @@ def test_caption_support_uses_three_votes(monkeypatch):
     monkeypatch.setattr(cli_module.verify, "judge_claim", fake_judge)
     passage = "https://a.example/mill\nThe mill burnt down."
     out = cli_module.caption_support_respond("I burnt down.", [passage])
-    assert out == "supported"
+    assert out["verdict"] == "supported"
     assert seen["votes"] == 3
     assert seen["passages"] == [passage]
+
+
+def test_child_support_respond_uses_three_votes(monkeypatch):
+    from witness import cli as cli_module
+
+    seen = {}
+
+    def fake_judge(respond, job, completion=True):
+        seen.update(job)
+        return {"verdict": "supported", "quote": "The mill burnt down.",
+                "url": "https://a.example/mill"}
+
+    monkeypatch.setattr(cli_module.verify, "judge_claim", fake_judge)
+    passage = "https://a.example/mill\nThe mill burnt down."
+    out = cli_module.child_support_respond("I burnt down.", [passage],
+                                           1932, ["burnt"])
+    assert out["verdict"] == "supported"
+    assert seen["votes"] == 3
+    assert seen["year"] == 1932
+    assert seen["keywords"] == ["burnt"]
 
 
 def test_baseten_support_falls_back_when_key_missing(monkeypatch):
@@ -952,6 +1054,41 @@ def test_film_facts_without_qid_has_no_anchor(capsys):
     first = film_facts(found, "en", None, {})
     assert first["build_anchor_year"] is None
     assert first["claims"] == []
+
+
+def anchor_claim():
+    return {"year": 1900, "anchor": "build", "claim": "built in 1900",
+            "event": "built", "quote_span": "", "date_text": "",
+            "sources": ["https://en.wikipedia.org/wiki/X"]}
+
+
+def test_verified_anchor_rejects_negated_planned_and_other_object(monkeypatch):
+    from witness import cli as cli_module
+    from witness.cli import confirm_build_anchor
+
+    monkeypatch.setattr(cli_module.verify, "sentence_disputed",
+                        lambda *a, **k: False)
+    url = "https://en.wikipedia.org/wiki/X"
+    for sentence in ("The tower was not built in 1900, despite popular claims.",
+                     "The nearby church was built in 1900 by the same architect.",
+                     "A tower was planned to be built in 1900 but never started."):
+        assert confirm_build_anchor(
+            anchor_claim(), {url: sentence + " More article text here."}) is None
+    good = "The tower was built in 1900 by the town architect."
+    assert confirm_build_anchor(
+        anchor_claim(), {url: good + " More article text here."}) == 1900
+
+
+def test_verified_anchor_rejects_a_disputed_sentence(monkeypatch):
+    from witness import cli as cli_module
+    from witness.cli import confirm_build_anchor
+
+    monkeypatch.setattr(cli_module.verify, "sentence_disputed",
+                        lambda *a, **k: True)
+    url = "https://en.wikipedia.org/wiki/X"
+    good = "The tower was built in 1900 by the town architect."
+    assert confirm_build_anchor(
+        anchor_claim(), {url: good + " More article text here."}) is None
 
 
 def test_cmd_paint_records_per_era_seasons_from_photo_month(tmp_path, monkeypatch):
@@ -1275,7 +1412,7 @@ def test_cmd_children_rewrites_lines_next_to_adult_ones(tmp_path, monkeypatch):
     code = cli_module.cmd_children(
         "q1-test",
         rewrite_call=lambda adult, source, plain, gentle=False, stamp="": f"Little: {adult}",
-        support_call=lambda line, source: "supported")
+        support_call=lambda line, source, *a: "supported")
     assert code == 0
     data = json.loads((out_dir / "research.json").read_text())
     lines = data["scenes"][0]["caption_lines"]
@@ -1500,10 +1637,32 @@ def test_cmd_render_adds_a_grounded_game_to_the_child_film(tmp_path, monkeypatch
 
     monkeypatch.chdir(tmp_path)
     out_dir, photo, _ = render_both_setup(tmp_path)
+    data = json.loads((out_dir / "research.json").read_text())
+    extra = [(1900, "Taller."), (1950, "Repainted.")]
+    for year, description in extra:
+        data["claims"].append(
+            {"year": year, "url": "https://a.example/x",
+             "verdict": "supported", "claim": f"changed in {year}",
+             "quote": f"It changed in {year}."})
+        data["scenes"].append(
+            {"from_year": year, "date_label": str(year),
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": description},
+             "caption_lines": [],
+             "caption_sentence": {"text": f"I changed in {year}.",
+                                 "claim_year": year,
+                                 "claim_url": "https://a.example/x",
+                                 "child": {"text": f"Little change in {year}."},
+                                 "evidence": {"claim": f"changed in {year}",
+                                              "url": "https://a.example/x",
+                                              "quote": f"It changed in {year}.",
+                                              "sentence_url": "https://a.example/x"}}})
+    (out_dir / "research.json").write_text(json.dumps(data))
     (out_dir / "spot.json").write_text(json.dumps(
         {"year": 1850,
-         "differences": [{"text": f"Difference {n}.",
-                          "change": "1850: Whole."} for n in (1, 2, 3)]}))
+         "differences": [{"change": "1850: Whole."},
+                         {"change": "1900: Taller."},
+                         {"change": "1950: Repainted."}]}))
     code = cli_module.cmd_render("q1-test", photo, photo_credit="me")
     assert code == 0
     adult_film = json.loads((out_dir / "film" / "film.json").read_text())
@@ -1511,7 +1670,7 @@ def test_cmd_render_adds_a_grounded_game_to_the_child_film(tmp_path, monkeypatch
     child_film = json.loads((out_dir / "film" / "child" / "film.json").read_text())
     assert child_film["spot"] == "spot.html"
     page = (out_dir / "film" / "child" / "spot.html").read_text()
-    assert "Difference 1." in page
+    assert "1850: Whole." in page
 
 
 def test_cmd_render_drops_a_game_that_lost_its_grounding(tmp_path, monkeypatch, capsys):
@@ -1617,8 +1776,10 @@ def test_cmd_spot_writes_a_grounded_game(tmp_path, monkeypatch):
     assert code == 0
     game = json.loads((out_dir / "spot.json").read_text())
     assert game["year"] == 1779
-    assert [d["text"] for d in game["differences"]] == [
-        "The sails are gone.", "The base is brick.", "New sails again."]
+    assert [d["change"] for d in game["differences"]] == [
+        f"1932: {texts[1932]}", f"1865: {texts[1865]}",
+        f"2002: {texts[2002]}"]
+    assert all(set(d) == {"change"} for d in game["differences"])
 
 
 def test_cmd_spot_skips_when_too_little_is_verified(tmp_path, monkeypatch, capsys):
@@ -1708,9 +1869,10 @@ def test_childrens_calls_are_counted_on_the_job_ledger(monkeypatch):
             ["https://a.example/x\nThe old mill stood whole in 1779."])
         cli_module.spot_respond(buf.getvalue(), buf.getvalue(), "spot them")
     assert line == "Little mill words."
-    assert verdict == "supported"
-    assert [kind for kind, _ in calls] == ["responses", "chat", "responses"]
-    assert ledger.calls == 3
+    assert verdict["verdict"] == "supported"
+    assert [kind for kind, _ in calls] == ["responses", "chat", "chat",
+                                           "responses"]
+    assert ledger.calls == 4
     assert ledger.cost_usd > 0
     assert set(ledger.totals) == {"meta", "baseten"}
     models.reset_usage()
@@ -1904,7 +2066,7 @@ def test_cmd_captions_rechecks_stale_paintings(tmp_path, monkeypatch, capsys):
     code = cli_module.cmd_captions(
         "q1-test",
         rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
-        support_call=lambda sentence, passages: "supported",
+        support_call=lambda sentence, passages, *a: "supported",
         check_call=check)
     assert code == 0
     assert len(checked) == 1
@@ -2952,7 +3114,7 @@ def test_cmd_captions_writes_sentence_and_skips_claimless(tmp_path, monkeypatch,
 
     code = cli_module.cmd_captions(
         "q1-test", rewrite_call=rewrite,
-        support_call=lambda sentence, quote: "supported")
+        support_call=lambda sentence, quote, *a: "supported")
     assert code == 0
     assert calls == [(1779, False)]
     saved = json.loads((slug_dir / "research.json").read_text())
@@ -2962,8 +3124,35 @@ def test_cmd_captions_writes_sentence_and_skips_claimless(tmp_path, monkeypatch,
         "claim_year": 1779, "claim_url": "https://a.example/x",
         "evidence": {"claim": "opened in 1779",
                      "url": "https://a.example/x",
-                     "quote": "The mill opened in 1779."}}
+                     "quote": "The mill opened in 1779.",
+                     "sentence_url": "https://a.example/x"}}
     assert "caption_sentence" not in second
+
+
+def test_cmd_captions_stores_the_supporting_sentence(tmp_path, monkeypatch, capsys):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
+
+    def support(sentence, passages, year, keywords):
+        return {"verdict": "supported",
+                "quote": "The doors opened to the town in 1779.",
+                "url": "https://a.example/z"}
+
+    code = cli_module.cmd_captions(
+        "q1-test",
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
+        support_call=support)
+    assert code == 0
+    saved = json.loads((slug_dir / "research.json").read_text())
+    assert saved["scenes"][0]["caption_sentence"]["evidence"] == {
+        "claim": "opened in 1779", "url": "https://a.example/x",
+        "quote": "The doors opened to the town in 1779.",
+        "sentence_url": "https://a.example/z"}
 
 
 def test_cmd_captions_judges_sentences_with_object_context(tmp_path, monkeypatch):
@@ -2976,7 +3165,7 @@ def test_cmd_captions_judges_sentences_with_object_context(tmp_path, monkeypatch
     (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
     seen = []
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         seen.append(sentence)
         return "supported"
 
@@ -3005,7 +3194,7 @@ def test_cmd_captions_judges_against_cached_article_text(tmp_path, monkeypatch):
               "The mill opened in 1779 after years of building work.")
     seen = []
 
-    def support(sentence, passages):
+    def support(sentence, passages, *a):
         seen.extend(passages)
         return "supported"
 
@@ -3033,7 +3222,7 @@ def test_cmd_captions_stops_cleanly_on_cap(tmp_path, monkeypatch, capsys):
 
     code = cli_module.cmd_captions(
         "q1-test", rewrite_call=capped,
-        support_call=lambda sentence, quote: "supported")
+        support_call=lambda sentence, quote, *a: "supported")
     assert code == 2
     out, _ = capsys.readouterr()
     assert "spending cap" in out
@@ -3062,7 +3251,7 @@ def test_cmd_captions_skips_captioned_scenes(tmp_path, monkeypatch, capsys):
 
     code = cli_module.cmd_captions(
         "q1-test", rewrite_call=rewrite,
-        support_call=lambda sentence, quote: "supported")
+        support_call=lambda sentence, quote, *a: "supported")
     assert code == 0
     assert calls == []
     out, _ = capsys.readouterr()
@@ -3082,7 +3271,7 @@ def test_cmd_captions_reports_failed_scenes(tmp_path, monkeypatch, capsys):
     code = cli_module.cmd_captions(
         "q1-test",
         rewrite_call=lambda detail, quote, year, plain, stamp="": "x" * 200,
-        support_call=lambda sentence, quote: "supported")
+        support_call=lambda sentence, quote, *a: "supported")
     assert code == 1
     saved = json.loads((tmp_path / "out" / "q1-test" / "research.json").read_text())
     assert "caption_sentence" not in saved["scenes"][0]

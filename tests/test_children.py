@@ -6,12 +6,14 @@ from witness import children
 def test_child_caption_keeps_supported_rewrite():
     out = children.child_caption(
         rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I was built in 1779.",
-        support_call=lambda line, source: "supported",
+        support_call=lambda line, source, *a: "supported",
         adult="opened in 1779",
         source="The mill was opened in 1779.",
         url="https://a.example/mill")
     assert out == {"line": "I was built in 1779.", "verified": True,
-                   "attempts": 1}
+                   "attempts": 1,
+                   "evidence": {"quote": "The mill was opened in 1779.",
+                                "url": "https://a.example/mill"}}
 
 
 def test_child_caption_retries_plainer_once_then_drops():
@@ -23,11 +25,12 @@ def test_child_caption_retries_plainer_once_then_drops():
 
     out = children.child_caption(
         rewrite_call=rewrite,
-        support_call=lambda line, source: "unsupported",
+        support_call=lambda line, source, *a: "unsupported",
         adult="opened in 1779",
         source="The mill was opened in 1779.",
         url="https://a.example/mill")
-    assert out == {"line": None, "verified": False, "attempts": 2}
+    assert out == {"line": None, "verified": False, "attempts": 2,
+                   "evidence": {"quote": "", "url": ""}}
     assert calls == [False, True]
 
 
@@ -37,7 +40,7 @@ def test_child_caption_plainer_retry_can_pass():
 
     out = children.child_caption(
         rewrite_call=rewrite,
-        support_call=lambda line, source: (
+        support_call=lambda line, source, *a: (
             "supported" if line == "I was built in 1779." else "unsupported"),
         adult="opened in 1779",
         source="The mill was opened in 1779.",
@@ -57,17 +60,18 @@ def test_rewrite_prompt_bans_years_when_stamped():
 def test_child_caption_with_stamp_drops_year_carrying_rewrites():
     out = children.child_caption(
         rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I was built in 1779.",
-        support_call=lambda line, passages: "supported",
+        support_call=lambda line, passages, *a: "supported",
         adult="opened in 1779",
         source="The mill was opened in 1779.",
         url="https://a.example/mill", stamp="1779")
-    assert out == {"line": None, "verified": False, "attempts": 2}
+    assert out == {"line": None, "verified": False, "attempts": 2,
+                   "evidence": {"quote": "", "url": ""}}
 
 
 def test_child_caption_without_stamp_keeps_years_for_lines():
     out = children.child_caption(
         rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I got a steam engine in 1865.",
-        support_call=lambda line, passages: "supported",
+        support_call=lambda line, passages, *a: "supported",
         adult="1865 line",
         source="The mill got a steam engine in 1865.",
         url="https://a.example/mill")
@@ -100,7 +104,7 @@ def test_child_caption_judges_against_rich_passages():
              "The old mill stood by the river for many years.\n\n"
              "The mill was opened in 1779 after years of building work."}
 
-    def support(line, passages):
+    def support(line, passages, *a):
         seen["passages"] = passages
         return "supported"
 
@@ -128,19 +132,21 @@ def test_child_caption_retries_empty_answers_without_consuming_attempts():
 
     out = children.child_caption(
         rewrite_call=rewrite,
-        support_call=lambda line, passages: "supported",
+        support_call=lambda line, passages, *a: "supported",
         adult="opened in 1779",
         source="The mill was opened in 1779.",
         url="https://a.example/mill")
     assert out == {"line": "I opened long ago.", "verified": True,
-                   "attempts": 1}
+                   "attempts": 1,
+                   "evidence": {"quote": "The mill was opened in 1779.",
+                                "url": "https://a.example/mill"}}
     assert seen == [False, False, False]
 
 
 def test_child_caption_judges_with_object_and_year_context():
     seen = {}
 
-    def support(line, passages):
+    def support(line, passages, *a):
         seen["judged"] = line
         return "supported"
 
@@ -169,7 +175,7 @@ def test_claim_for_line_matches_scene_order_not_research_order():
 def test_child_caption_checks_a_bound_passage():
     seen = {}
 
-    def support(line, passages):
+    def support(line, passages, *a):
         seen["passages"] = passages
         return "supported"
 
@@ -201,7 +207,36 @@ def test_child_caption_threads_gentle_to_the_rewrite():
 
     children.child_caption(
         rewrite_call=rewrite,
-        support_call=lambda line, passages: "supported",
+        support_call=lambda line, passages, *a: "supported",
         adult="I burnt down.", source="The mill burnt down in 1932.",
         url="https://a.example/mill", gentle=True)
     assert seen["gentle"] is True
+
+
+def test_child_caption_binds_the_check_to_year_and_numbers():
+    seen = {}
+
+    def support(judged, passages, year, keywords):
+        seen["year"], seen["keywords"] = year, keywords
+        return {"verdict": "supported", "quote": "The mill burnt down.",
+                "url": "https://a.example/mill"}
+
+    out = children.child_caption(
+        rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I caught fire.",
+        support_call=support,
+        adult="I burnt down.", source="The mill burnt down in 1932.",
+        url="https://a.example/mill", year=1932, object_name="Mill")
+    assert out["verified"] is True
+    assert seen["year"] == 1932
+    assert "burnt" in seen["keywords"]
+    assert out["evidence"] == {"quote": "The mill burnt down.",
+                               "url": "https://a.example/mill"}
+
+
+def test_child_caption_rejects_numbers_missing_from_the_source():
+    out = children.child_caption(
+        rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I was 236 years old.",
+        support_call=lambda judged, passages, year, keywords: "supported",
+        adult="sails replaced", source="The sails were replaced in 1900.",
+        url="https://a.example/mill", year=1900, object_name="Mill")
+    assert out["verified"] is False

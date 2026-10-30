@@ -306,6 +306,7 @@ def build_timeline(events: list) -> list:
         state = states.classify(
             event["event"], event.get("detail", ""),
             event.get("visible_change", ""), previous,
+            checked=event.get("visible_change_checked", False),
         )
         if state is not None:
             by_year[event["year"]] = state

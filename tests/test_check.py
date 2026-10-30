@@ -103,3 +103,18 @@ def test_check_painting_passes_caption_to_the_question():
     check.check_painting(ask, b"img", "De Adriaan", "under construction",
                          1999, caption="My first pile was put in the ground.")
     assert "My first pile was put in the ground." in seen[0]
+
+
+def test_check_painting_rejects_qualified_matches():
+    ask = lambda image, prompt: "MATCHES, mostly."
+    assert check.check_painting(ask, b"img", "Mill", "standing", 1932)[
+        "verdict"] == "differs"
+    ask = lambda image, prompt: "MATCHES fine."
+    assert check.check_painting(ask, b"img", "Mill", "standing", 1932)[
+        "verdict"] == "matches"
+
+
+def test_check_prompt_rejects_unsupported_painted_detail():
+    prompt = check.check_prompt("Mill", "The mill stands whole.", 1932)
+    assert "every visible detail of the object" in prompt
+    assert "the sources never state" in prompt

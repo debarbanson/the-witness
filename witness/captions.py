@@ -19,6 +19,7 @@ MAX_CHARS = 110  # hard gate; beyond this the run fails, nothing is cut
 _FIRST_PERSON = re.compile(r"\bI\b|\b[Mm]y\b|\b[Mm]e\b")
 _WRONG_VOICE = re.compile(r"\bI saw\b|\b[Ww]e\b|\b[Oo]ur\b|\b[Uu]s\b")
 _YEAR = re.compile(r"\b(\d{4})\b")
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July",
            "August", "September", "October", "November", "December")
 _DAY_MONTH = re.compile(r"\b(\d{1,2}) (" + "|".join(_MONTHS) + r")\b",
@@ -38,8 +39,13 @@ def claim_matches(claim, year) -> bool:
 
 
 def claim_detail(claim) -> str:
-    """The claim's own words: the narrowed rewrite when one exists."""
-    return claim.get("rewritten") or claim.get("claim", "")
+    """The claim's own words: the narrowed rewrite only for partly
+    verdicts, where the rewrite is what the source states. A rewrite
+    kept on any other verdict is unchecked model text and never
+    reaches paint or captions."""
+    if claim.get("verdict") == "partly" and claim.get("rewritten"):
+        return claim["rewritten"]
+    return claim.get("claim", "")
 
 
 def assign_claims(scenes, claims) -> dict:
@@ -130,6 +136,18 @@ def sentence_ok(sentence) -> bool:
     return True
 
 
+def numbers_supported(sentence, quote) -> bool:
+    """Every number in the sentence (years, ages, counts, distances)
+    appears in the evidence quote. A partial digit run never counts:
+    70 is not in 700."""
+    text = (quote or "").replace(",", "")
+    for raw in _NUMBER.findall(sentence or ""):
+        number = raw.replace(",", "")
+        if not re.search(rf"(?<!\d){re.escape(number)}(?!\d)", text):
+            return False
+    return True
+
+
 def evidence_passages(assigned, claims, year) -> list:
     """Bound evidence for the sentence check: the assigned claim's
     accepted quote plus the other accepted quotes of the scene's
@@ -177,9 +195,12 @@ def write_sentence(rewrite_call, support_call, claim, year,
 
     The writer sees the scene's other kept evidence with the main
     quote, and every rewrite is checked again against the bound
-    passages: the accepted quotes with their URLs. Only a fully
+    passages: the accepted quotes with their URLs. The check is bound
+    to the claim's year and key words, and every number in the
+    sentence must appear in the accepted quote. Only a fully
     supported sentence counts. The judge sees the sentence with its
     object and year, exactly what the film asserts with its stamp.
+    The returned evidence is the sentence that supported the caption.
     """
     detail = claim_detail(claim)
     main = claim.get("quote", "")
@@ -191,6 +212,8 @@ def write_sentence(rewrite_call, support_call, claim, year,
         passages = evidence_passages(claim, claims, year)
     else:
         passages = check_passages(claim, claims, year, texts)
+    keywords = keywords_for_claim(claim.get("claim", ""),
+                                  claim.get("event", ""))
     for attempt, plain in enumerate((False, True), 1):
         sentence = ""
         for _ in range(3):  # empty answers are retried, never judged
@@ -200,7 +223,19 @@ def write_sentence(rewrite_call, support_call, claim, year,
                 break
         judged = (f"In {year}, {object_name}: {sentence}"
                   if object_name else sentence)
-        if (sentence and sentence_ok(sentence)
-                and support_call(judged, passages) == "supported"):
-            return {"sentence": sentence, "verified": True, "attempts": attempt}
-    return {"sentence": None, "verified": False, "attempts": 2}
+        if not (sentence and sentence_ok(sentence)
+                and numbers_supported(sentence, main)):
+            continue
+        result = support_call(judged, passages, year, keywords)
+        if isinstance(result, dict):
+            verdict = result.get("verdict")
+            evidence = {"quote": result.get("quote", ""),
+                        "url": result.get("url", "")}
+        else:
+            verdict, evidence = result, {"quote": main,
+                                         "url": claim.get("url", "")}
+        if verdict == "supported":
+            return {"sentence": sentence, "verified": True,
+                    "attempts": attempt, "evidence": evidence}
+    return {"sentence": None, "verified": False, "attempts": 2,
+            "evidence": {"quote": "", "url": ""}}

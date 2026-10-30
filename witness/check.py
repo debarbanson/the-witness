@@ -7,14 +7,23 @@ calls.
 
 import base64
 import io
+import re
+
+# A MATCHES hedged by any of these is not a match: the painting
+# check never passes a qualified verdict.
+QUALIFIERS = frozenset({
+    "mostly", "partly", "partially", "almost", "somewhat", "roughly",
+    "largely", "generally", "more or less", "sort of", "kind of",
+})
 
 
 def check_prompt(object_name, state_text, year, caption="",
                    season=None) -> str:
     """The whole scene, one verdict: the object in its state, no
     lettering, nothing the year could not hold, nothing contradicting
-    its own caption, and the expected season without snow. Winter
-    expects nothing: snow may or may not lie."""
+    its own caption, every object detail from the verified state, and
+    the expected season without snow. Winter expects nothing: snow
+    may or may not lie."""
     base = (
         f"Verified state of {object_name} in this painting: {state_text} "
         f"The painting is dated {year}. Look at the whole painting. Answer "
@@ -22,8 +31,10 @@ def check_prompt(object_name, state_text, year, caption="",
         f"that state; (2) it holds no readable text, dates, signs, "
         f"captions or signatures; (3) nothing in it postdates {year}: no "
         f"aircraft, paragliders, cranes, cars, modern clothing, street "
-        f"furniture or other anachronisms")
-    number = 4
+        f"furniture or other anachronisms; (4) every visible detail of "
+        f"the object itself comes from the verified state above: a "
+        f"detail the sources never state DIFFERS")
+    number = 5
     if caption:
         base += (f"; ({number}) the scene agrees with its caption: {caption}. "
                  f"A painting that contradicts its own caption DIFFERS")
@@ -43,6 +54,10 @@ def check_painting(check_call, image_bytes, object_name, state_text, year,
               or "").strip()
     first, _, rest = answer.partition(" ")
     if first.strip(" :.,").upper() == "MATCHES":
+        lowered = f" {answer.lower()} "
+        if any(re.search(rf"\b{re.escape(found)}\b", lowered) for found in QUALIFIERS):
+            return {"verdict": "differs",
+                    "note": f"qualified match ({answer.strip() or answer})"}
         return {"verdict": "matches", "note": rest.strip() or answer}
     return {"verdict": "differs", "note": rest.strip() or answer}
 

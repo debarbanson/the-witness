@@ -6,7 +6,7 @@ rewrite that fails is retried plainer once, else dropped. Model calls
 are injected, so tests run without live calls.
 """
 
-from witness.captions import sentence_ok
+from witness.captions import numbers_supported, sentence_ok
 from witness.verify import keywords_for_claim, select_paragraphs
 
 
@@ -36,13 +36,16 @@ def child_caption(rewrite_call, support_call, adult, source, url,
                   stamp="") -> dict:
     """Rewrite plus re-verification; plainer retry once, else drop.
     Every rewrite is checked again against the bound passage, judged
-    with its object and year like every other voice text. Fetched
-    article text adds the paragraphs research judged, when given. A
-    stamped scene sentence keeps the adult shape: first person, no
-    year or date; unstamped lines keep their years."""
+    with its object and year like every other voice text. The check
+    is bound to the claim's year and key words, and every number in
+    the line must appear in the source sentence. Fetched article text
+    adds the paragraphs research judged, when given. A stamped scene
+    sentence keeps the adult shape: first person, no year or date;
+    unstamped lines keep their years. The returned evidence is the
+    sentence that supported the line."""
     passages = [f"{url}\n{source}"]
+    keywords = keywords_for_claim(adult)
     if texts:
-        keywords = keywords_for_claim(adult)
         for para in select_paragraphs(texts.get(url) or "", year or None,
                                       keywords, max_paras=3):
             entry = f"{url}\n{para}"
@@ -58,10 +61,21 @@ def child_caption(rewrite_call, support_call, adult, source, url,
                 break
         judged = (f"In {year}, {object_name}: {line}"
                   if object_name else line)
-        if line and (not stamp or sentence_ok(line)) \
-                and support_call(judged, passages) == "supported":
-            return {"line": line, "verified": True, "attempts": attempt}
-    return {"line": None, "verified": False, "attempts": 2}
+        if not (line and (not stamp or sentence_ok(line))
+                and numbers_supported(line, source)):
+            continue
+        result = support_call(judged, passages, year, keywords)
+        if isinstance(result, dict):
+            verdict = result.get("verdict")
+            evidence = {"quote": result.get("quote", ""),
+                        "url": result.get("url", "")}
+        else:
+            verdict, evidence = result, {"quote": source, "url": url}
+        if verdict == "supported":
+            return {"line": line, "verified": True, "attempts": attempt,
+                    "evidence": evidence}
+    return {"line": None, "verified": False, "attempts": 2,
+            "evidence": {"quote": "", "url": ""}}
 
 
 def claim_for_line(claims, year, url):

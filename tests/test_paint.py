@@ -257,6 +257,27 @@ def test_paint_results_carry_the_checked_caption():
     assert bare["caption"] == ""
 
 
+def test_child_repaint_keeps_child_style_and_gentle_scene():
+    prompts = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        prompts.append(prompt)
+        return {"image": b"img", "response_id": "r1"}
+
+    answers = iter(["DIFFERS the roof is wrong", "MATCHES fine"])
+    scene = {"from_year": 1944, "date_label": "1944", "caption_lines": [],
+             "state": {"condition": "burnt", "description": "only walls"},
+             "caption_sentence": {"text": "a",
+                                 "child": {"text": "I lost my roof."}}}
+    result = paint.paint_scene(call, lambda image, p: next(answers),
+                               scene, "Mill", "Town", None,
+                               audience="child")
+    assert result["verdict"] == "matches"
+    assert paint.CHILD_STYLE in prompts[0] and paint.GENTLE_SCENE in prompts[0]
+    assert paint.CHILD_STYLE in prompts[1] and paint.GENTLE_SCENE in prompts[1]
+    assert paint.STYLE not in prompts[1]
+
+
 def test_paint_scene_repaints_with_difference_then_keeps():
     prompts = []
 

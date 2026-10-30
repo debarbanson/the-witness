@@ -733,12 +733,16 @@ _DAILY: BudgetAuthority | None = None
 
 
 def configure_spending(path=None, daily_cap_usd=None, daily_films=None,
-                       visitor_films=None) -> None:
+                       visitor_films=None, authority=None) -> None:
     """Arm the budget authority (the web entry point calls this at
-    startup); a None path disarms it again."""
+    startup); a None path disarms it again. An explicit `authority`
+    object (the Modal ledger client) is used as is."""
     global _DAILY
-    _DAILY = None if path is None else BudgetAuthority(
-        path, daily_cap_usd, daily_films, visitor_films)
+    if authority is not None:
+        _DAILY = authority
+    else:
+        _DAILY = None if path is None else BudgetAuthority(
+            path, daily_cap_usd, daily_films, visitor_films)
 
 
 def _usage_dict(usage) -> dict:

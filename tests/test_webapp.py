@@ -156,6 +156,19 @@ def test_job_status_needs_its_visitor(tmp_path):
     assert client.get("/api/jobs/does-not-exist").status_code == 404
 
 
+def test_clearing_confirm_keeps_status(tmp_path):
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    store.create_job("j", {"status": "working", "confirm": {"name": "X"},
+                           "decision": None, "cancel": False, "events": []})
+    store.set_confirm("j", None)
+    assert store.get_job("j")["confirm"] is None
+    assert store.get_job("j")["status"] == "working"
+    store.set_confirm("j", {"name": "X"})
+    assert store.get_job("j")["status"] == "confirming"
+
+
 def test_decide_and_cancel_round_trip(tmp_path):
     from witness.webapp import MemoryStore
 

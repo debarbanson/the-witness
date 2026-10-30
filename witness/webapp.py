@@ -78,7 +78,10 @@ class MemoryStore:
 
     def set_confirm(self, job_id, confirm):
         with self._mutex:
-            self._job(job_id)["confirm"] = confirm
+            job = self._job(job_id)
+            job["confirm"] = confirm
+            if confirm is not None:
+                job["status"] = "confirming"
 
     def get_decision(self, job_id):
         with self._mutex:

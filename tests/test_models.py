@@ -350,6 +350,17 @@ def test_failed_call_releases_its_reservation(tmp_path):
         models.configure_spending(None)
 
 
+def test_configure_spending_accepts_an_authority_object():
+    class Custom:
+        pass
+
+    custom = Custom()
+    models.configure_spending(authority=custom)
+    assert models._DAILY is custom
+    models.configure_spending(None)
+    assert models._DAILY is None
+
+
 def test_corrupt_accounting_fails_closed(tmp_path):
     from types import SimpleNamespace
 

@@ -87,7 +87,7 @@ def describe_state(object_name, state) -> str:
     return f"The {object_name} is {condition}: {description}"
 
 
-def scene_prompt(scene, object_name, place, season=None, excluded=(),
+def scene_prompt(scene, object_name, municipality, season=None, excluded=(),
                  claims=()) -> str:
     """One era prompt: verified state plus verified surroundings, no
     lettering, one season unless the state governs the canopy, anchor
@@ -106,9 +106,12 @@ def scene_prompt(scene, object_name, place, season=None, excluded=(),
                and not _describes_harm(captions.claim_detail(claim))]
         surroundings = " ".join(own)
     if not surroundings.strip():
-        surroundings = f"everyday life around the {place} {object_name}."
+        surroundings = (
+            f"everyday life around the {municipality} {object_name}."
+            if municipality else f"everyday life around the {object_name}.")
+    where = f"in {municipality} " if municipality else ""
     parts = [
-        f"Repaint this exact view in {place} in the year {year}, same "
+        f"Repaint this exact view {where}in the year {year}, same "
         f"viewpoint, composition and painted style as the anchor photo. ",
         f"The object then: {state_text} ",
         f"Surroundings: {surroundings} ",
@@ -216,16 +219,19 @@ def scene_caption(scene) -> str:
     return (scene.get("caption_sentence") or {}).get("text", "")
 
 
-def aftermath_prompt(scene, object_name, place, season=None) -> str:
+def aftermath_prompt(scene, object_name, municipality, season=None) -> str:
     """Last resort for remains the filter keeps blocking: the verified
     state, neutral surroundings, explicit calm negatives."""
     year = scene.get("date_label", scene.get("from_year"))
     state_text = describe_state(object_name, scene.get("state", {}))
+    where = f"in {municipality} " if municipality else ""
+    around = (f"everyday life around the {municipality} {object_name}. "
+              if municipality else f"everyday life around the {object_name}. ")
     parts = [
-        f"Repaint this exact view in {place} in the year {year}, same "
+        f"Repaint this exact view {where}in the year {year}, same "
         f"viewpoint, composition and painted style as the anchor photo. ",
         f"The object then: {state_text} ",
-        f"Surroundings: everyday life around the {place} {object_name}. ",
+        f"Surroundings: {around}",
         f"Style: {STYLE} ",
         f"{NO_TEXT} ",
         "Show the morning after: quiet remains, no flames, no smoke, "
@@ -237,13 +243,13 @@ def aftermath_prompt(scene, object_name, place, season=None) -> str:
     return "".join(parts)
 
 
-def paint_aftermath(call, check_call, scene, object_name, place,
+def paint_aftermath(call, check_call, scene, object_name, municipality,
                     photo_bytes=None, season=None, max_tries=2) -> dict:
     """One calm aftermath attempt, checked; the filter gets one retry."""
     from witness import check as check_module
 
     year = scene.get("from_year")
-    prompt = aftermath_prompt(scene, object_name, place, season)
+    prompt = aftermath_prompt(scene, object_name, municipality, season)
     caption = scene_caption(scene)
     prev_id = None
     note = "safety block persists; era skipped"
@@ -298,7 +304,7 @@ def recover_scene(check_call, scene, object_name, prior) -> dict | None:
     return None
 
 
-def paint_scene(call, check_call, scene, object_name, place, prev_id,
+def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
                max_repaints=MAX_REPAINTS, photo_bytes=None, season=None,
                excluded=(), claims=()) -> dict:
     """Paint one scene and check it: repaint at most twice, else drop.
@@ -309,7 +315,7 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
     from witness import check as check_module
 
     year = scene.get("from_year")
-    prompt = scene_prompt(scene, object_name, place, season, excluded, claims)
+    prompt = scene_prompt(scene, object_name, municipality, season, excluded, claims)
     caption = scene_caption(scene)
     blocks = 0
     model_retried = False
@@ -349,14 +355,14 @@ def paint_scene(call, check_call, scene, object_name, place, prev_id,
                     "verdict": "matches", "attempts": attempt + 1,
                     "note": verdict["note"]}
         prev_id = result["response_id"]
-        prompt = (f"{scene_prompt(scene, object_name, place, season, excluded, claims)} "
+        prompt = (f"{scene_prompt(scene, object_name, municipality, season, excluded, claims)} "
                   f"The previous attempt differed: {verdict['note']} Fix exactly that.")
     return {"year": year, "image": None, "response_id": None,
             "verdict": "dropped", "attempts": 1 + max_repaints,
             "note": verdict["note"]}
 
 
-def paint_chain(call, photo_bytes, scenes, object_name, place,
+def paint_chain(call, photo_bytes, scenes, object_name, municipality,
                 check_call=None, season=None, excluded=None,
                 claims=()) -> list:
     """Eras one after another, each chained on the previous turn. The
@@ -369,7 +375,7 @@ def paint_chain(call, photo_bytes, scenes, object_name, place,
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
             photo = photo_bytes if prev_id is None else None
             if check_call is None:
-                result = call(scene_prompt(scene, object_name, place, season,
+                result = call(scene_prompt(scene, object_name, municipality, season,
                                            year_excluded, claims), prev_id, photo)
                 out.append({"year": scene.get("from_year"),
                             "image": result["image"],
@@ -377,7 +383,7 @@ def paint_chain(call, photo_bytes, scenes, object_name, place,
                             "verdict": "unchecked", "attempts": 1, "note": ""})
             else:
                 out.append(paint_scene(call, check_call, scene, object_name,
-                                       place, prev_id, season=season,
+                                       municipality, prev_id, season=season,
                                        excluded=year_excluded, claims=claims,
                                        photo_bytes=photo))
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
@@ -389,7 +395,7 @@ def paint_chain(call, photo_bytes, scenes, object_name, place,
     return out
 
 
-def paint_parallel(call, photo_bytes, scenes, object_name, place,
+def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
                    check_call=None, max_workers=6, season=None,
                    excluded=None, claims=()) -> list:
     """The first scene carries the photo; the rest branch from its
@@ -402,12 +408,12 @@ def paint_parallel(call, photo_bytes, scenes, object_name, place,
         try:
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
             if check_call is None:
-                result = call(scene_prompt(scene, object_name, place, season,
+                result = call(scene_prompt(scene, object_name, municipality, season,
                                            year_excluded, claims), prev_id, photo)
                 return {"year": scene.get("from_year"), "image": result["image"],
                         "response_id": result["response_id"],
                         "verdict": "unchecked", "attempts": 1, "note": ""}
-            return paint_scene(call, check_call, scene, object_name, place,
+            return paint_scene(call, check_call, scene, object_name, municipality,
                                prev_id, season=season, excluded=year_excluded,
                                claims=claims, photo_bytes=photo)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film

@@ -6,6 +6,7 @@ pick from the photo. Coordinates are used for the lookups only and are
 never stored or printed by this module.
 """
 
+import hashlib
 import io
 import math
 import re
@@ -98,6 +99,7 @@ class Identification:
     country_code: str | None = None
     description: str = ""
     rejected: tuple = ()
+    municipality: str | None = None
 
 
 def clear_cache() -> None:
@@ -130,14 +132,15 @@ def _budgeted(key, budget, func, *args, progress=None, **kwargs):
 
 
 def checked_location(location) -> tuple:
-    """Browser geolocation as floats, or an error that names the rule."""
+    """Browser geolocation as floats, rounded to 4 decimals (about
+    11 m: plenty for a 250 m lookup), or an error that names the rule."""
     try:
         lat, lon = float(location[0]), float(location[1])
     except (TypeError, ValueError, IndexError):
         raise IdentifyError("location must be two numbers (latitude, longitude)")
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise IdentifyError("location is out of range")
-    return lat, lon
+    return round(lat, 4), round(lon, 4)
 
 
 def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
@@ -153,24 +156,27 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
     if location is not None:
         location = checked_location(location)
     try:
-        return _identify_once(photo, place=place, post=post, get=get, respond=respond,
-                              sleep=sleep, cache=cache, lang=lang, timings=timings,
-                              progress=progress, location=location)
-    except NotIdentifiedError as failed:
-        if not place:
-            raise
         try:
-            read_location(photo)
-            had_precise = True
-        except NoGpsError:
-            had_precise = location is not None
-        if not had_precise:
-            raise failed
-        if progress is not None:
-            progress("fallback", {"to": "typed place"})
-        return _identify_once(photo, place=place, post=post, get=get, respond=respond,
-                              sleep=sleep, cache=cache, lang=lang, timings=timings,
-                              progress=progress, _gps_ok=False, location=None)
+            return _identify_once(photo, place=place, post=post, get=get, respond=respond,
+                                  sleep=sleep, cache=cache, lang=lang, timings=timings,
+                                  progress=progress, location=location)
+        except NotIdentifiedError as failed:
+            if not place:
+                raise
+            try:
+                read_location(photo)
+                had_precise = True
+            except NoGpsError:
+                had_precise = location is not None
+            if not had_precise:
+                raise failed
+            if progress is not None:
+                progress("fallback", {"to": "typed place"})
+            return _identify_once(photo, place=place, post=post, get=get, respond=respond,
+                                  sleep=sleep, cache=cache, lang=lang, timings=timings,
+                                  progress=progress, _gps_ok=False, location=None)
+    finally:
+        clear_cache()
 
 
 def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
@@ -215,23 +221,21 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
             loc = PhotoLocation(lat=lat, lon=lon, direction=None,
                                 precision="browser geolocation")
             from_place = False
-            place_name = None
+            municipality = None
         else:
             if not place:
                 raise
             started = time.perf_counter()
-            lat, lon, country_code, place_name = geocode(place, get=get, sleep=sleep)
+            lat, lon, country_code, municipality = geocode(place, get=get, sleep=sleep)
             steps["geocode_s"] = round(time.perf_counter() - started, 1)
             loc = PhotoLocation(lat=lat, lon=lon, direction=None, precision="typed place")
             from_place = True
     else:
-        place_name = None
+        municipality = None
     location = loc
     lat, lon = location.lat, location.lon
     radius = PLACE_RADIUS_M if from_place else RADIUS_M
-    near = place_name or place
-    emit("location", {"precision": location.precision,
-                      **({"place": place_name} if place_name else {})})
+    emit("location", {"precision": location.precision})
     osm_box: dict = {}
 
     def overpass_job():
@@ -247,7 +251,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     overpass_thread = threading.Thread(target=overpass_job, daemon=True)
     overpass_thread.start()
     if not from_place:
-        country_code = guarded("reverse", None, reverse, lat, lon, get=get, sleep=sleep)
+        country_code, municipality = guarded(
+            "reverse", (None, None), reverse, lat, lon, get=get, sleep=sleep)
     order = read_langs(country_code, lang)
     pool = ThreadPoolExecutor(max_workers=2)
     try:
@@ -294,8 +299,7 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         try:
             for _ in range(2):
                 started = time.perf_counter()
-                pick = parse_pick(respond(_pick_prompt(pool_cands, location.direction,
-                                                       rejected, near), photo_bytes))
+                pick = parse_pick(respond(_pick_prompt(pool_cands, rejected), photo_bytes))
                 vision_elapsed += time.perf_counter() - started
                 if pick["none"]:
                     emit("no_match", {"explanation": pick.get("confidence", "")})
@@ -305,9 +309,9 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
                     raise NotIdentifiedError(f"unparseable pick: {pick.get('name')}")
                 candidate = pool_cands[number - 1]
                 started = time.perf_counter()
-                confirmed = parse_second_look(respond(_look_prompt(candidate, near), photo_bytes))
+                confirmed = parse_second_look(respond(_look_prompt(candidate), photo_bytes))
                 if confirmed is None:
-                    confirmed = parse_second_look(respond(_look_prompt(candidate, near), photo_bytes))
+                    confirmed = parse_second_look(respond(_look_prompt(candidate), photo_bytes))
                     if confirmed is None:
                         confirmed = False  # twice unreadable is not a yes
                 look_elapsed += time.perf_counter() - started
@@ -342,6 +346,7 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         country_code=country_code,
         description=chosen.description,
         rejected=tuple(rejected),
+        municipality=municipality,
     )
 
 
@@ -351,8 +356,8 @@ def read_location(photo) -> PhotoLocation:
     lat_val, lon_val = tags.get("GPSLatitude"), tags.get("GPSLongitude")
     if not (lat_ref and lon_ref and lat_val and lon_val):
         raise NoGpsError("photo has no EXIF GPS; give --place instead")
-    lat = _dms(lat_val, lat_ref)
-    lon = _dms(lon_val, lon_ref)
+    lat = round(_dms(lat_val, lat_ref), 4)
+    lon = round(_dms(lon_val, lon_ref), 4)
     decimals = max(_decimals(lat_val[2]), _decimals(lon_val[2]))
     approx_m = 30 / (10**decimals) if decimals <= 4 else 0.01
     label = f"DMS to {decimals} dp, about {approx_m:g} m"
@@ -818,14 +823,13 @@ def _shortlist_line(index: int, c: Candidate) -> str:
         bits.append(c.description)
     if c.includes:
         bits.append(f"includes {', '.join(c.includes)}")
-    detail = f"{'; '.join(bits)}, " if bits else ""
-    return (f"{index}. {c.name} ({detail}about {c.distance_m} m away, "
-            f"bearing {c.bearing_deg} degrees)")
+    detail = f" ({'; '.join(bits)})" if bits else ""
+    return f"{index}. {c.name}{detail}"
 
 
-def _pick_prompt(pool, direction, rejected, near=None) -> str:
-    facing = f"The camera faced about {direction} degrees. " if direction is not None else ""
-    taken = f"The photo was taken near {near}. " if near else ""
+def _pick_prompt(pool, rejected) -> str:
+    """Candidates by name, kind and description only: no place, no
+    bearing, no distances. The photo decides, not the coordinates."""
     shortlist = "\n".join(_shortlist_line(i + 1, c) for i, c in enumerate(pool))
     ruled_out = (
         f"\nRuled out already: {', '.join(rejected)}. "
@@ -833,7 +837,7 @@ def _pick_prompt(pool, direction, rejected, near=None) -> str:
         if rejected else ""
     )
     return (
-        f"{facing}{taken}Nearby known objects, best matches first:\n"
+        "Nearby known objects, best matches first:\n"
         f"{shortlist}{ruled_out}\nWhich one does the photo show? The photo may "
         "show the whole object or a detail of it. Answer with "
         "its number and name first, then one sentence of confidence. "
@@ -841,13 +845,13 @@ def _pick_prompt(pool, direction, rejected, near=None) -> str:
     )
 
 
-def _look_prompt(candidate: Candidate, near=None) -> str:
-    taken = f" taken near {near}" if near else ""
+def _look_prompt(candidate: Candidate) -> str:
+    """Second look at kind and description only: no place, no distance."""
     kind = candidate.kind.replace("_", " ")
-    what = f"{candidate.name} ({kind})? This object is about {candidate.distance_m} m from the photo's location."
+    what = f"{candidate.name} ({kind})?"
     if candidate.description:
         what += f" It is described as: {candidate.description}."
-    return (f"Second look at the same photo{taken}. Does it show {what} "
+    return (f"Second look at the same photo. Does it show {what} "
             "Answer YES or NO first, then one short sentence.")
 
 
@@ -889,13 +893,26 @@ def parse_pick(response: dict) -> dict:
     }
 
 
+def _municipality(address: dict) -> str | None:
+    """The address's city, town, village or municipality, if any."""
+    address = address or {}
+    for key in ("city", "town", "village", "municipality"):
+        if address.get(key):
+            return address[key]
+    return None
+
+
 def geocode(place, get=None, sleep=time.sleep) -> tuple:
-    """Nominatim fallback: typed place to coordinates, country and name.
+    """Nominatim fallback: typed place to rounded coordinates, country
+    and municipality. Only the municipality travels on; the typed text
+    and the full address never leave this call. The cache key is a
+    hash, never the text.
 
     A name can belong to several places (a monument and a pharmacy),
     so the most important hit wins, not the first.
     """
-    key = ("nominatim", place.strip().lower())
+    digest = hashlib.sha1(place.strip().lower().encode()).hexdigest()
+    key = ("nominatim", digest)
     if key in _cache:
         return _cache[key]
     results = _nominatim(
@@ -903,17 +920,18 @@ def geocode(place, get=None, sleep=time.sleep) -> tuple:
                         "addressdetails": 1}, get, sleep
     )
     if not results:
-        raise NotIdentifiedError(f"place not found: {place}")
+        raise NotIdentifiedError("typed place matched nothing")
     first = max(results, key=lambda r: r.get("importance", 0))
-    coords = (float(first["lat"]), float(first["lon"]),
-              (first.get("address", {}) or {}).get("country_code"),
-              first.get("display_name", place))
+    address = first.get("address", {}) or {}
+    coords = (round(float(first["lat"]), 4), round(float(first["lon"]), 4),
+              address.get("country_code"), _municipality(address))
     _cache[key] = coords
     return coords
 
 
-def reverse(lat, lon, get=None, sleep=time.sleep) -> str | None:
-    """Country code of coordinates, for the research reading order."""
+def reverse(lat, lon, get=None, sleep=time.sleep) -> tuple:
+    """Country code plus municipality of coordinates, for the research
+    reading order and the canonical downstream identity."""
     key = ("reverse", round(lat, 3), round(lon, 3))
     if key in _cache:
         return _cache[key]
@@ -923,9 +941,10 @@ def reverse(lat, lon, get=None, sleep=time.sleep) -> str | None:
         get,
         sleep,
     )
-    code = (result.get("address", {}) or {}).get("country_code")
-    _cache[key] = code
-    return code
+    address = result.get("address", {}) or {}
+    found = (address.get("country_code"), _municipality(address))
+    _cache[key] = found
+    return found
 
 
 def _nominatim(url, params, get, sleep):

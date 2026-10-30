@@ -546,7 +546,7 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
     out_dir = tmp_path / "out" / "q1-test"
     out_dir.mkdir(parents=True)
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
         "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
                    {"year": 1950, "verdict": "supported", "claim": "stood"}],
@@ -567,7 +567,7 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
         return {"image": tiny, "response_id": f"r-{prev_id or 'none'}"}
 
     code = cli_module.cmd_paint(
-        "q1-test", str(photo), "Test Town", mode="parallel",
+        "q1-test", str(photo), mode="parallel",
         paint_call=fake_call,
         check_call=lambda image, prompt: "MATCHES whole.",
         photo_call=lambda photo, prompt: "Season: summer\nNone")
@@ -595,7 +595,7 @@ def test_cmd_paint_filters_scenes(tmp_path, monkeypatch):
     out_dir = tmp_path / "out" / "q1-test"
     out_dir.mkdir(parents=True)
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
         "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
                    {"year": 1950, "verdict": "supported", "claim": "stood"}],
@@ -621,7 +621,7 @@ def test_cmd_paint_filters_scenes(tmp_path, monkeypatch):
         return {"image": tiny, "response_id": "r1"}
 
     code = cli_module.cmd_paint(
-        "q1-test", str(photo), "Test Town", mode="chain",
+        "q1-test", str(photo), mode="chain",
         scenes="1950", paint_call=fake_call,
         check_call=lambda image, prompt: "MATCHES whole.",
         photo_call=lambda photo, prompt: "Season: summer\nNone")
@@ -644,7 +644,7 @@ def test_cmd_paint_merges_manifest_and_contact_across_runs(tmp_path, monkeypatch
     out_dir = tmp_path / "out" / "q1-test"
     out_dir.mkdir(parents=True)
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
         "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
                    {"year": 1950, "verdict": "supported", "claim": "stood"}],
@@ -669,7 +669,7 @@ def test_cmd_paint_merges_manifest_and_contact_across_runs(tmp_path, monkeypatch
 
     for year in ("1850", "1950"):
         code = cli_module.cmd_paint(
-            "q1-test", str(photo), "Test Town", mode="parallel",
+            "q1-test", str(photo), mode="parallel",
             scenes=year, paint_call=fake_call,
             check_call=lambda image, prompt: "MATCHES whole.",
         photo_call=lambda photo, prompt: "Season: summer\nNone")
@@ -698,7 +698,7 @@ def test_cmd_children_rewrites_lines_next_to_adult_ones(tmp_path, monkeypatch):
     out_dir = tmp_path / "out" / "q1-test"
     out_dir.mkdir(parents=True)
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
         "claims": [
             {"year": 1802, "url": "https://example.com/x",
@@ -801,7 +801,7 @@ def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
     out_dir = tmp_path / "out" / "q1-test"
     (out_dir / "eras_parallel").mkdir(parents=True)
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
         "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
                    {"year": 1950, "verdict": "supported", "claim": "stood"}],
@@ -821,7 +821,7 @@ def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
         return {"image": tiny, "response_id": "r1"}
 
     code = cli_module.cmd_paint(
-        "q1-test", str(photo), "Test Town", mode="parallel", tag="b1",
+        "q1-test", str(photo), mode="parallel", tag="b1",
         paint_call=fake_call,
         check_call=lambda image, prompt: "MATCHES whole.",
         photo_call=lambda photo, prompt: "Season: summer\nNone")
@@ -848,7 +848,7 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"}, "claims": [],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
@@ -898,7 +898,7 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"}, "claims": [],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
@@ -980,7 +980,7 @@ def test_film_cached_without_paintings_refuses(tmp_path, monkeypatch, capsys):
     out_dir = tmp_path / "out" / "q1-test"
     out_dir.mkdir(parents=True)
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"}, "claims": [], "scenes": [],
         "timeline": []}))
     photo = tmp_path / "photo.jpg"
@@ -1302,7 +1302,7 @@ def _render_fixture(tmp_path, slug="q1-test", root=None):
     era_dir.mkdir(parents=True)
     Image.new("RGB", (16, 24), "red").save(era_dir / "1850.png")
     (out_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"}, "claims": [],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
@@ -1446,7 +1446,7 @@ def _job_found():
     return identify.Identification(
         name="Test Mill", kind="windmill", qid="Q1",
         articles={"en": "Test Mill"}, distance_m=10, confidence="high",
-        candidates=(), country_code="NL")
+        candidates=(), country_code="NL", municipality="Canon Town")
 
 
 def _job_first():
@@ -1531,6 +1531,21 @@ def _stub_job(monkeypatch, calls=None):
     monkeypatch.setattr(cli_module, "support_respond", _job_respond)
     monkeypatch.setattr(cli_module, "baseten_support_respond", _job_respond)
     monkeypatch.setattr(cli_module, "verify_respond", _job_respond)
+
+
+def test_research_question_uses_municipality_never_typed_place(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    calls = []
+    _stub_job(monkeypatch, calls=calls)
+    cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="SYNTHETIC_PRIVATE_PLACE",
+        lang="en", decide=lambda found: True, no_cache=True,
+        verify_with="meta", progress=None, quiet=True,
+        out_dir=str(tmp_path / "out"))
+    assert len(calls) == 1
+    assert "Canon Town" in calls[0]
+    assert "SYNTHETIC_PRIVATE_PLACE" not in calls[0]
 
 
 def test_run_job_research_style_returns_filmable_result(tmp_path, monkeypatch):
@@ -1819,7 +1834,7 @@ def test_cmd_layers_tag_reads_tagged_eras(tmp_path, monkeypatch):
 
 def _caption_research():
     return {
-        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "claims": [
             {"year": 1779, "url": "https://a.example/x", "verdict": "supported",
              "claim": "opened in 1779", "rewritten": None,
@@ -1975,7 +1990,7 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
     (old_dir / "1932.png").write_bytes(buf.getvalue())
     Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
     (slug_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "claims": [{"year": 1932, "verdict": "supported",
                     "claim": "burnt in 1932"}],
         "scenes": [
@@ -1993,7 +2008,7 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
         raise paint_module.PaintSafetyError("content_policy_violation")
 
     code = cli_module.cmd_paint(
-        "q1-test", str(tmp_path / "photo.jpg"), place="Town", tag="b1",
+        "q1-test", str(tmp_path / "photo.jpg"), tag="b1",
         paint_call=blocked, check_call=lambda image, p: "MATCHES base only.",
         photo_call=lambda photo_bytes, prompt: "winter")
     assert code == 0
@@ -2014,7 +2029,7 @@ def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
     slug_dir.mkdir(parents=True)
     Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
     (slug_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Oak", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "claims": [{"year": 1790, "verdict": "supported",
                     "claim": "named in 1790"}],
         "timeline": [], "timings": {},
@@ -2038,7 +2053,7 @@ def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
         return {"image": buf.getvalue(), "response_id": "r1"}
 
     code = cli_module.cmd_paint(
-        "q1-test", str(tmp_path / "photo.jpg"), place="Forest",
+        "q1-test", str(tmp_path / "photo.jpg"),
         paint_call=call, check_call=lambda image, p: "MATCHES whole.",
         photo_call=lambda photo_bytes, prompt: "summer")
     assert code == 0
@@ -2057,7 +2072,7 @@ def test_cmd_paint_skips_scenes_without_supported_claims(tmp_path, monkeypatch):
     slug_dir.mkdir(parents=True)
     Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
     (slug_dir / "research.json").write_text(json.dumps({
-        "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
+        "object": {"name": "Oak", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "claims": [{"year": 1790, "verdict": "supported",
                     "claim": "named in 1790"},
                    {"year": 1970, "verdict": "unsupported",
@@ -2083,7 +2098,7 @@ def test_cmd_paint_skips_scenes_without_supported_claims(tmp_path, monkeypatch):
         return {"image": buf.getvalue(), "response_id": "r1"}
 
     code = cli_module.cmd_paint(
-        "q1-test", str(tmp_path / "photo.jpg"), place="Forest",
+        "q1-test", str(tmp_path / "photo.jpg"),
         paint_call=call, check_call=lambda image, p: "MATCHES whole.",
         photo_call=lambda photo_bytes, prompt: "summer")
     assert code == 0

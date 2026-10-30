@@ -225,9 +225,11 @@ def _snak_value(snak: dict, labels: dict):
     return dv.get("value")
 
 
-def lifespan_question(name, place, articles, read_langs=("en",)) -> str:
-    """Object-life question; articles ordered by the reading languages."""
-    where = f" in {place}" if place else ""
+def lifespan_question(name, municipality, articles, read_langs=("en",)) -> str:
+    """Object-life question; articles ordered by the reading languages.
+
+    The location is the canonical municipality, never typed text."""
+    where = f" in {municipality}" if municipality else ""
     order = list(read_langs)
     ordered = sorted(articles, key=lambda code: (code not in order, order.index(code) if code in order else 0, code))
     reading = [

@@ -104,7 +104,6 @@ def main(argv=None):
     paint_cmd.add_argument("slug")
     paint_cmd.add_argument("--out-dir", default="out")
     paint_cmd.add_argument("--photo", required=True)
-    paint_cmd.add_argument("--place", required=True)
     paint_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel"))
     paint_cmd.add_argument("--scenes", default=None)
     paint_cmd.add_argument("--tag", default=None)
@@ -145,7 +144,7 @@ def main(argv=None):
             print(f"MP4 at {out_mp4}")
         return code
     if args.command == "paint":
-        return cmd_paint(args.slug, args.photo, place=args.place,
+        return cmd_paint(args.slug, args.photo,
                          mode=args.mode, scenes=args.scenes, tag=args.tag,
                          out_dir=args.out_dir)
     if args.command == "film":
@@ -420,7 +419,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         build_anchor_year = first["build_anchor_year"]
         phase = time.perf_counter()
         question = research.lifespan_question(
-            found.name, place or "", found.articles,
+            found.name, found.municipality or "", found.articles,
             read_langs=research.read_langs(found.country_code, lang))
         answer = research.ask_lifespan(lifespan_respond, question)
         timings["research_s"] = round(time.perf_counter() - phase, 1)
@@ -627,8 +626,8 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             kwargs = stream_scene_kwargs(report_future.result(), stream_claims, scene)
         except Exception:  # noqa: BLE001 - without the report the scene still paints
             kwargs = {}
-        result = paint.paint_scene(paint_fn, check_fn, scene, found.name, place or "",
-                                   prev_id,
+        result = paint.paint_scene(paint_fn, check_fn, scene, found.name,
+                                   found.municipality or "", prev_id,
                                    photo_bytes=photo_bytes if (with_photo or prev_id is None) else None,
                                    **kwargs)
         filmed.emit("scene_painted", {"scene": scene_no, "year": scene["from_year"],
@@ -888,7 +887,8 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
     saved = {
         "saved_at": date.today().isoformat(),
         "object": {"name": found.name, "kind": found.kind, "qid": found.qid, "articles": found.articles,
-                   "lang": lang},
+                   "lang": lang,
+                   "municipality": getattr(found, "municipality", None)},
         "claims": kept,
         "timeline": timeline,
         "scenes": chosen,
@@ -1287,7 +1287,7 @@ def check_respond(image_bytes, prompt):
     return "\n".join(texts)
 
 
-def recover_or_retry(call, checker, scene, name, place, photo_bytes,
+def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
                        directives, prior_dirs, dropped):
     """A dropped critical era first tries the newest kept painting of
     it from an earlier run; remains then get one calm aftermath try."""
@@ -1311,14 +1311,16 @@ def recover_or_retry(call, checker, scene, name, place, photo_bytes,
     if condition in paint.REMAINS_CONDITIONS:
         print(f"{year}: trying the aftermath")
         return paint.paint_aftermath(
-            call, checker, scene, name, place, photo_bytes,
+            call, checker, scene, name, municipality, photo_bytes,
             season=directives["season"])
     return dropped
 
 
-def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
+def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               paint_call=None, check_call=None, photo_call=None, out_dir="out"):
-    """Paint an object's eras from its research, checked per era."""
+    """Paint an object's eras from its research, checked per era. The
+    location in the prompts is the canonical municipality from the
+    research, never typed text."""
     out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
@@ -1326,6 +1328,7 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
         return 2
     data = json.loads(path.read_text())
     name = data["object"]["name"]
+    municipality = data["object"].get("municipality", "")
     try:
         photo_bytes = photo_bytes_clean(photo)
     except PhotoError as exc:
@@ -1362,12 +1365,12 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
               f"{sorted({el for els in directives['excluded'].values() for el in els})}")
     started = time.perf_counter()
     if mode == "chain":
-        results = paint.paint_chain(call, photo_bytes, eras, name, place,
+        results = paint.paint_chain(call, photo_bytes, eras, name, municipality,
                                     check_call=checker, season=directives["season"],
                                     excluded=directives["excluded"],
                                     claims=data.get("claims", []))
     else:
-        results = paint.paint_parallel(call, photo_bytes, eras, name, place,
+        results = paint.paint_parallel(call, photo_bytes, eras, name, municipality,
                                        check_call=checker, season=directives["season"],
                                        excluded=directives["excluded"],
                                        claims=data.get("claims", []))
@@ -1385,7 +1388,7 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
     for scene, result in zip(eras, results):
         year = scene["from_year"]
         if result["image"] is None:
-            result = recover_or_retry(call, checker, scene, name, place,
+            result = recover_or_retry(call, checker, scene, name, municipality,
                                       photo_bytes, directives, prior_dirs,
                                       result)
         entry = {"year": year, "verdict": result["verdict"],

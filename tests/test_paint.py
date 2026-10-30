@@ -28,6 +28,13 @@ def test_scene_prompt_names_year_state_surroundings_and_framing():
     assert "not as it looks today" in prompt
 
 
+def test_scene_prompt_without_municipality_reads_clean():
+    prompt = paint.scene_prompt(
+        scene(1850, "standing", "The mill stands whole."), "Mill", "")
+    assert "in  in" not in prompt
+    assert "1850" in prompt
+
+
 def test_scene_prompt_states_partial_scope():
     prompt = paint.scene_prompt(
         scene(1932, "burnt", "Only the brick base is left.",

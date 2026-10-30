@@ -247,6 +247,49 @@ def test_identify_end_to_end_with_fakes(tmp_path):
     assert found.description == "water tower"
 
 
+def test_coordinates_round_to_4_decimals_at_entry():
+    assert identify.checked_location((52.123456, 4.987654)) == (52.1235, 4.9877)
+    payload = [{"display_name": "X", "lat": "50.234567", "lon": "4.111111",
+                "importance": 1,
+                "address": {"country_code": "be", "city": "Brussels"}}]
+    get = FakeTransport([(200, payload)])
+    lat, lon, _country, _town = identify.geocode(
+        "Somewhere", get=get, sleep=lambda s: None)
+    assert (lat, lon) == (50.2346, 4.1111)
+    identify.clear_cache()
+
+
+def test_location_event_carries_no_place(tmp_path):
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8)).save(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    events = []
+    found = identify.identify(
+        photo, place="Synthetic Private Place", post=post, get=routed(),
+        respond=vision_pick(), sleep=lambda s: None,
+        progress=lambda event, data: events.append((event, data)))
+    assert found.municipality == "Test Town"
+    for event, data in events:
+        assert "Synthetic Private Place" not in json.dumps(data)
+        assert "Test Tower, Test Town, Netherlands" not in json.dumps(data)
+    assert [d for e, d in events if e == "location"] == [
+        {"precision": "typed place"}]
+
+
+def test_identify_clears_lookup_caches(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    identify.clear_cache()
+    identify.identify(photo, post=post, get=routed(), respond=vision_pick())
+    assert identify._cache == {}
+    failing = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    with pytest.raises(identify.NotIdentifiedError):
+        identify.identify(photo, post=failing, get=routed(),
+                          respond=vision_pick("NONE\nNothing matches."))
+    assert identify._cache == {}
+
+
 def test_identify_none_raises_not_identified(tmp_path):
     photo = tmp_path / "p.jpg"
     gps_photo(photo)
@@ -359,10 +402,10 @@ def test_identify_run_leaves_no_coordinates_on_disk(tmp_path):
 def test_geocode_uses_nominatim_politely():
     get = FakeTransport([(200, fixture("nominatim.json"))])
     sleeps = []
-    lat, lon, country, _name = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
+    lat, lon, country, town = identify.geocode("Test Tower", get=get, sleep=sleeps.append)
     assert (lat, lon) == (52.0002, 4.0001)
     assert country == "nl"
-    assert _name == "Test Tower, Test Town, Netherlands"
+    assert town == "Test Town"
     assert get.calls[0]["headers"]["User-Agent"] == identify.USER_AGENT
     assert get.calls[0]["timeout"] == 20
     assert sleeps == [1.1]
@@ -373,13 +416,36 @@ def test_geocode_prefers_most_important_namesake():
         {"display_name": "Atomium, Pharmacy, Laeken", "lat": "50.1", "lon": "4.1",
          "importance": 0.31, "address": {"country_code": "be"}},
         {"display_name": "Atomium, Heysel", "lat": "50.2", "lon": "4.2",
-         "importance": 0.85, "address": {"country_code": "be"}},
+         "importance": 0.85, "address": {"country_code": "be", "city": "Brussels"}},
     ]
     get = FakeTransport([(200, payload)])
-    lat, lon, country, name = identify.geocode("Atomium", get=get, sleep=lambda s: None)
+    lat, lon, country, town = identify.geocode("Atomium", get=get, sleep=lambda s: None)
     assert (lat, lon) == (50.2, 4.2)
-    assert name == "Atomium, Heysel"
+    assert town == "Brussels"
     assert get.calls[0]["params"]["limit"] == 5
+
+
+def test_geocode_error_hides_typed_place():
+    marker = "SYNTHETIC_PRIVATE_PLACE"
+    identify.clear_cache()
+    response = FakeTransport([(200, [])])
+    with pytest.raises(identify.NotIdentifiedError) as exc_info:
+        identify.geocode(marker, get=response, sleep=lambda s: None)
+    assert marker not in str(exc_info.value)
+
+
+def test_geocode_cache_key_hides_typed_place():
+    identify.clear_cache()
+    get = FakeTransport([(200, fixture("nominatim.json"))])
+    identify.geocode("Synthetic Private Place", get=get, sleep=lambda s: None)
+    assert "Synthetic Private Place".lower() not in repr(identify._cache)
+    identify.clear_cache()
+
+
+def test_reverse_geocode_returns_country_and_municipality():
+    get = FakeTransport([(200, fixture("nominatim_reverse.json"))])
+    assert identify.reverse(52.0, 4.0, get=get, sleep=lambda s: None) == ("nl", "Test Town")
+    assert get.calls[0]["timeout"] == 20
 
 
 def test_geocode_retries_with_backoff_then_succeeds():
@@ -400,12 +466,6 @@ def test_geocode_failing_gives_clear_message():
         identify.geocode("Test Tower", get=get, sleep=lambda s: None)
     assert "3 tries" in str(exc_info.value)
     assert len(get.calls) == 3
-
-
-def test_reverse_geocode_returns_country_code():
-    get = FakeTransport([(200, fixture("nominatim_reverse.json"))])
-    assert identify.reverse(52.0, 4.0, get=get, sleep=lambda s: None) == "nl"
-    assert get.calls[0]["timeout"] == 20
 
 
 def test_enrich_reads_labels_descriptions_sitelinks_and_part_of():
@@ -439,27 +499,28 @@ def test_attach_enrich_prefers_instance_of_kind():
 def test_retry_prompt_bars_settling_for_containers():
     cand = identify.Candidate(name="X", kind="museum", source="wd", qid="Q1",
                               description="a museum")
-    prompt = identify._pick_prompt([cand], None, ["Y"])
+    prompt = identify._pick_prompt([cand], ["Y"])
     assert "Ruled out already: Y." in prompt
     assert "not the building or place it was taken in" in prompt
 
 
-def test_vision_prompts_name_where_the_photo_was_taken():
-    cand = identify.Candidate(name="X", kind="statue", source="wd", qid="Q1",
-                              description="a statue", distance_m=1)
-    pick = identify._pick_prompt([cand], None, [], near="Cristo Redentor, Rio de Janeiro")
-    assert "taken near Cristo Redentor, Rio de Janeiro" in pick
-    look = identify._look_prompt(cand, near="Cristo Redentor, Rio de Janeiro")
-    assert "taken near Cristo Redentor, Rio de Janeiro" in look
-    assert "taken near" not in identify._pick_prompt([cand], None, [])
-    assert "taken near" not in identify._look_prompt(cand)
+def test_vision_prompts_carry_no_place_direction_or_distance():
+    import inspect
 
-
-def test_pick_prompt_hides_missing_direction():
     cand = identify.Candidate(name="X", kind="statue", source="wd", qid="Q1",
-                              description="a statue")
-    assert "faced" not in identify._pick_prompt([cand], None, [])
-    assert "about 12 degrees" in identify._pick_prompt([cand], 12, [])
+                              description="a statue", distance_m=120,
+                              bearing_deg=45)
+    assert "near" not in inspect.signature(identify._pick_prompt).parameters
+    assert "near" not in inspect.signature(identify._look_prompt).parameters
+    pick = identify._pick_prompt([cand], [])
+    assert "taken near" not in pick
+    assert "faced" not in pick
+    assert "m away" not in pick
+    assert "bearing" not in pick
+    look = identify._look_prompt(cand)
+    assert "taken near" not in look
+    assert "m from" not in look
+    assert "statue" in look and "a statue" in look
 
 
 def test_fold_parts_annotates_parent_and_keeps_part():
@@ -807,12 +868,13 @@ def test_second_look_names_kind_and_description():
     assert prompt.startswith("Second look")
 
 
-def test_second_look_grounds_with_distance():
+def test_second_look_grounds_without_distance():
     cand = identify.Candidate(name="Cristo Redentor", kind="statue", source="wd",
                               qid="Q79961", description="famous landmark in Rio",
                               distance_m=13)
     prompt = identify._look_prompt(cand)
-    assert "about 13 m from the photo's location" in prompt
+    assert "13 m" not in prompt
+    assert "Cristo Redentor (statue)" in prompt
 
 
 def test_failed_place_run_raises_original_error_not_nogps(tmp_path):
@@ -869,7 +931,8 @@ def test_exif_wins_over_browser_location(tmp_path):
                               location=(48.85, 2.35), sleep=lambda s: None)
     assert found.name == "Test Tower"
     body = post.calls[0]["data"]["data"]
-    assert "52.000278" in body
+    assert "52.0003" in body  # EXIF wins, rounded to 4 decimals
+    assert "52.000278" not in body
     assert "48.85" not in body
 
 

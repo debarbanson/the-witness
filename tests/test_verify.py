@@ -312,8 +312,11 @@ class FakeResponse:
     status_code = 200
 
     def __init__(self, payload, headers=None):
+        import json as _json
+
         self._payload = payload
-        self.text = payload if isinstance(payload, str) else ""
+        self.text = (payload if isinstance(payload, str)
+                     else _json.dumps(payload))
         self.headers = headers if headers is not None else {"Content-Type": "text/html"}
 
     def json(self):
@@ -1198,7 +1201,7 @@ def test_sentence_disputed_checks_wikipedia_html():
         "<sup>[<i>dubious</i>]</sup> Fences went up around the tree.</p>")}}}
     seen = {}
 
-    def get(url, params=None, headers=None, timeout=None):
+    def get(url, params=None, headers=None, timeout=None, **kwargs):
         seen.update(params)
         return FakeResponse(payload)
 
@@ -1216,7 +1219,7 @@ def test_sentence_disputed_reads_plain_pages():
     html = ("<html><body><p>The old tower stood sixty metres tall "
             "[citation needed].</p></body></html>")
 
-    def get(url, headers=None, timeout=None, stream=None):
+    def get(url, headers=None, timeout=None, stream=None, **kwargs):
         return FakeResponse(html)
 
     assert verify.sentence_disputed(

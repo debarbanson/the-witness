@@ -15,12 +15,11 @@ from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from urllib.parse import unquote, urlparse
 
-import requests
 
 from witness import models
 from witness import states
 from witness.research import is_weak_source
-from witness.web import USER_AGENT, WebError, assert_public_url, mediawiki_get
+from witness.web import USER_AGENT, WebError, fetch_public, mediawiki_get
 
 VERDICTS = ("supported", "unsupported", "partly")
 
@@ -579,7 +578,6 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
         if hit is not None:
             _cache[url] = hit
             return hit
-    get = get or requests.get
     parsed = urlparse(url)
     if parsed.netloc.lower().endswith("wikipedia.org"):
         lang = parsed.netloc.split(".")[0]
@@ -609,22 +607,20 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
             )
         )
     else:
-        assert_public_url(url)
-        resp = get(url, headers={"User-Agent": USER_AGENT}, timeout=(5, 10), stream=True)
-        resp.raise_for_status()
-        final = getattr(resp, "url", url) or url
-        if final != url:
-            assert_public_url(final)
-        content_type = resp.headers.get("Content-Type", "") if hasattr(resp, "headers") else ""
+        try:
+            fetched = fetch_public(url, sender=get,
+                                   headers={"User-Agent": USER_AGENT},
+                                   timeout=(5, 10))
+        except WebError as exc:
+            if getattr(exc, "limit", None) == "bytes":
+                raise VerifyError("page over 2 MB, skipped")
+            raise
+        if fetched.status >= 400:
+            raise VerifyError(f"HTTP {fetched.status}, skipped")
+        content_type = fetched.headers.get("Content-Type", "")
         if content_type and "html" not in content_type.lower():
             raise VerifyError(f"not HTML ({content_type.split(';')[0]}), skipped")
-        chunks, size = [], 0
-        for chunk in resp.iter_content(65536):
-            size += len(chunk)
-            if size > 2_000_000:
-                raise VerifyError("page over 2 MB, skipped")
-            chunks.append(chunk)
-        html = b"".join(chunks).decode("utf-8", "replace")
+        html = fetched.body.decode("utf-8", "replace")
         text = extract_main_text(html)
         title = page_title(html)
         if title and cache is not None:
@@ -691,7 +687,6 @@ def fetch_many(urls, get=None, sleep=time.sleep, cache=None, max_workers=8, prog
     logged by the caller and skipped, never retried."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    get = get or requests.get
     texts: dict = {}
     errors: dict = {}
 
@@ -807,7 +802,6 @@ def fetch_wikipedia_html(url, get=None, sleep=time.sleep, cache=None) -> str:
         if hit is not None:
             _html_cache[key] = hit
             return hit
-    get = get or requests.get
     parsed = urlparse(url)
     lang = parsed.netloc.split(".")[0]
     title = unquote(parsed.path.removeprefix("/wiki/"))

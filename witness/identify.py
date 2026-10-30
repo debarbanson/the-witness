@@ -8,6 +8,7 @@ never stored or printed by this module.
 
 import hashlib
 import io
+import json
 import math
 import re
 import threading
@@ -15,13 +16,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 
-import requests
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, IFD
 
 from witness.photo import load_clean
 from witness.research import read_langs
-from witness.web import USER_AGENT, WebError, mediawiki_get, scrub_query
+from witness.web import USER_AGENT, WebError, fetch_public, mediawiki_get, scrub_query
 
 RADIUS_M = 250
 PLACE_RADIUS_M = 1000  # a typed place is a fuzzy start; ranking sorts it out
@@ -190,8 +190,6 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     vision pick in parallel. Per-step seconds go into `timings` when given;
     `progress(event, data)` feeds the web page.
     """
-    post = post or _post
-    get = get or _get
     if respond is None:
         raise IdentifyError("a vision respond callable is required")
     steps = {} if timings is None else timings
@@ -420,21 +418,23 @@ def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RAD
     key = ("overpass", round(lat, 5), round(lon, 5), radius)
     if key in _cache:
         return _cache[key]
-    post = post or _post
     body = QUERY.format(radius=radius, lat=f"{lat:.6f}", lon=f"{lon:.6f}")
     last_error = ""
     for url in OVERPASS_INSTANCES:
         try:
-            resp = post(url, data={"data": body}, headers={"User-Agent": USER_AGENT},
-                        timeout=OVERPASS_TIMEOUT)
+            fetched = fetch_public(
+                url, sender=post, data={"data": body},
+                headers={"User-Agent": USER_AGENT},
+                timeout=OVERPASS_TIMEOUT)
         except Exception as exc:  # noqa: BLE001 - any transport error moves on
             last_error = scrub_query(str(exc))[:120]
             continue
-        if resp.status_code in (429, 502):
-            last_error = f"HTTP {resp.status_code} at {url}"
+        if fetched.status in (429, 502):
+            last_error = f"HTTP {fetched.status} at {url}"
             continue
-        resp.raise_for_status()
-        elements = resp.json().get("elements", [])
+        if fetched.status >= 400:
+            raise SourceError(f"Overpass refused ({fetched.status} at {url})")
+        elements = json.loads(fetched.body.decode("utf-8")).get("elements", [])
         _cache[key] = elements
         return elements
     raise SourceError(f"Overpass failed on all instances ({last_error})")
@@ -450,7 +450,6 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None,
     key = ("wd_nearby", round(lat, 5), round(lon, 5), radius)
     if key in _cache:
         return _cache[key]
-    get = get or _get
     try:
         data = mediawiki_get(
             get,
@@ -485,7 +484,6 @@ def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None,
     key = ("wp_nearby", lang, round(lat, 5), round(lon, 5), radius)
     if key in _cache:
         return _cache[key]
-    get = get or _get
     try:
         data = mediawiki_get(
             get,
@@ -525,7 +523,6 @@ def enrich_candidates(get, qids, order=("en",), sleep=time.sleep, cache=None) ->
     """Labels, descriptions, sitelink counts and part-of parents, one call."""
     if not qids:
         return {}
-    get = get or _get
     try:
         data = mediawiki_get(
             get,
@@ -605,7 +602,6 @@ def _pick_text(values: dict, order) -> str | None:
 def fetch_sitelinks(qids, get=None, languages=("en",), sleep=time.sleep, cache=None) -> dict:
     if not qids:
         return {}
-    get = get or _get
     try:
         data = mediawiki_get(
             get,
@@ -948,13 +944,14 @@ def reverse(lat, lon, get=None, sleep=time.sleep) -> tuple:
 
 
 def _nominatim(url, params, get, sleep):
-    get = get or _get
     for attempt in range(NOMINATIM_TRIES):
         sleep(1.1)
         try:
-            resp = get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=NOMINATIM_TIMEOUT)
-            resp.raise_for_status()
-            return resp.json()
+            fetched = fetch_public(
+                url, sender=get, params=params,
+                headers={"User-Agent": USER_AGENT},
+                timeout=NOMINATIM_TIMEOUT, raise_status=True)
+            return json.loads(fetched.body.decode("utf-8"))
         except Exception as exc:  # noqa: BLE001 - retried with backoff below
             if attempt < NOMINATIM_TRIES - 1:
                 sleep(NOMINATIM_BACKOFF[attempt])
@@ -986,9 +983,3 @@ def angular_diff(a: int, b: int) -> int:
     return abs((a - b + 180) % 360 - 180)
 
 
-def _post(url, **kwargs):
-    return requests.post(url, **kwargs)
-
-
-def _get(url, **kwargs):
-    return requests.get(url, **kwargs)

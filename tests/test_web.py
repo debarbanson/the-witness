@@ -160,6 +160,155 @@ def test_assert_public_url_allows_public_and_unresolvable():
     assert_public_url("https://no-such-host-12345.invalid/")
 
 
+def test_assert_public_url_rejects_mixed_dns(monkeypatch):
+    import socket
+    from witness.web import assert_public_url
+
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a: [
+        (2, 1, 6, "", ("93.184.216.34", 0)), (2, 1, 6, "", ("127.0.0.1", 0))])
+    with pytest.raises(WebError):
+        assert_public_url("https://example.org/")
+
+
+def test_assert_public_url_rejects_nat64_and_mapped(monkeypatch):
+    import socket
+    from witness.web import assert_public_url
+
+    for bad in ("http://[64:ff9b::7f00:1]/", "http://[64:ff9b::a9fe:a9fe]/",
+                "http://[::ffff:127.0.0.1]/", "http://[::ffff:10.0.0.1]/"):
+        with pytest.raises(WebError):
+            assert_public_url(bad)
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a: [
+        (2, 1, 6, "", ("93.184.216.34", 0))])
+    assert_public_url("https://example.org/")
+
+
+class RedirectResponse:
+    def __init__(self, status, location=None, body=b"", headers=None):
+        self.status_code = status
+        self.headers = dict(headers or {})
+        if location is not None:
+            self.headers["Location"] = location
+        self._body = body
+        self.closed = False
+
+    def iter_content(self, chunk_size=65536):
+        yield self._body
+
+    def close(self):
+        self.closed = True
+
+
+def test_gateway_never_follows_redirects_itself():
+    from witness.web import fetch_public
+
+    seen = []
+
+    def get(url, **kwargs):
+        seen.append(kwargs.get("allow_redirects"))
+        return RedirectResponse(200, body=b"ok")
+
+    fetched = fetch_public("https://example.org/a", sender=get)
+    assert fetched.body == b"ok"
+    assert seen == [False]
+
+
+def test_gateway_validates_each_redirect_before_requesting():
+    from witness.web import fetch_public
+
+    requested = []
+
+    def get(url, **kwargs):
+        requested.append(url)
+        if len(requested) == 1:
+            return RedirectResponse(302, location="http://127.0.0.1/secret")
+        raise AssertionError("private hop was requested")
+
+    with pytest.raises(WebError):
+        fetch_public("https://example.org/a", sender=get)
+    assert requested == ["https://example.org/a"]
+
+
+def test_gateway_follows_public_redirects():
+    from witness.web import fetch_public
+
+    def get(url, **kwargs):
+        if url == "https://example.org/a":
+            return RedirectResponse(302, location="/b")
+        return RedirectResponse(200, body=b"there")
+
+    fetched = fetch_public("https://example.org/a", sender=get)
+    assert fetched.body == b"there"
+    assert fetched.url == "https://example.org/b"
+
+
+def test_gateway_refuses_endless_redirects():
+    from witness.web import fetch_public
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        return RedirectResponse(302, location="/loop")
+
+    with pytest.raises(WebError):
+        fetch_public("https://example.org/a", sender=get)
+    assert len(calls) == 5
+
+
+def test_gateway_bounds_bytes_and_closes():
+    from witness.web import fetch_public
+
+    resp = RedirectResponse(200, body=b"x" * 100)
+    fetched = None
+    with pytest.raises(WebError):
+        fetched = fetch_public("https://example.org/a", sender=lambda u, **k: resp,
+                               max_bytes=10)
+    assert fetched is None
+    assert resp.closed is True
+
+
+def test_pinned_send_connects_to_the_validated_ip(monkeypatch):
+    import io
+    import socket
+    import ssl
+    from witness import web
+
+    created = {}
+    wrapped = {}
+
+    class FakeSock:
+        def settimeout(self, timeout):
+            pass
+
+        def sendall(self, data):
+            pass
+
+        def makefile(self, mode, *args):
+            return io.BytesIO(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+
+        def close(self):
+            pass
+
+    def create_connection(address, timeout=None):
+        created["address"] = address
+        return FakeSock()
+
+    class FakeContext:
+        def wrap_socket(self, sock, server_hostname=None):
+            wrapped["server_hostname"] = server_hostname
+            return sock
+
+    monkeypatch.setattr(socket, "create_connection", create_connection)
+    monkeypatch.setattr(ssl, "create_default_context", lambda: FakeContext())
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a: [
+        (2, 1, 6, "", ("93.184.216.34", 0))])
+    fetched = web.fetch_public("https://example.org/a")
+    assert fetched.body == b"ok"
+    assert created["address"][0] == "93.184.216.34"
+    assert wrapped["server_hostname"] == "example.org"
+
+
 def test_web_error_strips_query_strings():
     err = ConnectionError(
         "failed for url: /w/api.php?ggscoord=52.15965|4.35321&format=json")

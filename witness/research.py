@@ -10,7 +10,6 @@ import re
 import time
 from urllib.parse import urlparse
 
-import requests
 
 from witness import states
 from witness.web import USER_AGENT, WebError, mediawiki_get
@@ -109,7 +108,6 @@ class ResearchError(Exception):
 
 def fetch_facts(qid, get=None, sleep=time.sleep, lang="en", cache=None, country_code=None):
     """Structured facts for the confirmed object. `get` is injectable."""
-    get = get or requests.get
     order = read_langs(country_code, lang)
     try:
         data = mediawiki_get(

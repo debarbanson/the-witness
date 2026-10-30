@@ -7,21 +7,30 @@ are injected, so tests run without live calls.
 """
 
 
-def rewrite_prompt(adult, source) -> str:
-    """One idea, everyday words, nothing beyond the source."""
-    return (
+GENTLE_CONDITIONS = frozenset({"damaged", "burnt", "ruin", "demolished"})
+
+
+def rewrite_prompt(adult, source, gentle=False) -> str:
+    """One idea, everyday words, nothing beyond the source. Heavy
+    moments are stated gently but truthfully."""
+    prompt = (
         "Rewrite this museum caption for a child aged 8: first person, "
         "short sentences, everyday words, one idea. Say only what the "
         f"source sentence says, no more. Source: {source} "
         f"Adult caption: {adult}")
+    if gentle:
+        prompt += (" State it gently but truthfully: no frightening "
+                   "words, no one in danger.")
+    return prompt
 
 
-def child_caption(rewrite_call, support_call, adult, source, url) -> dict:
+def child_caption(rewrite_call, support_call, adult, source, url,
+                  gentle=False) -> dict:
     """Rewrite plus re-verification; plainer retry once, else drop.
     Every rewrite is checked again against the bound passage."""
     passages = [f"{url}\n{source}"]
     for attempt, plain in enumerate((False, True), 1):
-        line = (rewrite_call(adult, source, plain) or "").strip()
+        line = (rewrite_call(adult, source, plain, gentle) or "").strip()
         if line and support_call(line, passages) == "supported":
             return {"line": line, "verified": True, "attempts": attempt}
     return {"line": None, "verified": False, "attempts": 2}

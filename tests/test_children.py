@@ -5,7 +5,7 @@ from witness import children
 
 def test_child_caption_keeps_supported_rewrite():
     out = children.child_caption(
-        rewrite_call=lambda adult, source, plain: "I was built in 1779.",
+        rewrite_call=lambda adult, source, plain, gentle=False: "I was built in 1779.",
         support_call=lambda line, source: "supported",
         adult="opened in 1779",
         source="The mill was opened in 1779.",
@@ -17,7 +17,7 @@ def test_child_caption_keeps_supported_rewrite():
 def test_child_caption_retries_plainer_once_then_drops():
     calls = []
 
-    def rewrite(adult, source, plain):
+    def rewrite(adult, source, plain, gentle=False):
         calls.append(plain)
         return "Too fancy." if not plain else "Still fancy."
 
@@ -32,7 +32,7 @@ def test_child_caption_retries_plainer_once_then_drops():
 
 
 def test_child_caption_plainer_retry_can_pass():
-    def rewrite(adult, source, plain):
+    def rewrite(adult, source, plain, gentle=False):
         return "Fancy." if not plain else "I was built in 1779."
 
     out = children.child_caption(
@@ -74,7 +74,7 @@ def test_child_caption_checks_a_bound_passage():
         return "supported"
 
     out = children.child_caption(
-        rewrite_call=lambda adult, source, plain: "I was built long ago.",
+        rewrite_call=lambda adult, source, plain, gentle=False: "I was built long ago.",
         support_call=support,
         adult="opened in 1779",
         source="The mill was opened in 1779 after years of work.",
@@ -82,3 +82,26 @@ def test_child_caption_checks_a_bound_passage():
     assert out["verified"] is True
     assert seen["passages"] == [
         "https://a.example/mill\nThe mill was opened in 1779 after years of work."]
+
+
+def test_gentle_rewrite_for_heavy_states():
+    assert "gently" in children.rewrite_prompt("I burnt down.", "source", gentle=True)
+    assert "gently" not in children.rewrite_prompt("I stood tall.", "source")
+    assert children.GENTLE_CONDITIONS >= {"damaged", "burnt", "ruin", "demolished"}
+    assert "standing" not in children.GENTLE_CONDITIONS
+    assert "rebuilt" not in children.GENTLE_CONDITIONS
+
+
+def test_child_caption_threads_gentle_to_the_rewrite():
+    seen = {}
+
+    def rewrite(adult, source, plain, gentle=False):
+        seen["gentle"] = gentle
+        return "I caught fire."
+
+    children.child_caption(
+        rewrite_call=rewrite,
+        support_call=lambda line, passages: "supported",
+        adult="I burnt down.", source="The mill burnt down in 1932.",
+        url="https://a.example/mill", gentle=True)
+    assert seen["gentle"] is True

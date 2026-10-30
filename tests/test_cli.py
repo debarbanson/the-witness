@@ -138,6 +138,87 @@ def test_run_job_blanks_visible_change_missing_from_quote(tmp_path, monkeypatch)
                for c in result["kept"])
 
 
+def test_cmd_children_writes_sentence_next_to_adult_one(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    data = _caption_research()
+    data["scenes"][0]["caption_sentence"] = {
+        "text": "I opened my doors to the town.", "claim_year": 1779,
+        "claim_url": "https://a.example/x",
+        "evidence": {"claim": "opened in 1779",
+                     "url": "https://a.example/x",
+                     "quote": "The mill opened in 1779."}}
+    data["scenes"][0]["state"] = {"condition": "standing"}
+    (slug_dir / "research.json").write_text(json.dumps(data))
+
+    code = cli_module.cmd_children(
+        "q1-test",
+        rewrite_call=lambda adult, source, plain, gentle=False: "I opened long ago.",
+        support_call=lambda line, passages: "supported")
+    assert code == 0
+    saved = json.loads((slug_dir / "research.json").read_text())
+    child = saved["scenes"][0]["caption_sentence"]["child"]
+    assert child == {"text": "I opened long ago."}
+    assert "child" not in saved["scenes"][1].get("caption_sentence", {})
+
+
+def test_cmd_children_marks_heavy_scenes_gentle(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    data = _caption_research()
+    data["scenes"][0]["caption_sentence"] = {
+        "text": "I burnt down.", "claim_year": 1779,
+        "claim_url": "https://a.example/x",
+        "evidence": {"claim": "burnt in 1779",
+                     "url": "https://a.example/x",
+                     "quote": "The mill burnt down in 1779."}}
+    data["scenes"][0]["state"] = {"condition": "burnt"}
+    (slug_dir / "research.json").write_text(json.dumps(data))
+    seen = {}
+
+    def rewrite(adult, source, plain, gentle=False):
+        seen["gentle"] = gentle
+        return "I caught fire."
+
+    code = cli_module.cmd_children(
+        "q1-test", rewrite_call=rewrite,
+        support_call=lambda line, passages: "supported")
+    assert code == 0
+    assert seen["gentle"] is True
+
+
+def test_child_rewrite_marks_gentle(monkeypatch):
+    import json as _json
+
+    from witness import cli as cli_module
+
+    seen = {}
+
+    class Resp:
+        def model_dump_json(self):
+            return _json.dumps(
+                {"output": [{"content": [{"type": "output_text",
+                                         "text": "Little line"}]}]})
+
+    def fake_respond(*args, **kwargs):
+        seen["prompt"] = kwargs.get("input", "")
+        return Resp()
+
+    monkeypatch.setattr(cli_module.models, "respond", fake_respond)
+    assert cli_module.child_rewrite_respond("adult", "source", False) == "Little line"
+    assert "gently" not in seen["prompt"]
+    cli_module.child_rewrite_respond("adult", "source", False, gentle=True)
+    assert "gently" in seen["prompt"]
+
+
 def test_refresh_film_drops_partly_claims():
     from witness.cli import refresh_film
 
@@ -861,7 +942,7 @@ def test_cmd_children_rewrites_lines_next_to_adult_ones(tmp_path, monkeypatch):
 
     code = cli_module.cmd_children(
         "q1-test",
-        rewrite_call=lambda adult, source, plain: f"Little: {adult}",
+        rewrite_call=lambda adult, source, plain, gentle=False: f"Little: {adult}",
         support_call=lambda line, source: "supported")
     assert code == 0
     data = json.loads((out_dir / "research.json").read_text())

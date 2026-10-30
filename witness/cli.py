@@ -1415,9 +1415,9 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     return 0
 
 
-def child_rewrite_respond(adult, source, plain):
+def child_rewrite_respond(adult, source, plain, gentle=False):
     """One children rewrite on Muse Spark, steady temperature."""
-    prompt = children.rewrite_prompt(adult, source)
+    prompt = children.rewrite_prompt(adult, source, gentle=gentle)
     if plain:
         prompt += " Use even plainer words."
     resp = models.respond(_respond_for(models.VERIFY), models.VERIFY, input=prompt)
@@ -1636,6 +1636,25 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
                 if c.get("verdict") == "supported" and c.get("quote")]
     kept, dropped = 0, 0
     for scene in data.get("scenes", []):
+        stored = scene.get("caption_sentence") or {}
+        evidence = stored.get("evidence") or {}
+        if stored.get("text") and evidence.get("quote") and evidence.get("url"):
+            gentle = (scene.get("state") or {}).get("condition") in children.GENTLE_CONDITIONS
+            try:
+                out = children.child_caption(
+                    rewrite, support, stored["text"], evidence["quote"],
+                    evidence["url"], gentle=gentle)
+            except models.SpendingCapExceeded as exc:
+                path.write_text(json.dumps(data, indent=1))
+                print(f"stopping: spending cap reached ({exc})")
+                return 2
+            if out["verified"]:
+                stored["child"] = {"text": out["line"]}
+                kept += 1
+            else:
+                stored.pop("child", None)
+                dropped += 1
+            print(f"{scene.get('from_year')}: {out['line'] or 'dropped'}"[:140])
         for entry in scene.get("caption_lines", []):
             claim = children.claim_for_line(verified, entry["year"], entry.get("url"))
             if claim is None:

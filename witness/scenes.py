@@ -15,7 +15,7 @@ def choose_scenes(timeline, claims, limit=LIMIT):
     """Pick scenes with reasons; every claim year lands in a scene or a line."""
     picked = list(timeline)
     if len(picked) > limit - 1:
-        picked = _spread(picked, limit - 1)
+        picked = _trim(picked, limit - 1)
     scenes = [
         {
             "from_year": seg["from_year"],
@@ -86,6 +86,31 @@ def _spread(items, n):
     if n >= len(items) or n < 2:
         return items[: max(n, 1)]
     return [items[round(i * (len(items) - 1) / (n - 1))] for i in range(n)]
+
+
+def _trim(segments, n):
+    """First and last, then condition changes, then a spread of the rest.
+
+    A visible change (ruin, rebuild, move) is what an era shows, so it
+    survives trimming before another year of the same condition."""
+    if n >= len(segments) or n < 2:
+        return segments[: max(n, 1)]
+    first, last = segments[0], segments[-1]
+    middle = segments[1:-1]
+    changes, rest = [], []
+    for seg, prev in zip(middle, segments[:-2]):
+        if seg["state"]["condition"] != prev["state"]["condition"]:
+            changes.append(seg)
+        else:
+            rest.append(seg)
+    if not changes:
+        return _spread(segments, n)
+    picked = [first] + changes[: n - 2]
+    if len(picked) < n - 1:
+        need = n - 1 - len(picked)
+        picked += _spread(rest, need) if need < len(rest) else rest
+    picked.append(last)
+    return sorted(picked, key=segments.index)
 
 
 def _state_at(timeline, year):

@@ -28,6 +28,25 @@ def test_small_timeline_keeps_every_state_change_plus_today():
     assert "ruin" in chosen[1]["reason"]
 
 
+def test_trimming_keeps_condition_changes_over_same_condition_years():
+    timeline = [seg(1779, 1865, "standing", "opened in 1779"),
+                seg(1865, 1920, "standing", "steam engine added"),
+                seg(1920, 1932, "standing", "electrified"),
+                seg(1932, 2002, "ruin", "burnt down"),
+                seg(2002, None, "rebuilt", "rebuilt on old foundations")]
+    chosen = scenes.choose_scenes(
+        timeline, [claim(y) for y in (1779, 1865, 1920, 1932, 2002)])
+    assert [s["from_year"] for s in chosen] == [1779, 1932, 2002, "today"]
+    lines = [line["year"] for s in chosen for line in s["caption_lines"]]
+    assert sorted(lines) == [1865, 1920]
+
+
+def test_trimming_without_changes_spreads_as_before():
+    timeline = [seg(1800 + i * 10, 1810 + i * 10, "standing", f"change-{i}") for i in range(5)]
+    chosen = scenes.choose_scenes(timeline, [claim(1800 + i * 10) for i in range(5)])
+    assert [s["from_year"] for s in chosen] == [1800, 1820, 1840, "today"]
+
+
 def test_many_states_capped_with_first_and_last_kept():
     timeline = [seg(1800 + i * 10, 1810 + i * 10, "standing", f"change-{i}") for i in range(10)]
     chosen = scenes.choose_scenes(timeline, [claim(1800 + i * 10) for i in range(10)])

@@ -174,30 +174,6 @@ def dated(scenes) -> list:
             and not states.is_age_range(s.get("date_label", ""))]
 
 
-def kept_layers(layers_root, era_files) -> dict:
-    """Layer files per year, skipping dirs whose source.json does not
-    name the kept painting: stale cut-outs never reach the film."""
-    import hashlib
-
-    kept = {}
-    for year_dir in sorted(Path(layers_root).iterdir()):
-        found = sorted(year_dir.glob("figure_*.png"))
-        if not found:
-            continue
-        painting = era_files.get(year_dir.name)
-        if painting is None:
-            continue
-        try:
-            source = json.loads((year_dir / "source.json").read_text())
-        except (OSError, ValueError):
-            continue
-        digest = hashlib.sha256(Path(painting).read_bytes()).hexdigest()
-        if source.get("sha256") != digest:
-            continue
-        kept[year_dir.name] = [str(p) for p in found]
-    return kept
-
-
 def build_timeline(scenes, images, claims) -> list:
     """Contiguous segments: title, anchor, one era per painting, today, end."""
     plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
@@ -239,8 +215,8 @@ def served_era_name(key, src) -> str:
     return f"era_{key}.{ext}"
 
 
-def write_film(out_dir, research, images, photo, photo_credit, layers,
-               era_files=None, layer_files=None, photo_file=None,
+def write_film(out_dir, research, images, photo, photo_credit,
+               era_files=None, photo_file=None,
                cutout_file=None, photo_year=None, own_photo=False, cache=None):
     """film.json plus film.html plus copied assets under out_dir/film/.
 
@@ -253,8 +229,8 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
     out_dir.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix="film.staging-", dir=out_dir))
     try:
-        _build_film(staging, research, images, photo, photo_credit, layers,
-                    era_files=era_files, layer_files=layer_files,
+        _build_film(staging, research, images, photo, photo_credit,
+                    era_files=era_files,
                     photo_file=photo_file, cutout_file=cutout_file,
                     photo_year=photo_year, own_photo=own_photo, cache=cache)
     except BaseException:
@@ -277,8 +253,8 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
     return final
 
 
-def _build_film(film_dir, research, images, photo, photo_credit, layers,
-                era_files=None, layer_files=None, photo_file=None,
+def _build_film(film_dir, research, images, photo, photo_credit,
+                era_files=None, photo_file=None,
                 cutout_file=None, photo_year=None, own_photo=False,
                 cache=None):
     """Write one complete film folder; write_film publishes it."""
@@ -305,7 +281,6 @@ def _build_film(film_dir, research, images, photo, photo_credit, layers,
                             "caption": [stamp, sentence],
                             "site": scene_site(scene, claims),
                             "caption_claim": cited,
-                            "layers": (layers or {}).get(key, []),
                             "ready_at": painted.get(scene["from_year"], 0)})
     attribution = []
     if research.get("timings", {}).get("identify_steps", {}).get("overpass_s") is not None:
@@ -337,11 +312,6 @@ def _build_film(film_dir, research, images, photo, photo_credit, layers,
     for key, src in (era_files or {}).items():
         if src is not None:
             shutil.copy(src, film_dir / images[key])
-    for key, files in (layer_files or {}).items():
-        layer_dir = film_dir / f"layers_{key}"
-        layer_dir.mkdir(exist_ok=True)
-        for i, src in enumerate(files):
-            shutil.copy(src, layer_dir / f"figure_{i}.png")
     if cutout_file is not None:
         shutil.copy(cutout_file, film_dir / "cutout.png")
     return film_dir

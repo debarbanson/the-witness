@@ -104,7 +104,7 @@ def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
     }
     out = builder.write_film(tmp_path, research,
                              {"1026": "e/1026.png", "1790": "e/1790.png"},
-                             photo="today.jpg", photo_credit="me", layers={})
+                             photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert [entry["year"] for entry in film["scenes"]] == [1790]
     assert film["anchor"] == {"line": "I have stood here for",
@@ -277,8 +277,7 @@ def test_film_json_carries_readiness_and_attribution(tmp_path):
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
                              photo="today.jpg",
-                             photo_credit="A. Uthor, CC BY 4.0",
-                             layers={})
+                             photo_credit="A. Uthor, CC BY 4.0")
     film = json.loads((out / "film.json").read_text())
     assert film["scenes"][0]["ready_at"] == 54.4
     assert any("OpenStreetMap" in a for a in film["attribution"])
@@ -295,7 +294,7 @@ def test_film_carries_verified_kind_never_typed_place(tmp_path):
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
-                             photo="today.jpg", photo_credit="me", layers={})
+                             photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert "place" not in film
     assert film["kind"] == "stellingmolen"
@@ -312,7 +311,7 @@ def test_film_without_stream_events_is_ready_at_once(tmp_path):
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
-                             photo="today.jpg", photo_credit="me", layers={})
+                             photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert film["scenes"][0]["ready_at"] == 0
 
@@ -568,7 +567,7 @@ def test_film_captions_cite_own_year_claims(tmp_path):
     }
     out = builder.write_film(tmp_path, research,
                              {"1779": "e/1779.png", "1865": "e/1865.png"},
-                             photo="today.jpg", photo_credit="me", layers={})
+                             photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     lines = [entry["caption"][1] for entry in film["scenes"]]
     assert all("…" not in line for line in lines)
@@ -620,7 +619,7 @@ def test_film_drops_scenes_without_written_sentences(tmp_path):
     }
     out = builder.write_film(tmp_path, research,
                              {"1779": "e/1779.png", "1865": "e/1865.png"},
-                             photo="today.jpg", photo_credit="me", layers={})
+                             photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert [entry["year"] for entry in film["scenes"]] == [1779]
     eras = [seg for seg in film["segments"] if seg["kind"] == "era"]
@@ -638,7 +637,7 @@ def test_film_drops_sentences_without_a_claim(tmp_path):
         "scenes": [made], "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1970": "e/1970.png"},
-                             photo="today.jpg", photo_credit="me", layers={})
+                             photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert film["scenes"] == []
 
@@ -653,7 +652,7 @@ def test_film_html_plays_without_fetch(tmp_path):
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
-                             photo="today.jpg", photo_credit="me", layers={})
+                             photo="today.jpg", photo_credit="me")
     html = (out / "film.html").read_text()
     assert '<script id="film-data" type="application/json">' in html
     blob = html.split('<script id="film-data" type="application/json">')[1]
@@ -677,7 +676,7 @@ def test_write_film_serves_eras_byte_identical(tmp_path):
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
-                             photo="today.jpg", photo_credit="me", layers={},
+                             photo="today.jpg", photo_credit="me",
                              era_files={"1850": str(era)})
     assert (out / "era_1850.png").read_bytes() == era.read_bytes()
     assert not (out / "era_1850.jpg").exists()
@@ -699,31 +698,20 @@ def test_served_era_name_follows_the_bytes_not_the_filename(tmp_path):
         builder.served_era_name("1920", str(tmp_path / "missing.png"))
 
 
-def test_kept_layers_skips_mismatched_and_missing_source(tmp_path):
-    import hashlib
+def test_film_scenes_carry_no_layers(tmp_path):
+    scenes = [scene(1850, "standing", "opened in 1779",
+                    sentence="I opened my doors.")]
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
+                             photo="today.jpg", photo_credit="me")
+    film = json.loads((out / "film.json").read_text())
+    assert "layers" not in film["scenes"][0]
+    assert not list(out.glob("layers_*"))
 
-    eras = tmp_path / "eras"
-    eras.mkdir()
-    (eras / "1850.png").write_bytes(b"painting-1850")
-    (eras / "1950.png").write_bytes(b"painting-1950-new")
-    (eras / "2000.png").write_bytes(b"painting-2000")
-    root = tmp_path / "layers_parallel"
-    match = root / "1850"
-    match.mkdir(parents=True)
-    (match / "figure_0.png").write_bytes(b"fig")
-    (match / "source.json").write_text(json.dumps(
-        {"sha256": hashlib.sha256(b"painting-1850").hexdigest()}))
-    stale = root / "1950"
-    stale.mkdir()
-    (stale / "figure_0.png").write_bytes(b"fig")
-    (stale / "source.json").write_text(json.dumps(
-        {"sha256": "0" * 64}))
-    nosource = root / "2000"
-    nosource.mkdir()
-    (nosource / "figure_0.png").write_bytes(b"fig")
-    era_files = {"1850": str(eras / "1850.png"),
-                 "1950": str(eras / "1950.png"),
-                 "2000": str(eras / "2000.png")}
-    kept = builder.kept_layers(root, era_files)
-    assert list(kept) == ["1850"]
-    assert kept["1850"] == [str(match / "figure_0.png")]
+
+

@@ -1,4 +1,4 @@
-// Drives render(t) from film.html with a stub DOM; asserts flat layers.
+// Drives render(t) from film.html with a stub DOM; asserts the finished film.
 "use strict";
 const fs = require("fs");
 const vm = require("vm");
@@ -23,11 +23,15 @@ function makeEl() {
 }
 
 const byId = {};
+const seenIds = [];
 const sandbox = {
   location: { search: "" },
   URLSearchParams,
   document: {
-    getElementById: (id) => (byId[id] || (byId[id] = makeEl())),
+    getElementById: (id) => {
+      seenIds.push(id);
+      return byId[id] || (byId[id] = makeEl());
+    },
     createElement: () => makeEl(),
   },
   matchMedia: () => ({ matches: false }),
@@ -58,16 +62,15 @@ sandbox.__DATA__ = {
   ],
   scenes: [
     { year: 1865, image: "era_1865.png", caption: ["a", "b"],
-      site: "W", layers: ["l0.png", "l1.png"], ready_at: 0 },
+      site: "W", ready_at: 0 },
     { year: 1920, image: "era_1920.png", caption: ["a", "b"],
-      site: "W", layers: [], ready_at: 0 },
+      site: "W", ready_at: 0 },
   ],
 };
 
 vm.runInContext("FILM = __DATA__;", sandbox);
 const render = vm.runInContext("render", sandbox);
 const imgA = () => sandbox.document.getElementById("imgA");
-const layersEl = () => sandbox.document.getElementById("layers");
 
 // The title card shows the verified kind, never a typed place.
 render(1.0);
@@ -83,30 +86,14 @@ assert.strictEqual(sandbox.document.getElementById("cardTitle").textContent,
 assert.strictEqual(sandbox.document.getElementById("cardSub").textContent,
   "1865", "anchor shows one year");
 
-// Start, middle and end of the layered scene: the shared transform.
+// Start, middle and end of the era: one painting, no layers element.
 for (const t of [5.0, 8.5, 11.9]) {
   render(t);
-  const painting = imgA();
-  assert.strictEqual(layersEl().children.length, 2, `two layers at t=${t}`);
-  for (const img of layersEl().children) {
-    assert.strictEqual(img.style.transform, painting.style.transform,
-      `layer transform matches painting at t=${t}`);
-    assert.strictEqual(img.style.opacity, painting.style.opacity,
-      `layer opacity matches painting at t=${t}`);
-  }
+  assert.strictEqual(imgA().src, "era_1865.png", `painting up at t=${t}`);
+  assert.strictEqual(sandbox.document.getElementById("cap1").textContent,
+    "a", `stamp shown at t=${t}`);
 }
-
-// Layer images are built once per scene, not once per frame.
-render(6.0);
-const first = layersEl().children.slice();
-render(6.1);
-assert.deepStrictEqual(layersEl().children, first, "layer images reused");
-
-// Leaving the scene clears the layers.
-render(14.0);
-assert.strictEqual(layersEl().children.length, 0, "layers cleared");
-render(1.0);
-assert.strictEqual(layersEl().children.length, 0, "layers cleared on title");
+assert.ok(!seenIds.includes("layers"), "no layers element touched");
 
 // Dissolving into today hides the era caption; era-to-era keeps it.
 render(11.5);
@@ -156,11 +143,11 @@ assert.strictEqual(tickPlayer(9000), frozen, "paused clock frozen");
 vm.runInContext("player.paused = false;", sandbox);
 assert.strictEqual(tickPlayer(10000), frozen + 1, "resume continues");
 
-// Preload covers the photo, the cut-out, every painting and its layers.
+// Preload covers the photo, the cut-out and every painting.
 const collectImages = vm.runInContext("collectImages", sandbox);
 const withCutout = Object.assign({}, sandbox.__DATA__, { cutout: "cutout.png" });
 assert.deepStrictEqual([...collectImages(withCutout)],
-  ["today.jpg", "cutout.png", "era_1865.png", "l0.png", "l1.png", "era_1920.png"],
+  ["today.jpg", "cutout.png", "era_1865.png", "era_1920.png"],
   "every frame image, deduplicated");
 
-console.log("player check OK: flat layers, photo-first today, titled sources");
+console.log("player check OK: finished film, photo-first today, titled sources");

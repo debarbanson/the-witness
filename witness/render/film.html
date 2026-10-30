@@ -13,8 +13,6 @@
            background: #000; font-family: Georgia, serif; color: #fff; }
   #stage img.bg { position: absolute; inset: 0; width: 100%; height: 100%;
                   object-fit: cover; }
-  #stage img.layer { position: absolute; inset: 0; width: 100%; height: 100%;
-                     object-fit: cover; }
   .card { position: absolute; inset: 0; display: flex; flex-direction: column;
           align-items: center; justify-content: center; text-align: center;
           background: rgba(0,0,0,.55); padding: 0 120px; }
@@ -50,7 +48,6 @@
 <div id="stage">
   <img class="bg" id="imgA" alt="">
   <img class="bg" id="imgB" alt="">
-  <div id="layers"></div>
   <div class="card" id="card" style="display:none"><h1 id="cardTitle"></h1><p id="cardSub"></p></div>
   <div class="card" id="endcard" style="display:none">
     <h1>Sources</h1>
@@ -81,41 +78,11 @@ function segAt(t) {
 
 function readyAt(scene) { return REPLAY ? scene.ready_at : 0; }
 
-// Figure layers are cut-outs of people still visible in the painting, so
-// they must not move relative to it. They are built once per scene and
-// share the painting's transform every frame; per-frame work stays on
-// transform and opacity only, with no DOM churn.
-let layerKey = null;
-let layerImgs = [];
-
-function clearLayers() {
-  if (layerKey === null) return;
-  document.getElementById("layers").innerHTML = "";
-  layerKey = null;
-  layerImgs = [];
-}
-
-function syncLayers(scene) {
-  if (layerKey !== scene.image) {
-    const layers = document.getElementById("layers");
-    layers.innerHTML = "";
-    layerImgs = scene.layers.map(src => {
-      const img = document.createElement("img");
-      img.className = "layer"; img.src = src;
-      layers.appendChild(img);
-      return img;
-    });
-    layerKey = scene.image;
-  }
-  return layerImgs;
-}
-
 function collectImages(film) {
   const urls = [film.photo];
   if (film.cutout) urls.push(film.cutout);
   film.scenes.forEach(s => {
     urls.push(s.image);
-    (s.layers || []).forEach(l => urls.push(l));
   });
   return [...new Set(urls)];
 }
@@ -153,7 +120,6 @@ function render(t) {
 
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (seg.kind === "title") {
-    clearLayers();
     imgA.src = FILM.photo; imgA.style.opacity = 1;
     card.style.display = "flex";
     const title = document.getElementById("cardTitle");
@@ -165,7 +131,6 @@ function render(t) {
     showClock(); return;
   }
   if (seg.kind === "anchor") {
-    clearLayers();
     const first = FILM.scenes[0];
     const anchor = FILM.anchor || { line: "I have stood here since",
       label: first ? first.date_label : "" };
@@ -180,7 +145,6 @@ function render(t) {
     showClock(); return;
   }
   if (seg.kind === "end") {
-    clearLayers();
     endcard.style.display = "flex";
     const ul = document.getElementById("sources");
     ul.innerHTML = "";
@@ -200,7 +164,6 @@ function render(t) {
     showClock(); return;
   }
   if (seg.kind === "today") {
-    clearLayers();
     const p = (t - seg.start) / (seg.end - seg.start);
     imgA.src = FILM.photo; imgA.style.opacity = 1;
     if (FILM.cutout) {
@@ -221,7 +184,6 @@ function render(t) {
   const scene = FILM.scenes.find(s => s.year === seg.year);
   const local = t - seg.start, dur = seg.end - seg.start;
   if (t < readyAt(scene)) {
-    clearLayers();
     const prev = FILM.segments[idx - 1];
     const prevScene = prev && prev.kind === "era"
       ? FILM.scenes.find(s => s.year === prev.year) : null;
@@ -252,10 +214,6 @@ function render(t) {
     }
     quiet = next.kind === "today" && !!src;
   }
-  syncLayers(scene).forEach(img => {
-    img.style.opacity = imgA.style.opacity;
-    img.style.transform = imgA.style.transform;
-  });
   if (!quiet) {
     caption.style.display = "block";
     document.getElementById("cap1").className = "stamp";

@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from witness import captions, check, children, identify, layers, models, outcome, paint, research, scenes, states, stream, verify
+from witness import captions, check, children, identify, models, outcome, paint, research, scenes, states, stream, verify
 from witness.cache import Cache
 from witness.photo import PhotoError, photo_bytes_clean, prepare_photo
 from witness.render import builder as render_builder
@@ -85,18 +85,12 @@ def main(argv=None):
     caption_cmd = sub.add_parser("captions")
     caption_cmd.add_argument("slug")
     caption_cmd.add_argument("--out-dir", default="out")
-    layers_cmd = sub.add_parser("layers")
-    layers_cmd.add_argument("slug")
-    layers_cmd.add_argument("--out-dir", default="out")
-    layers_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel", "stream"))
-    layers_cmd.add_argument("--tag", default=None)
     render_cmd = sub.add_parser("render")
     render_cmd.add_argument("slug")
     render_cmd.add_argument("--out-dir", default="out")
     render_cmd.add_argument("--photo", required=True)
     render_cmd.add_argument("--subject", default=None)
     render_cmd.add_argument("--era-dir", default="eras_parallel")
-    render_cmd.add_argument("--layers-dir", default=None)
     render_cmd.add_argument("--photo-credit", default="")
     render_cmd.add_argument("--own-photo", action="store_true")
     render_cmd.add_argument("--mp4", action="store_true")
@@ -122,14 +116,11 @@ def main(argv=None):
         return cmd_children(args.slug, out_dir=args.out_dir)
     if args.command == "captions":
         return cmd_captions(args.slug, out_dir=args.out_dir)
-    if args.command == "layers":
-        return cmd_layers(args.slug, mode=args.mode, tag=args.tag,
-                            out_dir=args.out_dir)
     if args.command == "render":
         from witness.render import record as render_record
 
         code = cmd_render(args.slug, args.photo, subject=args.subject,
-                          era_dir=args.era_dir, layers_dir=args.layers_dir,
+                          era_dir=args.era_dir,
                           photo_credit=args.photo_credit,
                           own_photo=args.own_photo, out_dir=args.out_dir)
         if code == 0 and args.mp4:
@@ -1131,10 +1122,7 @@ def refresh_cached_film(photo, slug, out_dir="out") -> int:
     root = Path(out_dir) / slug
     era_dir = next((name for name in ("eras_stream", "eras_parallel")
                     if (root / name).is_dir()), "eras_parallel")
-    suffix = era_dir.removeprefix("eras_")
-    layers_dir = f"layers_{suffix}" if (root / f"layers_{suffix}").is_dir() else None
-    return cmd_render(slug, photo, era_dir=era_dir,
-                      layers_dir=layers_dir, out_dir=out_dir)
+    return cmd_render(slug, photo, era_dir=era_dir, out_dir=out_dir)
 
 
 def describe_found(found) -> str:
@@ -1701,37 +1689,6 @@ def sam_respond(text, jpeg_bytes):
     return "\n".join(texts)
 
 
-def cmd_layers(slug, mode="parallel", tag=None, call_sam=None, out_dir="out"):
-    """Figure layers for an object's painted eras (step 6)."""
-    out_dir = Path(out_dir) / slug
-    suffix = f"{mode}_{tag}" if tag else mode
-    era_dir = out_dir / f"eras_{suffix}"
-    if not era_dir.exists():
-        print(f"no painted eras at {era_dir}")
-        return 2
-    call = call_sam or sam_respond
-    layers_root = out_dir / f"layers_{suffix}"
-    shutil.rmtree(layers_root, ignore_errors=True)
-    total = 0
-    for path in sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem):
-        try:
-            found = layers.figures(call, str(path))
-        except models.SpendingCapExceeded as exc:
-            print(f"stopping: spending cap reached ({exc})")
-            return 2
-        layer_dir = layers_root / path.stem
-        layer_dir.mkdir(parents=True, exist_ok=True)
-        for i, layer in enumerate(found):
-            layer["image"].save(layer_dir / f"figure_{i}.png")
-        (layer_dir / "source.json").write_text(json.dumps(
-            {"painting": path.name,
-             "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}))
-        total += len(found)
-        print(f"{path.stem}: {len(found)} figures")
-    print(f"saved {total} figure layers under layers_{suffix}/")
-    return 0
-
-
 def job_dir(root="out") -> Path:
     """A random private directory for one job: unpredictable names,
     owner-only permissions, never shared between visitors."""
@@ -1746,7 +1703,7 @@ def job_dir(root="out") -> Path:
 
 
 def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
-               layers_dir=None, photo_credit="", segment_call=None,
+               photo_credit="", segment_call=None,
                own_photo=False, out_dir="out", cache=None):
     """Build the live film page from kept research plus paintings.
 
@@ -1802,11 +1759,6 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         reason = render_builder.refusal_reason(scene, claims)
         if reason is not None:
             print(f"{scene['from_year']}: refused ({reason})")
-    layer_files = {}
-    if layers_dir is not None and (out_dir / layers_dir).exists():
-        layer_files = render_builder.kept_layers(out_dir / layers_dir, era_files)
-    layers = {key: [f"layers_{key}/figure_{i}.png" for i in range(len(files))]
-              for key, files in layer_files.items()}
     cutout_path = None
     if subject:
         seg = segment_call if segment_call is not None else segment_module.segment
@@ -1817,8 +1769,8 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
     else:
         (out_dir / "today_cutout.png").unlink(missing_ok=True)
     film_dir = render_builder.write_film(
-        out_dir, data, images, "today.jpg", photo_credit, layers,
-        era_files=era_files, layer_files=layer_files,
+        out_dir, data, images, "today.jpg", photo_credit,
+        era_files=era_files,
         photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None,
         photo_year=photo_year, own_photo=own_photo,
         cache=cache or Cache("out/cache"))

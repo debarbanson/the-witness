@@ -1,4 +1,4 @@
-"""The film page player: layers stay flat on the painting, built once."""
+"""The film page player: one painting per era, no figure layers."""
 
 import shutil
 import subprocess
@@ -10,14 +10,13 @@ TEMPLATE = Path("witness/render/film.html")
 CHECK = Path(__file__).parent / "player_check.cjs"
 
 
-def test_layers_share_the_painting_transform():
+def test_player_has_no_figure_layers():
     template = TEMPLATE.read_text()
+    assert "syncLayers" not in template
+    assert "clearLayers" not in template
+    assert "layerKey" not in template
+    assert 'id="layers"' not in template
     assert "translateX" not in template
-    assert "img.style.transform = imgA.style.transform" in template
-
-
-def test_layer_images_are_built_once_per_scene():
-    assert "layerKey" in TEMPLATE.read_text()
 
 
 def test_caption_is_never_clamped_or_cut():

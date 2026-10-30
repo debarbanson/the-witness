@@ -101,6 +101,16 @@ def test_visible_change_kept_only_when_the_quote_states_it():
     assert "accepted quote" in dropped["visible_change_note"]
 
 
+def test_cli_has_no_layers_command(capsys):
+    import pytest
+
+    from witness import cli as cli_module
+
+    assert not hasattr(cli_module, "cmd_layers")
+    with pytest.raises(SystemExit):
+        cli_module.main(["layers", "q1-test"])
+
+
 def test_run_job_blanks_visible_change_missing_from_quote(tmp_path, monkeypatch):
     from witness import cli as cli_module
 
@@ -862,59 +872,6 @@ def test_cmd_children_rewrites_lines_next_to_adult_ones(tmp_path, monkeypatch):
     assert data["scenes"][0]["child_state"] == "Little: opened in 1779"
 
 
-def test_cmd_layers_saves_figure_layers(tmp_path, monkeypatch):
-    import io
-    import json
-    from pathlib import Path
-    from PIL import Image
-    from witness import cli as cli_module
-
-    raw = (Path(__file__).parent / "fixtures" / "sam_persons.txt").read_text()
-    monkeypatch.chdir(tmp_path)
-    out_dir = tmp_path / "out" / "q1-test"
-    era_dir = out_dir / "eras_parallel"
-    era_dir.mkdir(parents=True)
-    buf = io.BytesIO()
-    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
-    (era_dir / "1850.png").write_bytes(buf.getvalue())
-
-    code = cli_module.cmd_layers("q1-test", mode="parallel",
-                                 call_sam=lambda text, jpg: raw)
-    assert code == 0
-    saved = sorted((out_dir / "layers_parallel" / "1850").glob("*.png"))
-    assert len(saved) == 2
-
-
-def test_cmd_layers_clears_stale_and_records_source(tmp_path, monkeypatch):
-    import hashlib
-    import io
-    import json
-    from pathlib import Path
-    from PIL import Image
-    from witness import cli as cli_module
-
-    raw = (Path(__file__).parent / "fixtures" / "sam_persons.txt").read_text()
-    monkeypatch.chdir(tmp_path)
-    out_dir = tmp_path / "out" / "q1-test"
-    era_dir = out_dir / "eras_parallel"
-    era_dir.mkdir(parents=True)
-    buf = io.BytesIO()
-    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
-    painting = buf.getvalue()
-    (era_dir / "1850.png").write_bytes(painting)
-    stale_root = out_dir / "layers_parallel"
-    (stale_root / "1850").mkdir(parents=True)
-    (stale_root / "1850" / "figure_9.png").write_bytes(b"stale")
-    (stale_root / "1950").mkdir(parents=True)
-    (stale_root / "1950" / "figure_0.png").write_bytes(b"stale")
-
-    code = cli_module.cmd_layers("q1-test", mode="parallel",
-                                 call_sam=lambda text, jpg: raw)
-    assert code == 0
-    assert not (stale_root / "1950").exists()
-    assert not (stale_root / "1850" / "figure_9.png").exists()
-    source = json.loads((stale_root / "1850" / "source.json").read_text())
-    assert source["sha256"] == hashlib.sha256(painting).hexdigest()
 
 
 def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
@@ -2198,25 +2155,6 @@ def test_report_and_save_writes_into_job_folder(tmp_path, monkeypatch):
     assert not (tmp_path / "out").exists()
 
 
-def test_cmd_layers_tag_reads_tagged_eras(tmp_path, monkeypatch):
-    import io
-    from pathlib import Path
-    from PIL import Image
-    from witness import cli as cli_module
-
-    raw = (Path(__file__).parent / "fixtures" / "sam_persons.txt").read_text()
-    monkeypatch.chdir(tmp_path)
-    era_dir = tmp_path / "out" / "q1-test" / "eras_parallel_b1"
-    era_dir.mkdir(parents=True)
-    buf = io.BytesIO()
-    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
-    (era_dir / "1850.png").write_bytes(buf.getvalue())
-
-    code = cli_module.cmd_layers("q1-test", mode="parallel", tag="b1",
-                                 call_sam=lambda text, jpg: raw)
-    assert code == 0
-    assert len(list((tmp_path / "out" / "q1-test" / "layers_parallel_b1" / "1850").glob("*.png"))) == 2
-
 
 def _caption_research():
     return {
@@ -2291,28 +2229,6 @@ def test_cmd_captions_stops_cleanly_on_cap(tmp_path, monkeypatch, capsys):
     assert "spending cap" in out
     assert (slug_dir / "research.json").exists()
 
-
-def test_cmd_layers_stops_cleanly_on_cap(tmp_path, monkeypatch, capsys):
-    import io
-    from PIL import Image
-    from witness import cli as cli_module
-    from witness import models
-
-    monkeypatch.chdir(tmp_path)
-    out_dir = tmp_path / "out" / "q1-test"
-    era_dir = out_dir / "eras_parallel"
-    era_dir.mkdir(parents=True)
-    buf = io.BytesIO()
-    Image.new("RGB", (200, 160), "red").save(buf, "PNG")
-    (era_dir / "1850.png").write_bytes(buf.getvalue())
-
-    def capped(text, jpg):
-        raise models.SpendingCapExceeded("daily spending cap reached")
-
-    code = cli_module.cmd_layers("q1-test", mode="parallel", call_sam=capped)
-    assert code == 2
-    out, _ = capsys.readouterr()
-    assert "spending cap" in out
 
 
 def test_cmd_captions_skips_captioned_scenes(tmp_path, monkeypatch, capsys):

@@ -75,7 +75,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 
 ## Step 3a: Choose the scenes
 
-A 40 to 60 second film holds at most 7 scenes of 6 to 8 seconds. When there are more verified periods, choose:
+A film of about 35 seconds holds at most 4 scenes: construction, decisive change, recovery or move, today. When there are more verified periods, choose:
 
 1. Every period in which the object itself changed state (built, extended, decorated, damaged, burnt, restored, rebuilt, repurposed): these carry the story.
 2. Then the periods with the strongest verified surroundings claims, spread across the timeline.
@@ -142,16 +142,15 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 
 One painted era next to today's photo; `muse-spark-1.3` (vision) finds up to 5 visible differences with regions, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through research and captions and both versions are written and cached, but the film page renders the adult captions only.
 
-## Step 6: People as layers (SAM 3.1)
+## Step 6: Cut, see Planned
 
-- On each painted era, `sam-3.1` with the prompt `person` (up to 16 objects) gives masks for period figures.
-- Each figure becomes its own RGBA layer. The layers share the painting's transform exactly (push-in only), so figures never double; there is no parallax drift between layers and background.
+The period-figure layers are cut from this version. The object cut-out from step 1 stays.
 
 ## Step 7: Film (our renderer)
 
-- One HTML page per film: background, figure layers, caption and citation, each a pure function of time `t`.
+- One HTML page per film: background, caption and citation, each a pure function of time `t`.
 - The closing shot is the user's own photo as "today": the last painted era dissolves into it, using the SAM cut-out from step 1 to bring the object in first.
-- **The film plays in the browser, live.** The page is the film: every frame is a pure function of `t`, so the web page plays it directly the moment the last painting is checked, with no rendering wait.
+- **The finished film plays in the browser.** The page is the film: every frame is a pure function of `t`, with a visible clock, pause and replay. No live streaming.
 - **MP4 only for download or sharing**, made in the background when asked: Playwright steps `t` frame by frame at 30 fps and captures 1080x1920 frames; ffmpeg encodes H.264 MP4.
 - Structure: title card (object, place) → anchor year → one era per 6 to 8 seconds with slow push-in and crossfade → today (the user's original photo) → end card with all sources and the AI-imagery label.
 - Captions are first person from the object, written from verified claims only, max 2 lines each.
@@ -196,14 +195,22 @@ out/<slug>/
   film.mp4  sources.md
 ```
 
+## Planned (cut from this version)
+
+- Period-figure layers (step 6).
+- Live streaming playback: buffer playback with between-scene check lines. The rule still guards the build: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
+- Captions in languages other than English. The web page and all captions are English only.
+- Automatic reference images from Commons or Europeana.
+- Films of 5 to 7 scenes.
+
 ## Streaming (28 Oct)
 
-The film plays like a video stream. The rule that guards quality: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
+Cut from the viewing experience; the build still verifies in film order and paints scenes as their claims land. The rule that guards quality: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
 
 1. Opening card within seconds. Confirm the object and a card appears over the user's own photo: name, kind and "I have stood here since {year}". The year is the Wikidata build anchor, already verified, so the card needs no model call. Without an anchor the year line is omitted, never guessed. A historical photo joins the card only from a licence-checked cache.
 2. Speculative start. Facts, research and job building start while the user still looks at "Is this X?". On no the work is thrown away and its token cost is logged; on yes the wait is already over.
 3. Film order. Claims verify anchor-first then chronological, and each claim's completion streams out; when every checked claim of a draft scene is judged, that scene is verified and painting starts on it.
-4. Buffer playback. Scene 1 starts playing as soon as the remaining build time (measured rate, not a guess) fits inside the remaining viewing time. Between scenes one line names what is happening ("Checking 1932 against the sources...").
+4. Buffer playback. Cut: the finished film plays straight through instead.
 5. Scene events. A ready scene emits number, year, captions with sources and image path. Known objects open instantly from reviewed or cached research.
 
 New measures: time to the opening card, time to the first painted scene (target 60 s, aim 30 s) and time to the full film.

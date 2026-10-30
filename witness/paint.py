@@ -29,10 +29,44 @@ NO_TEXT = (
 MAX_REPAINTS = 2
 SEASONS = ("spring", "summer", "autumn", "winter")
 SEASON_SENTENCES = {
-    "spring": "All eras share the anchor's spring season: fresh leaves, blossom, no snow.",
-    "summer": "All eras share the anchor's summer season: leafy trees, green grass, no snow.",
-    "autumn": "All eras share the anchor's autumn season: turning leaves, no snow.",
-    "winter": "All eras share the anchor's winter season: bare trees, snow on the ground.",
+    "spring": "The season is spring: fresh leaves, blossom, no snow.",
+    "summer": "The season is summer: leafy trees, green grass, no snow.",
+    "autumn": "The season is autumn: turning leaves, no snow.",
+    "winter": "The season is winter: bare trees, snow on the ground.",
+}
+MONTHS = {
+    "january": 1, "jan": 1, "januari": 1, "janvier": 1, "januar": 1,
+    "enero": 1, "janeiro": 1, "gennaio": 1,
+    "february": 2, "feb": 2, "februari": 2, "februar": 2, "février": 2,
+    "fevrier": 2, "febrero": 2, "fevereiro": 2, "febbraio": 2,
+    "march": 3, "mar": 3, "maart": 3, "märz": 3, "maerz": 3, "mars": 3,
+    "marts": 3, "marzo": 3, "março": 3, "marco": 3,
+    "april": 4, "apr": 4, "avril": 4, "abril": 4, "aprile": 4,
+    "may": 5, "mei": 5, "mai": 5, "maj": 5, "mayo": 5, "maio": 5,
+    "maggio": 5,
+    "june": 6, "jun": 6, "juni": 6, "juin": 6, "junio": 6, "junho": 6,
+    "giugno": 6,
+    "july": 7, "jul": 7, "juli": 7, "juliol": 7, "juillet": 7,
+    "julio": 7, "julho": 7, "luglio": 7,
+    "august": 8, "aug": 8, "augustus": 8, "août": 8,
+    "aout": 8, "agosto": 8, "augusti": 8,
+    "september": 9, "sep": 9, "sept": 9, "septiembre": 9, "setembro": 9,
+    "settembre": 9,
+    "october": 10, "oct": 10, "oktober": 10, "octobre": 10,
+    "octubre": 10, "outubro": 10, "ottobre": 10,
+    "november": 11, "nov": 11, "novembre": 11, "noviembre": 11,
+    "novembro": 11,
+    "december": 12, "dec": 12, "dezember": 12, "décembre": 12,
+    "decembre": 12, "diciembre": 12, "dezembro": 12, "dicembre": 12,
+}
+SEASON_WORDS = {
+    "spring": "spring", "lente": "spring", "frühling": "spring",
+    "frühjahr": "spring", "printemps": "spring", "forår": "spring",
+    "summer": "summer", "zomer": "summer", "sommer": "summer",
+    "été": "summer", "ete": "summer",
+    "autumn": "autumn", "fall": "autumn", "herfst": "autumn",
+    "herbst": "autumn", "automne": "autumn", "efterår": "autumn",
+    "winter": "winter", "hiver": "winter", "vinter": "winter",
 }
 CANOPY_WORDS = frozenset({"leaf", "leaves", "leafless", "bare", "crown", "canopy", "foliage"})
 STOP_WORDS = frozenset({"the", "and", "for", "with", "from", "its", "into", "over"})
@@ -197,6 +231,52 @@ def excluded_elements(anchor_elements, dated_texts, year) -> list:
     return [el for el in anchor_elements if not element_allowed(el, known)]
 
 
+def era_month(label) -> int | None:
+    """The month named in a date label, if any: English month names
+    plus the test-set languages, or an ISO date. Numeric day-first
+    dates stay unread: 04/05 means April in Haarlem and May in New
+    York."""
+    text = (label or "").lower()
+    iso = re.search(r"\d{4}-(\d{2})-\d{2}", text)
+    if iso and 1 <= int(iso.group(1)) <= 12:
+        return int(iso.group(1))
+    for word in re.findall(r"[a-zà-ÿ]+", text):
+        if word in MONTHS:
+            return MONTHS[word]
+    return None
+
+
+def named_season(label) -> str | None:
+    """A season word in a date label ("spring 2016"), if any."""
+    for word in re.findall(r"[a-zà-ÿ]+", (label or "").lower()):
+        if word in SEASON_WORDS:
+            return SEASON_WORDS[word]
+    return None
+
+
+def relative_season(photo_month, photo_season, month) -> str:
+    """The era's season from the photo's (month, season) pair. Both
+    hemispheres advance one season per quarter from what the photo
+    shows, so no hemisphere table is needed."""
+    order = ["winter", "spring", "summer", "autumn"]
+    steps = round(((month - photo_month) % 12) / 3) % 4
+    return order[(order.index(photo_season) + steps) % 4]
+
+
+def expected_season(scene, photo_month, photo_season):
+    """An era's season: a named season in its label first, then the
+    season its month implies against the photo, else the anchor's
+    season for series consistency."""
+    label = scene.get("date_label", "") or ""
+    named = named_season(label)
+    if named is not None:
+        return named
+    month = era_month(label)
+    if month is not None and photo_month is not None and photo_season in SEASONS:
+        return relative_season(photo_month, photo_season, month)
+    return photo_season
+
+
 def paint_directives(photo_call, photo_bytes, dated_texts) -> dict:
     """The decontamination pack for a run: one season plus, per era
     year, the anchor elements that postdate it."""
@@ -287,7 +367,7 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
             verdict = check_module.check_painting(
                 check_call, result["image"], object_name,
                 describe_state(object_name, scene.get("state", {})), year,
-                caption=caption)
+                caption=caption, season=season)
         except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
             return {"year": year, "image": None, "response_id": None,
                 "caption": caption,
@@ -308,7 +388,7 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
 
 
 def recover_scene(check_call, scene, object_name, prior,
-                  audience="adult") -> dict | None:
+                  audience="adult", season=None) -> dict | None:
     """Newest kept painting of a dropped critical era that passes
     today's check; None when nothing earlier survives it."""
     from witness import check as check_module
@@ -321,7 +401,7 @@ def recover_scene(check_call, scene, object_name, prior,
     for label, image in prior:
         verdict = check_module.check_painting(
             check_call, image, object_name, state_text,
-            scene.get("from_year"), caption=caption)
+            scene.get("from_year"), caption=caption, season=season)
         if verdict["verdict"] == "matches":
             return {"image": image, "source": label, "note": verdict["note"]}
     return None
@@ -370,7 +450,7 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
             verdict = check_module.check_painting(
                 check_call, result["image"], object_name,
                 describe_state(object_name, scene.get("state", {})), year,
-                caption=caption)
+                caption=caption, season=season)
         except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
             return {"year": year, "image": None, "response_id": None,
                 "caption": caption,
@@ -392,18 +472,20 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
 
 def paint_chain(call, photo_bytes, scenes, object_name, municipality,
                 check_call=None, season=None, excluded=None,
-                claims=(), audience="adult") -> list:
+                claims=(), audience="adult", photo_month=None) -> list:
     """Eras one after another, each chained on the previous turn. The
     first scene carries the photo; a scene with no predecessor id
-    does too."""
+    does too. A dated era takes its own season from the photo's
+    month; undated eras share the anchor's."""
     prev_id = None
     out = []
     for scene in scenes:
         try:
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
             photo = photo_bytes if prev_id is None else None
+            era_season = expected_season(scene, photo_month, season)
             if check_call is None:
-                result = call(scene_prompt(scene, object_name, municipality, season,
+                result = call(scene_prompt(scene, object_name, municipality, era_season,
                                            year_excluded, claims,
                                            audience=audience), prev_id, photo)
                 out.append({"year": scene.get("from_year"),
@@ -412,7 +494,7 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
                             "verdict": "unchecked", "attempts": 1, "note": ""})
             else:
                 out.append(paint_scene(call, check_call, scene, object_name,
-                                       municipality, prev_id, season=season,
+                                       municipality, prev_id, season=era_season,
                                        excluded=year_excluded, claims=claims,
                                        photo_bytes=photo, audience=audience))
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
@@ -426,25 +508,28 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
 
 def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
                    check_call=None, max_workers=6, season=None,
-                   excluded=None, claims=(), audience="adult") -> list:
+                   excluded=None, claims=(), audience="adult",
+                   photo_month=None) -> list:
     """The first scene carries the photo; the rest branch from its
     turn, painted at once. No spare anchor turn: its image was always
-    discarded."""
+    discarded. A dated era takes its own season from the photo's
+    month; undated eras share the anchor's."""
     if not scenes:
         return []
 
     def one(scene, prev_id, photo):
         try:
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
+            era_season = expected_season(scene, photo_month, season)
             if check_call is None:
-                result = call(scene_prompt(scene, object_name, municipality, season,
+                result = call(scene_prompt(scene, object_name, municipality, era_season,
                                            year_excluded, claims,
                                            audience=audience), prev_id, photo)
                 return {"year": scene.get("from_year"), "image": result["image"],
                         "response_id": result["response_id"],
                         "verdict": "unchecked", "attempts": 1, "note": ""}
             return paint_scene(call, check_call, scene, object_name, municipality,
-                               prev_id, season=season, excluded=year_excluded,
+                               prev_id, season=era_season, excluded=year_excluded,
                                claims=claims, photo_bytes=photo,
                                audience=audience)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film

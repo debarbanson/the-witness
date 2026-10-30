@@ -368,20 +368,39 @@ def read_location(photo) -> PhotoLocation:
     )
 
 
-def capture_year(photo) -> int | None:
-    """The photo's capture year from EXIF, if it has one."""
+def _capture_stamp(photo):
+    """The photo's EXIF date stamp parts, if it has one."""
     try:
         exif = Image.open(photo).getexif()
     except (OSError, ValueError):
-        return None
+        return []
     for tag in (36867, 306):  # DateTimeOriginal, then DateTime
         stamped = exif.get(tag)
         if stamped:
+            parts = str(stamped).split(":")
             try:
-                return int(str(stamped).split(":")[0])
+                int(parts[0])
             except (ValueError, IndexError):
                 continue
-    return None
+            return parts
+    return []
+
+
+def capture_year(photo) -> int | None:
+    """The photo's capture year from EXIF, if it has one."""
+    try:
+        return int(_capture_stamp(photo)[0])
+    except (ValueError, IndexError):
+        return None
+
+
+def capture_month(photo) -> int | None:
+    """The photo's capture month from EXIF, if it has one."""
+    try:
+        month = int(_capture_stamp(photo)[1])
+    except (ValueError, IndexError):
+        return None
+    return month if 1 <= month <= 12 else None
 
 
 def _gps_tags(photo) -> dict:

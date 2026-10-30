@@ -60,6 +60,39 @@ def test_check_prompt_adds_caption_agreement():
     assert "contradicts" not in plain
 
 
+def test_check_prompt_adds_a_snow_free_season():
+    prompt = check.check_prompt("Mill", "standing", 1932, season="spring")
+    assert "spring" in prompt
+    assert "no snow" in prompt
+    assert "(4)" in prompt
+
+
+def test_check_prompt_numbers_season_after_caption():
+    prompt = check.check_prompt("Mill", "standing", 1932,
+                                caption="I burnt down.", season="autumn")
+    assert "(5)" in prompt
+    assert "autumn" in prompt
+
+
+def test_check_prompt_skips_season_for_winter_and_none():
+    assert "no snow" not in check.check_prompt("Mill", "standing", 1932,
+                                                season="winter")
+    plain = check.check_prompt("Mill", "standing", 1932)
+    assert "no snow" not in plain
+
+
+def test_check_painting_passes_season_to_the_question():
+    seen = []
+
+    def ask(image, prompt):
+        seen.append(prompt)
+        return "MATCHES agree."
+
+    check.check_painting(ask, b"img", "Mill", "standing", 1932,
+                         season="summer")
+    assert "summer" in seen[0]
+
+
 def test_check_painting_passes_caption_to_the_question():
     seen = []
 

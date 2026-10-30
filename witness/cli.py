@@ -254,8 +254,8 @@ def final_paint_actions(chosen, painted_years, painted_states) -> dict:
     return actions
 
 
-def stream_scene_kwargs(report, claims, scene) -> dict:
-    """Prompt extras for a streamed paint: the shared season, the
+def stream_scene_kwargs(report, claims, scene, photo_month=None) -> dict:
+    """Prompt extras for a streamed paint: the era's season, the
     anchor elements no judged claim names yet, and the judged claims."""
     dated = [(claim.get("year"), captions.claim_detail(claim)) for claim in claims
              if claim.get("verdict") == "supported"
@@ -265,8 +265,8 @@ def stream_scene_kwargs(report, claims, scene) -> dict:
         excluded = tuple(report.get("elements", []))
     else:
         excluded = tuple(paint.excluded_elements(report.get("elements", []), dated, year))
-    return {"season": report.get("season"), "excluded": excluded,
-            "claims": tuple(claims)}
+    return {"season": paint.expected_season(scene, photo_month, report.get("season")),
+            "excluded": excluded, "claims": tuple(claims)}
 
 
 def _future_response_id(future):
@@ -612,6 +612,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     except PhotoError as exc:
         print(f"bad photo: {exc}")
         return 2
+    photo_month = identify.capture_month(photo) if paint_eras else None
 
     def on_identified(ident, slug, order):
         nonlocal found, paint_pool, era_dir
@@ -624,7 +625,8 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     def paint_scene_worker(scene, scene_no, with_photo):
         prev_id = _future_response_id(base_future) if not with_photo else None
         try:
-            kwargs = stream_scene_kwargs(report_future.result(), stream_claims, scene)
+            kwargs = stream_scene_kwargs(report_future.result(), stream_claims, scene,
+                                         photo_month=photo_month)
         except Exception:  # noqa: BLE001 - without the report the scene still paints
             kwargs = {}
         result = paint.paint_scene(paint_fn, check_fn, scene, found.name,
@@ -1309,10 +1311,12 @@ def check_respond(image_bytes, prompt):
 
 
 def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
-                       directives, prior_dirs, dropped, audience="adult"):
+                       directives, prior_dirs, dropped, audience="adult",
+                       photo_month=None):
     """A dropped critical era first tries the newest kept painting of
     it from an earlier run; remains then get one calm aftermath try."""
     year = scene["from_year"]
+    season = paint.expected_season(scene, photo_month, directives["season"])
     prior = []
     for run_dir in prior_dirs[:2]:  # newest first; two checks are enough
         candidate = run_dir / f"{year}.png"
@@ -1320,7 +1324,7 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
             prior.append((str(candidate), candidate.read_bytes()))
     try:
         hit = paint.recover_scene(checker, scene, name, prior,
-                                  audience=audience)
+                                  audience=audience, season=season)
     except Exception as exc:  # noqa: BLE001 - a dead check keeps the drop, not the crash
         return {**dropped,
                 "note": f"{dropped.get('note', '')} (recovery check failed: {exc})"}
@@ -1335,7 +1339,7 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
         print(f"{year}: trying the aftermath")
         return paint.paint_aftermath(
             call, checker, scene, name, municipality, photo_bytes,
-            season=directives["season"], audience=audience)
+            season=season, audience=audience)
     return dropped
 
 
@@ -1391,7 +1395,14 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               " ".join(line.get("line", "") for line in s.get("caption_lines", [])))
              for s in data.get("scenes", []) if isinstance(s.get("from_year"), int)]
     directives = paint.paint_directives(looker, photo_bytes, dated)
+    photo_month = identify.capture_month(photo)
     print(f"anchor season: {directives['season']}")
+    for scene in eras:
+        season = paint.expected_season(scene, photo_month,
+                                       directives["season"])
+        if season != directives["season"]:
+            print(f"{scene['from_year']}: season {season} "
+                  f"(label {scene.get('date_label')!r})")
     if any(directives["excluded"].values()):
         print(f"anchor elements held back: "
               f"{sorted({el for els in directives['excluded'].values() for el in els})}")
@@ -1401,13 +1412,13 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                                     check_call=checker, season=directives["season"],
                                     excluded=directives["excluded"],
                                     claims=data.get("claims", []),
-                                    audience=audience)
+                                    audience=audience, photo_month=photo_month)
     else:
         results = paint.paint_parallel(call, photo_bytes, eras, name, municipality,
                                        check_call=checker, season=directives["season"],
                                        excluded=directives["excluded"],
                                        claims=data.get("claims", []),
-                                       audience=audience)
+                                       audience=audience, photo_month=photo_month)
     base = f"{mode}_{tag}" if tag else mode
     suffix = f"{base}_child" if audience == "child" else base
     era_dir = out_dir / f"eras_{suffix}"
@@ -1423,13 +1434,17 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
             entries[entry["year"]] = entry
     for scene, result in zip(eras, results):
         year = scene["from_year"]
+        era_season = paint.expected_season(scene, photo_month,
+                                           directives["season"])
         if result["image"] is None:
             result = recover_or_retry(call, checker, scene, name, municipality,
                                       photo_bytes, directives, prior_dirs,
-                                      result, audience=audience)
+                                      result, audience=audience,
+                                      photo_month=photo_month)
         entry = {"year": year, "verdict": result["verdict"],
                  "attempts": result["attempts"],
-                 "caption": result.get("caption", "")}
+                 "caption": result.get("caption", ""),
+                 "season": era_season}
         if result["image"] is not None:
             (era_dir / f"{year}.png").write_bytes(result["image"])
             entry["file"] = f"eras_{suffix}/{year}.png"
@@ -1587,7 +1602,8 @@ def recheck_paintings(slug_dir, data, checker) -> list:
                 verdict = check_module.check_painting(
                     checker, candidate.read_bytes(), name,
                     paint.describe_state(name, state_of.get(year, {})),
-                    year, caption=sentence)
+                    year, caption=sentence,
+                    season=entry.get("season"))
             except models.SpendingCapExceeded:
                 raise
             except Exception as exc:  # noqa: BLE001 - a dead check drops the era

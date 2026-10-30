@@ -953,7 +953,7 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
     manifest = json.loads((out_dir / "paint_parallel.json").read_text())
     assert manifest["eras"] == [
         {"year": 1850, "verdict": "matches", "attempts": 1,
-         "caption": "",
+         "caption": "", "season": "summer",
          "file": "eras_parallel/1850.png"}]
     assert manifest["mode"] == "parallel"
 
@@ -2066,6 +2066,16 @@ def test_stream_scene_kwargs_holds_back_unnamed_elements():
     assert kwargs["season"] == "summer"
     assert kwargs["excluded"] == ("oak tree",)  # the car is verified named
     assert kwargs["claims"] == tuple(claims)
+
+
+def test_stream_scene_kwargs_gives_dated_eras_their_season():
+    from witness import cli as cli_module
+
+    report = {"season": "winter", "elements": []}
+    kwargs = cli_module.stream_scene_kwargs(
+        report, [], {"from_year": 1932, "date_label": "23 April 1932"},
+        photo_month=1)
+    assert kwargs["season"] == "spring"
 
 
 def test_stream_scene_kwargs_holds_back_everything_undated():

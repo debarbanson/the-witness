@@ -9,10 +9,12 @@ import base64
 import io
 
 
-def check_prompt(object_name, state_text, year, caption="") -> str:
+def check_prompt(object_name, state_text, year, caption="",
+                   season=None) -> str:
     """The whole scene, one verdict: the object in its state, no
     lettering, nothing the year could not hold, nothing contradicting
-    its own caption."""
+    its own caption, and the expected season without snow. Winter
+    expects nothing: snow may or may not lie."""
     base = (
         f"Verified state of {object_name} in this painting: {state_text} "
         f"The painting is dated {year}. Look at the whole painting. Answer "
@@ -21,18 +23,23 @@ def check_prompt(object_name, state_text, year, caption="") -> str:
         f"captions or signatures; (3) nothing in it postdates {year}: no "
         f"aircraft, paragliders, cranes, cars, modern clothing, street "
         f"furniture or other anachronisms")
+    number = 4
     if caption:
-        base += (f"; (4) the scene agrees with its caption: {caption}. "
+        base += (f"; ({number}) the scene agrees with its caption: {caption}. "
                  f"A painting that contradicts its own caption DIFFERS")
+        number += 1
+    if season in ("spring", "summer", "autumn"):
+        base += (f"; ({number}) the season is {season}: no snow or ice "
+                 f"on the ground")
     return (base + ". Otherwise answer with the single word DIFFERS first, "
             "then one sentence saying what is wrong.")
 
 
 def check_painting(check_call, image_bytes, object_name, state_text, year,
-                   caption="") -> dict:
+                   caption="", season=None) -> dict:
     """One vision check. Anything but MATCHES first counts as differs:
     nothing reaches the film unverified."""
-    answer = (check_call(image_bytes, check_prompt(object_name, state_text, year, caption))
+    answer = (check_call(image_bytes, check_prompt(object_name, state_text, year, caption, season))
               or "").strip()
     first, _, rest = answer.partition(" ")
     if first.strip(" :.,").upper() == "MATCHES":

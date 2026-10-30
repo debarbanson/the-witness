@@ -516,6 +516,100 @@ def test_paint_scene_repaint_keeps_claims_in_prompt():
     assert "barges unload grain" in prompts[1]
 
 
+def test_era_month_reads_names_and_iso_dates():
+    assert paint.era_month("23 April 1932") == 4
+    assert paint.era_month("22 October 2019") == 10
+    assert paint.era_month("Dec 1930") == 12
+    assert paint.era_month("1932-04-23") == 4
+    assert paint.era_month("23 april 1932") == 4
+    assert paint.era_month("1 August 1968") == 8
+    assert paint.era_month("1779") is None
+    assert paint.era_month("spring 2016") is None
+    assert paint.era_month("today") is None
+
+
+def test_named_season_reads_season_words():
+    assert paint.named_season("spring 2016") == "spring"
+    assert paint.named_season("late winter 1945") == "winter"
+    assert paint.named_season("23 April 1932") is None
+
+
+def test_relative_season_follows_either_hemisphere():
+    assert paint.relative_season(1, "winter", 4) == "spring"
+    assert paint.relative_season(1, "summer", 4) == "autumn"
+    assert paint.relative_season(7, "winter", 10) == "spring"
+    assert paint.relative_season(7, "summer", 10) == "autumn"
+    assert paint.relative_season(1, "winter", 7) == "summer"
+    assert paint.relative_season(4, "spring", 4) == "spring"
+    assert paint.relative_season(12, "winter", 1) == "winter"
+
+
+def test_expected_season_prefers_label_then_relative_then_anchor():
+    april = scene(1932)
+    april["date_label"] = "23 April 1932"
+    assert paint.expected_season(april, 1, "winter") == "spring"
+    named = scene(2016)
+    named["date_label"] = "spring 2016"
+    assert paint.expected_season(named, 7, "winter") == "spring"
+    assert paint.expected_season(scene(1850), 1, "winter") == "winter"
+    assert paint.expected_season(april, None, "winter") == "winter"
+    assert paint.expected_season(april, 1, None) is None
+
+
+def test_scene_prompt_states_the_era_season_not_the_anchor_series():
+    prompt = paint.scene_prompt(scene(1850), "Mill", "Town", season="summer")
+    assert "summer" in prompt
+    assert "no snow" in prompt
+    assert "All eras share" not in prompt
+
+
+def test_paint_parallel_gives_dated_eras_their_own_season():
+    april = scene(1932)
+    april["date_label"] = "23 April 1932"
+    seen = []
+
+    def call(prompt, prev, image):
+        seen.append(prompt)
+        return {"image": b"fake", "response_id": f"id-{len(seen)}"}
+
+    paint.paint_parallel(call, b"photo", [scene(1850), april], "Mill", "Town",
+                         check_call=lambda *a: "MATCHES yes.",
+                         season="winter", photo_month=1)
+    assert len(seen) == 2
+    plain = next(p for p in seen if "1850" in p)
+    dated = next(p for p in seen if "1932" in p)
+    assert "winter" in plain
+    assert "spring" in dated and "no snow" in dated
+
+
+def test_paint_scene_checks_the_expected_season():
+    seen = []
+
+    def check(image, prompt):
+        seen.append(prompt)
+        return "MATCHES yes."
+
+    paint.paint_scene(lambda *a: {"image": b"f", "response_id": "r"},
+                      check, scene(1932), "Mill", "Town", None,
+                      photo_bytes=b"p", season="spring")
+    assert "spring" in seen[0] and "no snow" in seen[0]
+
+
+def test_recover_scene_checks_the_expected_season():
+    seen = []
+
+    def check(image, prompt):
+        seen.append(prompt)
+        return "MATCHES yes."
+
+    april = scene(1932, "ruin", "burnt down, only the base left.")
+    april["date_label"] = "23 April 1932"
+    out = paint.recover_scene(check, april, "Mill",
+                              [("old", b"fake")], season="spring")
+    assert out is not None
+    assert "spring" in seen[0]
+
+
 def test_scene_prompt_adds_season_sentence():
     prompt = paint.scene_prompt(scene(1850), "Mill", "Town", season="summer")
     assert "summer" in prompt

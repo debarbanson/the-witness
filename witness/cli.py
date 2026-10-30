@@ -106,6 +106,7 @@ def main(argv=None):
     paint_cmd.add_argument("--scenes", default=None)
     paint_cmd.add_argument("--tag", default=None)
     paint_cmd.add_argument("--audience", default="adult", choices=("adult", "child"))
+    paint_cmd.add_argument("--photo-month", type=int, default=None)
     args = parser.parse_args(argv)
     if args.command in ("identify", "research", "film"):
         if (args.lat is None) != (args.lon is None):
@@ -144,7 +145,8 @@ def main(argv=None):
     if args.command == "paint":
         return cmd_paint(args.slug, args.photo,
                          mode=args.mode, scenes=args.scenes, tag=args.tag,
-                         out_dir=args.out_dir, audience=args.audience)
+                         out_dir=args.out_dir, audience=args.audience,
+                         photo_month=args.photo_month)
     if args.command == "film":
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
@@ -1345,7 +1347,7 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
 
 def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               paint_call=None, check_call=None, photo_call=None, out_dir="out",
-              audience="adult"):
+              audience="adult", photo_month=None):
     """Paint an object's eras from its research, checked per era. The
     location in the prompts is the canonical municipality from the
     research, never typed text. The children run paints a second set
@@ -1395,7 +1397,11 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               " ".join(line.get("line", "") for line in s.get("caption_lines", [])))
              for s in data.get("scenes", []) if isinstance(s.get("from_year"), int)]
     directives = paint.paint_directives(looker, photo_bytes, dated)
-    photo_month = identify.capture_month(photo)
+    if photo_month is None:
+        photo_month = data.get("photo_month") or identify.capture_month(photo)
+    if photo_month is not None and not 1 <= photo_month <= 12:
+        print(f"bad photo month: {photo_month!r}")
+        return 2
     print(f"anchor season: {directives['season']}")
     for scene in eras:
         season = paint.expected_season(scene, photo_month,

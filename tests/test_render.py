@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from witness.render import builder
 
 
@@ -235,16 +237,18 @@ def test_end_sources_keeps_wikipedia_titles_from_the_url():
     assert entry["title"] == "De Adriaan, Haarlem"
 
 
-def test_end_sources_excludes_unprovenanced():
-    fab = "A completely fabricated sentence about nothing at all here."
+def test_end_sources_comes_from_the_stored_bundle():
     claims = [
         {"url": "https://a.example/1", "quote": LONG_QUOTE, "verdict": "supported"},
-        {"url": "https://b.example/2", "quote": fab, "verdict": "supported"},
-        {"url": "https://c.example/3", "quote": LONG_QUOTE, "verdict": "supported"},
+        {"url": "https://b.example/2", "quote": LONG_QUOTE, "verdict": "supported",
+         "war_politics_only": True},
+        {"url": "https://c.example/3", "quote": "", "verdict": "supported"},
+        {"url": "https://d.example/4", "quote": LONG_QUOTE, "verdict": "unsupported"},
     ]
-    cache = DictCache({"https://b.example/2": "Unrelated fetched page text."})
-    assert builder.end_sources(claims, cache) == []
-    assert builder.end_sources(claims, None) == []
+    entries = builder.end_sources(claims, None)
+    assert [entry["url"] for entry in entries] == ["https://a.example/1"]
+    assert entries[0]["site"] == "a.example"
+    assert entries[0]["title"] == "1"
 
 
 def test_source_title_names_the_page():
@@ -659,7 +663,7 @@ def test_film_html_plays_without_fetch(tmp_path):
     assert html.count("__FILM_JSON__") == 1
 
 
-def test_write_film_serves_jpeg_paintings(tmp_path):
+def test_write_film_serves_eras_byte_identical(tmp_path):
     from PIL import Image
 
     era = tmp_path / "1850.png"
@@ -672,13 +676,27 @@ def test_write_film_serves_jpeg_paintings(tmp_path):
         "scenes": scenes,
         "timeline": [], "timings": {},
     }
-    out = builder.write_film(tmp_path, research, {"1850": "era_1850.jpg"},
+    out = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
                              photo="today.jpg", photo_credit="me", layers={},
                              era_files={"1850": str(era)})
-    assert Image.open(out / "era_1850.jpg").format == "JPEG"
-    assert not (out / "era_1850.png").exists()
+    assert (out / "era_1850.png").read_bytes() == era.read_bytes()
+    assert not (out / "era_1850.jpg").exists()
     film = json.loads((out / "film.json").read_text())
-    assert film["scenes"][0]["image"] == "era_1850.jpg"
+    assert film["scenes"][0]["image"] == "era_1850.png"
+
+
+def test_served_era_name_follows_the_bytes_not_the_filename(tmp_path):
+    webp = tmp_path / "1850.png"
+    webp.write_bytes(b"RIFF\x00\x00\x00\x00WEBPVP8Xrest")
+    assert builder.served_era_name("1850", str(webp)) == "era_1850.webp"
+    png = tmp_path / "1865.webp"
+    png.write_bytes(b"\x89PNG\r\n\x1a\nrest")
+    assert builder.served_era_name("1865", str(png)) == "era_1865.png"
+    jpg = tmp_path / "1900.png"
+    jpg.write_bytes(b"\xff\xd8\xff\xe0rest")
+    assert builder.served_era_name("1900", str(jpg)) == "era_1900.jpg"
+    with pytest.raises(ValueError):
+        builder.served_era_name("1920", str(tmp_path / "missing.png"))
 
 
 def test_kept_layers_skips_mismatched_and_missing_source(tmp_path):

@@ -79,9 +79,9 @@ def source_title(url) -> str:
 
 def end_sources(claims, cache=None) -> list:
     """Unique sources behind the verified claims: URL kept for the web
-    page, site plus title for the film end card. A URL reaches the end
-    card only when it was really fetched (it is in the cache) and its
-    quote appears literally in the fetched text."""
+    page, site plus title for the film end card. Provenance comes from
+    the stored evidence bundle (every accepted quote was bound to its
+    page at verify time), so the end card survives cache expiry."""
     seen = []
     entries = []
     for claim in claims:
@@ -90,7 +90,7 @@ def end_sources(claims, cache=None) -> list:
             continue
         if not filmed(claim):
             continue
-        if not _provenanced(claim.get("quote") or "", url, cache):
+        if not (claim.get("quote") or "").strip():
             continue
         seen.append(url)
         entries.append({"url": url, "site": source_site(url),
@@ -109,16 +109,6 @@ def end_title(url, cache=None) -> str:
         if title:
             return title
     return source_title(url)
-
-
-def _provenanced(quote, url, cache) -> bool:
-    if cache is None:
-        return False
-    text = cache.get(url)
-    if not text:
-        return False
-    norm = normalise_text(quote)
-    return len(norm) >= 30 and norm in normalise_text(text)
 
 
 DEATH_EVENTS = frozenset({"died", "dead", "demolished", "destroyed"})
@@ -230,11 +220,23 @@ def build_timeline(scenes, images, claims) -> list:
     return plan
 
 
-def save_jpeg(src, dest, quality=88) -> None:
-    """A painting as a web-sized JPEG."""
-    from PIL import Image
-
-    Image.open(src).convert("RGB").save(dest, "JPEG", quality=quality)
+def served_era_name(key, src) -> str:
+    """The served filename follows the bytes, not the stored name:
+    paintings ship byte-identical in their original format, so the
+    model's provenance signal survives."""
+    try:
+        magic = Path(src).read_bytes()[:12]
+    except OSError as exc:
+        raise ValueError(f"cannot serve {key}: {exc}") from exc
+    if magic.startswith(b"\x89PNG\r\n\x1a\n"):
+        ext = "png"
+    elif magic.startswith(b"\xff\xd8\xff"):
+        ext = "jpg"
+    elif magic.startswith(b"RIFF") and magic[8:12] == b"WEBP":
+        ext = "webp"
+    else:
+        raise ValueError(f"cannot serve {key}: unknown image format")
+    return f"era_{key}.{ext}"
 
 
 def write_film(out_dir, research, images, photo, photo_credit, layers,
@@ -242,10 +244,11 @@ def write_film(out_dir, research, images, photo, photo_credit, layers,
                cutout_file=None, photo_year=None, own_photo=False, cache=None):
     """film.json plus film.html plus copied assets under out_dir/film/.
 
-    Paintings are served as JPEG; layers and the cut-out stay PNG for
-    their transparency. Built in a fresh staging folder, then
-    published over film/ in one swap, so a re-render never leaves a
-    stale asset behind and a failed one keeps the last good film."""
+    Paintings ship byte-identical in their original format, so the
+    model's provenance signal survives; the visible AI label stays.
+    Built in a fresh staging folder, then published over film/ in
+    one swap, so a re-render never leaves a stale asset behind and a
+    failed one keeps the last good film."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix="film.staging-", dir=out_dir))
@@ -333,7 +336,7 @@ def _build_film(film_dir, research, images, photo, photo_credit, layers,
         shutil.copy(photo_file, film_dir / "today.jpg")
     for key, src in (era_files or {}).items():
         if src is not None:
-            save_jpeg(src, film_dir / f"era_{key}.jpg")
+            shutil.copy(src, film_dir / images[key])
     for key, files in (layer_files or {}).items():
         layer_dir = film_dir / f"layers_{key}"
         layer_dir.mkdir(exist_ok=True)

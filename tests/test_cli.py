@@ -1010,8 +1010,9 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     film_dir = out_dir / "film"
     assert (film_dir / "film.html").exists()
     assert (film_dir / "film.json").exists()
-    assert (film_dir / "era_1850.jpg").exists()
-    assert Image.open(film_dir / "era_1850.jpg").format == "JPEG"
+    assert (film_dir / "era_1850.png").exists()
+    assert Image.open(film_dir / "era_1850.png").format == "PNG"
+    assert (film_dir / "era_1850.png").read_bytes() == (era_dir / "1850.png").read_bytes()
     assert (film_dir / "today.jpg").exists()
     assert (film_dir / "cutout.png").exists()
     film = json.loads((film_dir / "film.json").read_text())

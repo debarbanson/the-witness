@@ -1793,7 +1793,8 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
     if not era_files:
         print(f"no kept paintings in {manifest_path}")
         return 2
-    images = {key: f"era_{key}.jpg" for key in era_files}
+    images = {key: render_builder.served_era_name(key, src)
+              for key, src in era_files.items()}
     claims = data.get("claims", [])
     for scene in render_builder.dated(data.get("scenes", [])):
         if str(scene["from_year"]) not in images:

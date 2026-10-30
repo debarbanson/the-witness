@@ -207,6 +207,25 @@ def test_paint_scene_keeps_matching_painting():
     assert out["attempts"] == 1
 
 
+def test_paint_results_carry_the_checked_caption():
+    def call(prompt, prev_id, photo_bytes=None):
+        return {"image": b"img", "response_id": "r1"}
+
+    made = scene(1850)
+    made["caption_sentence"] = {"text": "I opened my doors.",
+                                "claim_year": 1850,
+                                "claim_url": "https://a.example/x"}
+    out = paint.paint_scene(call, lambda image, p: "MATCHES whole mill.",
+                            made, "Mill", "Town", "r0")
+    assert out["caption"] == "I opened my doors."
+    out = paint.paint_aftermath(call, lambda *a: "MATCHES",
+                                made, "Mill", "Town")
+    assert out["caption"] == "I opened my doors."
+    bare = paint.paint_scene(call, lambda image, p: "MATCHES whole mill.",
+                             scene(1850), "Mill", "Town", "r0")
+    assert bare["caption"] == ""
+
+
 def test_paint_scene_repaints_with_difference_then_keeps():
     prompts = []
 

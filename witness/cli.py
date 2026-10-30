@@ -229,7 +229,8 @@ def collect_paint_entries(paint_futures) -> dict:
                              "note": f"paint crashed: {exc}"}
             continue
         entry = {"year": year, "verdict": outcome_result["verdict"],
-                 "attempts": outcome_result["attempts"]}
+                 "attempts": outcome_result["attempts"],
+                 "caption": outcome_result.get("caption", "")}
         if outcome_result["image"] is not None:
             entry["file"] = f"eras_stream/{year}.png"
         else:
@@ -1302,6 +1303,7 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
     if hit is not None:
         print(f"{year}: recovered from {hit['source']}")
         return {"year": year, "image": hit["image"], "response_id": None,
+                "caption": paint.scene_caption(scene),
                 "verdict": "recovered", "attempts": dropped["attempts"],
                 "note": f"recovered from {hit['source']}: {hit['note']}"}
     condition = (scene.get("state") or {}).get("condition")
@@ -1348,6 +1350,11 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     if not eras:
         print("no paintable eras in research")
         return 2
+    for scene in eras:
+        if not paint.scene_caption(scene):
+            print(f"{scene['from_year']}: no caption sentence yet; "
+                  f"the check cannot test caption agreement "
+                  f"(run captions first)")
     call = paint_call or paint_respond
     checker = check_call or check_respond
     looker = photo_call or check_respond
@@ -1389,7 +1396,8 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                                       photo_bytes, directives, prior_dirs,
                                       result)
         entry = {"year": year, "verdict": result["verdict"],
-                 "attempts": result["attempts"]}
+                 "attempts": result["attempts"],
+                 "caption": result.get("caption", "")}
         if result["image"] is not None:
             (era_dir / f"{year}.png").write_bytes(result["image"])
             entry["file"] = f"eras_{suffix}/{year}.png"
@@ -1463,8 +1471,78 @@ def caption_support_respond(sentence, passages):
     return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
 
 
-def cmd_captions(slug, rewrite_call=None, support_call=None, out_dir="out"):
-    """Line-2 sentences from each scene's own verified claim."""
+def recheck_paintings(slug_dir, data, checker) -> list:
+    """Kept paintings whose manifest caption differs from the current
+    sentence are checked again against it. Matches update the
+    manifest; differs drops the era with a repaint note. Returns
+    (year, kept) per rechecked era."""
+    from witness import check as check_module
+
+    name = data.get("object", {}).get("name", "")
+    sentences = {}
+    state_of = {}
+    for scene in data.get("scenes", []):
+        year = scene.get("from_year")
+        if not isinstance(year, int):
+            continue
+        state_of[year] = scene.get("state", {})
+        sentence = paint.scene_caption(scene)
+        if sentence:
+            sentences[year] = sentence
+    done = []
+    for manifest_path in sorted(Path(slug_dir).glob("paint_*.json")):
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        changed = False
+        for entry in manifest.get("eras", []):
+            if entry.get("verdict") not in ("matches", "recovered"):
+                continue
+            year = entry.get("year")
+            sentence = sentences.get(year)
+            if not sentence or entry.get("caption") == sentence:
+                continue
+            candidate = None
+            if entry.get("file"):
+                candidate = Path(slug_dir) / entry["file"]
+            if candidate is None or not candidate.exists():
+                found = sorted(Path(slug_dir).glob(f"eras_*/{year}.png"),
+                               key=lambda p: p.stat().st_mtime, reverse=True)
+                candidate = found[0] if found else None
+            if candidate is None:
+                continue
+            try:
+                verdict = check_module.check_painting(
+                    checker, candidate.read_bytes(), name,
+                    paint.describe_state(name, state_of.get(year, {})),
+                    year, caption=sentence)
+            except models.SpendingCapExceeded:
+                raise
+            except Exception as exc:  # noqa: BLE001 - a dead check drops the era
+                entry["verdict"] = "dropped"
+                entry["note"] = f"caption recheck failed: {exc}"
+                changed = True
+                done.append((year, False))
+                continue
+            if verdict["verdict"] == "matches":
+                entry["caption"] = sentence
+            else:
+                entry["verdict"] = "dropped"
+                entry["note"] = (f"differs from its caption "
+                                 f"({verdict['note']}); repaint")
+            changed = True
+            done.append((year, verdict["verdict"] == "matches"))
+        if changed:
+            manifest_path.write_text(json.dumps(manifest, indent=1))
+    return done
+
+
+def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
+                 out_dir="out"):
+    """Line-2 sentences from each scene's own verified claim. Kept
+    paintings older than their sentences are checked again, so every
+    kept painting matches the caption it ships with."""
     out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
@@ -1505,6 +1583,15 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, out_dir="out"):
                          "url": claim.get("url"),
                          "quote": claim.get("quote", "")}}
         print(f"{year}: {out['sentence']}"[:140])
+    try:
+        for year, kept in recheck_paintings(
+                out_dir, data, check_call or check_respond):
+            print(f"{year}: painting "
+                  f"{'rechecked against its caption' if kept else 'differs from its caption; dropped'}")
+    except models.SpendingCapExceeded as exc:
+        path.write_text(json.dumps(data, indent=1))
+        print(f"stopping: spending cap reached ({exc})")
+        return 2
     path.write_text(json.dumps(data, indent=1))
     if failed:
         print(f"caption sentences failed for {failed}; fix and rerun")
@@ -1654,9 +1741,15 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         print(f"unreadable paint manifest at {manifest_path}")
         return 2
     era_path = out_dir / era_dir
+    sentences = {s.get("from_year"): paint.scene_caption(s)
+                 for s in data.get("scenes", [])}
     era_files = {}
     for entry in manifest:
         if entry.get("verdict") not in ("matches", "recovered"):
+            continue
+        if entry.get("caption") != sentences.get(entry.get("year"), ""):
+            print(f"{entry.get('year')}: refused (painting was checked "
+                  f"against a different caption; rerun captions)")
             continue
         rel = entry.get("file") or f"{era_dir}/{entry['year']}.png"
         candidate = out_dir / rel

@@ -104,12 +104,72 @@ def test_film_outcome_returns_capability_url(tmp_path, monkeypatch):
     monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
     monkeypatch.setattr(webfilm_module.cli, "report_and_save",
                         lambda *a, **k: "out/q1-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
     monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 0)
     monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
     try:
         assert run_web_film(spec, store, authority=None) == {"status": "film"}
         result = store.get_job("job-1")["result"]
         assert result["film_url"] == "/film/job-1/token-1/film.html"
+    finally:
+        models.configure_spending(None)
+
+
+def test_captions_run_before_paint(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Mill", kind="mill", qid="Q1",
+                            articles={}, municipality=None)
+    order = []
+
+    def fake_run(*args, **kwargs):
+        return {"confirmed": True, "identified": True, "cached": False,
+                "slug": "q1-mill", "found": found, "order": ["en"],
+                "kept": [], "timeline": [], "chosen": [],
+                "result": {"outcome": "short_film"}, "timings": {},
+                "failures": [], "comparison": None, "tokens": {},
+                "cost_usd": 0.01}
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: order.append("save") or "out/q1-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
+                        lambda *a, **k: order.append("captions") or 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                        lambda *a, **k: order.append("paint") or 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render",
+                        lambda *a, **k: order.append("render") or 0)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        assert order == ["save", "captions", "paint", "render"]
+    finally:
+        models.configure_spending(None)
+
+
+def test_failed_captions_fall_back_to_facts(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Mill", kind="mill", qid="Q1",
+                            articles={}, municipality=None)
+
+    def fake_run(*args, **kwargs):
+        return {"confirmed": True, "identified": True, "cached": False,
+                "slug": "q1-mill", "found": found, "order": ["en"],
+                "kept": [{"year": 1850, "claim": "stood"}],
+                "timeline": [], "chosen": [],
+                "result": {"outcome": "short_film"}, "timings": {},
+                "failures": [], "comparison": None, "tokens": {},
+                "cost_usd": 0.01}
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/q1-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 2)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "facts_only"}
+        assert "captions failed" in store.get_job("job-1")["result"]["message"]
     finally:
         models.configure_spending(None)
 
@@ -133,6 +193,7 @@ def test_paint_failure_falls_back_to_facts(tmp_path, monkeypatch):
     monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
     monkeypatch.setattr(webfilm_module.cli, "report_and_save",
                         lambda *a, **k: "out/q1-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
     monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 2)
     try:
         assert run_web_film(spec, store, authority=None) == {"status": "facts_only"}

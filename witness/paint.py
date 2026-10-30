@@ -261,6 +261,7 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
             continue
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {"year": year, "image": None, "response_id": None,
+                "caption": caption,
                     "verdict": "dropped", "attempts": attempt + 1,
                     "note": f"paint failed: {exc}"}
         try:
@@ -270,10 +271,11 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
                 caption=caption)
         except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
             return {"year": year, "image": None, "response_id": None,
+                "caption": caption,
                     "verdict": "dropped", "attempts": attempt + 1,
                     "note": f"check failed: {exc}"}
         if verdict["verdict"] == "matches":
-            return {"year": year, "image": result["image"],
+            return {"year": year, "image": result["image"], "caption": caption,
                     "response_id": result["response_id"],
                     "verdict": "matches", "attempts": attempt + 1,
                     "note": verdict["note"]}
@@ -282,6 +284,7 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
         prompt = (f"{prompt} The previous attempt differed: {note} "
                   f"Fix exactly that.")
     return {"year": year, "image": None, "response_id": None,
+        "caption": caption,
             "verdict": "dropped", "attempts": max_tries, "note": note}
 
 
@@ -327,6 +330,7 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
             blocks += 1
             if blocks >= 1 + max_repaints:
                 return {"year": year, "image": None, "response_id": None,
+                    "caption": caption,
                         "verdict": "dropped", "attempts": attempt + 1,
                         "note": "safety block persists; era skipped"}
             if blocks == 1:
@@ -336,6 +340,7 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
         except Exception as exc:  # noqa: BLE001 - timeouts retry once like model errors
             if model_retried:
                 return {"year": year, "image": None, "response_id": None,
+                    "caption": caption,
                         "verdict": "dropped", "attempts": attempt + 1,
                         "note": f"paint failed twice: {exc}"}
             model_retried = True
@@ -347,10 +352,11 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
                 caption=caption)
         except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
             return {"year": year, "image": None, "response_id": None,
+                "caption": caption,
                     "verdict": "dropped", "attempts": attempt + 1,
                     "note": f"check failed: {exc}"}
         if verdict["verdict"] == "matches":
-            return {"year": year, "image": result["image"],
+            return {"year": year, "image": result["image"], "caption": caption,
                     "response_id": result["response_id"],
                     "verdict": "matches", "attempts": attempt + 1,
                     "note": verdict["note"]}
@@ -358,6 +364,7 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
         prompt = (f"{scene_prompt(scene, object_name, municipality, season, excluded, claims)} "
                   f"The previous attempt differed: {verdict['note']} Fix exactly that.")
     return {"year": year, "image": None, "response_id": None,
+        "caption": caption,
             "verdict": "dropped", "attempts": 1 + max_repaints,
             "note": verdict["note"]}
 

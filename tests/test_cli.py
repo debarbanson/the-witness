@@ -617,6 +617,7 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
     manifest = json.loads((out_dir / "paint_parallel.json").read_text())
     assert manifest["eras"] == [
         {"year": 1850, "verdict": "matches", "attempts": 1,
+         "caption": "",
          "file": "eras_parallel/1850.png"}]
     assert manifest["mode"] == "parallel"
 
@@ -885,7 +886,8 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     Image.new("RGB", (16, 24), "red").save(buf, "PNG")
     (era_dir / "1850.png").write_bytes(buf.getvalue())
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
@@ -945,7 +947,8 @@ def test_cmd_render_reports_refused_scenes(tmp_path, monkeypatch, capsys):
     Image.new("RGB", (16, 24), "red").save(buf, "PNG")
     (era_dir / "1850.png").write_bytes(buf.getvalue())
     (out_dir / "paint_parallel.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
@@ -979,6 +982,142 @@ def test_cmd_render_reports_refused_scenes(tmp_path, monkeypatch, capsys):
     assert film["scenes"] == []
 
 
+def test_cmd_paint_records_caption_and_warns_when_missing(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
+    (slug_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "opened in 1850"},
+                   {"year": 1900, "verdict": "supported", "claim": "stood in 1900"}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
+            {"from_year": 1900, "date_label": "1900",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ],
+    }))
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "grey").save(buf, "PNG")
+    png = buf.getvalue()
+
+    def call(prompt, prev_id, photo_bytes=None):
+        return {"image": png, "response_id": "r1"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(tmp_path / "photo.jpg"),
+        paint_call=call, check_call=lambda image, p: "MATCHES whole.",
+        photo_call=lambda photo_bytes, prompt: "summer")
+    assert code == 0
+    manifest = json.loads((slug_dir / "paint_parallel.json").read_text())
+    by_year = {e["year"]: e for e in manifest["eras"]}
+    assert by_year[1850]["caption"] == "I opened my doors."
+    assert by_year[1900]["caption"] == ""
+    out, _ = capsys.readouterr()
+    assert "1900" in out and "no caption" in out
+
+
+def test_cmd_render_refuses_caption_mismatch(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+    from witness import segment as segment_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "red").save(buf, "PNG")
+    (era_dir / "1850.png").write_bytes(buf.getvalue())
+    (out_dir / "paint_parallel.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my old doors."}]}))
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "opened in 1850",
+                    "quote": "The mill opened in 1850."}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x",
+                                 "evidence": {"claim": "opened in 1850",
+                                              "url": "https://a.example/x",
+                                              "quote": "The mill opened in 1850."}}},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(buf.getvalue())
+    cutout = segment_module.Cutout(
+        (0, 0, 8, 8), 0.5, Image.new("L", (16, 24)),
+        Image.new("RGBA", (16, 24), (1, 2, 3, 255)))
+
+    code = cli_module.cmd_render(
+        "q1-test", str(photo), subject="mill",
+        era_dir="eras_parallel", photo_credit="me",
+        segment_call=lambda call_sam, path, subject: cutout)
+    assert code == 2
+    out, _ = capsys.readouterr()
+    assert "1850" in out and "caption" in out
+
+
+def test_cmd_captions_rechecks_stale_paintings(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    era_dir = slug_dir / "eras_parallel"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "grey").save(buf, "PNG")
+    (era_dir / "1779.png").write_bytes(buf.getvalue())
+    (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
+    (slug_dir / "paint_parallel.json").write_text(json.dumps(
+        {"eras": [{"year": 1779, "verdict": "matches", "attempts": 1,
+                   "file": "eras_parallel/1779.png",
+                   "caption": "I opened my old doors."}]}))
+    checked = []
+
+    def check(image, prompt):
+        checked.append(prompt)
+        return "MATCHES whole mill."
+
+    code = cli_module.cmd_captions(
+        "q1-test",
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
+        support_call=lambda sentence, passages: "supported",
+        check_call=check)
+    assert code == 0
+    assert len(checked) == 1
+    assert "I opened my doors." in checked[0]
+    manifest = json.loads((slug_dir / "paint_parallel.json").read_text())
+    assert manifest["eras"][0]["caption"] == "I opened my doors."
+    assert manifest["eras"][0]["verdict"] == "matches"
+
+
 def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
     import json
     from PIL import Image
@@ -990,7 +1129,8 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
     era_dir.mkdir(parents=True)
     Image.new("RGB", (16, 24), "red").save(era_dir / "1850.png")
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
         "outcome": {"outcome": "full_film"},
@@ -1033,7 +1173,8 @@ def test_render_without_subject_removes_stale_cutout(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     out_dir, photo = _render_fixture(tmp_path)
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
     stale = out_dir / "today_cutout.png"
     stale.write_bytes(b"previous-visitor-cutout")
     code = cli_module.cmd_render("q1-test", str(photo),
@@ -1054,7 +1195,8 @@ def test_film_cached_relay_current_photo(tmp_path, monkeypatch):
     era_stream.mkdir()
     Image.new("RGB", (16, 24), "red").save(era_stream / "1850.png")
     (out_dir / "paint_stream.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
     film_dir = out_dir / "film"
     film_dir.mkdir()
     Image.new("RGB", (24, 16), "red").save(film_dir / "today.jpg")
@@ -1468,7 +1610,8 @@ def test_render_uses_separate_knowledge_cache(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     out_dir, photo = _render_fixture(tmp_path)
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
     research_path = out_dir / "research.json"
     research = json.loads(research_path.read_text())
     research["claims"] = [
@@ -1508,7 +1651,8 @@ def test_render_ignores_paintings_missing_from_manifest(tmp_path, monkeypatch):
     Image.new("RGB", (16, 24), "grey").save(
         out_dir / "eras_parallel_b1" / "1900.png")
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1},
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."},
                   {"year": 1900, "verdict": "dropped", "attempts": 3,
                    "note": "differed"}]}))
     code = cli_module.cmd_render("q1-test", str(photo),
@@ -1893,7 +2037,8 @@ def test_render_writes_into_job_folder(tmp_path, monkeypatch):
     out_dir, photo = _render_fixture(tmp_path, root=root)
     import json
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
-        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
     code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1", out_dir=root)
     assert code == 0

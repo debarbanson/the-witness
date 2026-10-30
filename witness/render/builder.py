@@ -262,8 +262,6 @@ def _build_film(film_dir, research, images, photo, photo_credit,
     claims = research.get("claims", [])
     scenes = dated(research.get("scenes", []))
     plan = build_timeline(research.get("scenes", []), images, claims)
-    painted = {e["year"]: e["t"] for e in research.get("stream", [])
-               if e["event"] == "scene_painted" and e.get("verdict") == "matches"}
     film_scenes = []
     for scene in scenes:
         key = str(scene["from_year"])
@@ -280,8 +278,7 @@ def _build_film(film_dir, research, images, photo, photo_credit,
                             "image": images[key],
                             "caption": [stamp, sentence],
                             "site": scene_site(scene, claims),
-                            "caption_claim": cited,
-                            "ready_at": painted.get(scene["from_year"], 0)})
+                            "caption_claim": cited})
     attribution = []
     if research.get("timings", {}).get("identify_steps", {}).get("overpass_s") is not None:
         attribution.append("© OpenStreetMap contributors")

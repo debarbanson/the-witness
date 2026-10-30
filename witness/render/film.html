@@ -65,8 +65,7 @@
 "use strict";
 let FILM = null;
 const params = new URLSearchParams(location.search);
-const REPLAY = params.has("replay");
-const SHOW_CLOCK = params.has("clock");
+const SHOW_CLOCK = !params.has("noclock");
 const FADE = 1.0;
 
 function segAt(t) {
@@ -75,8 +74,6 @@ function segAt(t) {
     if (t < segs[i].end || i === segs.length - 1) return [segs[i], i];
   }
 }
-
-function readyAt(scene) { return REPLAY ? scene.ready_at : 0; }
 
 function collectImages(film) {
   const urls = [film.photo];
@@ -180,19 +177,9 @@ function render(t) {
     document.getElementById("capsite").textContent = FILM.photo_credit || "";
     showClock(); return;
   }
-  // Era: find scene, honour readiness, push-in plus crossfade plus parallax.
+  // Era: find scene, push-in plus crossfade plus parallax.
   const scene = FILM.scenes.find(s => s.year === seg.year);
   const local = t - seg.start, dur = seg.end - seg.start;
-  if (t < readyAt(scene)) {
-    const prev = FILM.segments[idx - 1];
-    const prevScene = prev && prev.kind === "era"
-      ? FILM.scenes.find(s => s.year === prev.year) : null;
-    imgA.src = prevScene ? prevScene.image : FILM.photo;
-    imgA.style.opacity = 1;
-    progress.style.display = "block";
-    progress.textContent = "Checking " + seg.year + " against the sources...";
-    showClock(); return;
-  }
   imgA.src = scene.image;
   imgA.style.opacity = 1;
   imgA.style.transform = REDUCED ? "" : "scale(" + (1 + 0.08 * (local / dur)) + ")";
@@ -203,10 +190,7 @@ function render(t) {
     let src = null;
     if (next.kind === "era") {
       const ns = FILM.scenes.find(s => s.year === next.year);
-      if (t < readyAt(ns)) {
-        progress.style.display = "block";
-        progress.textContent = "Checking " + next.year + " against the sources...";
-      } else src = ns.image;
+      src = ns.image;
     } else if (next.kind === "today") src = FILM.photo;
     if (src) {
       imgB.src = src; imgB.style.opacity = f;

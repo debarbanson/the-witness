@@ -132,6 +132,22 @@ assert.strictEqual(link.textContent, "Wikipedia: Mill");
 assert.strictEqual(link.href, "https://en.wikipedia.org/wiki/Mill");
 assert.strictEqual(link.target, "_blank");
 
+// The finished film plays every era straight through: no check interlude,
+// even for a scene whose paint landed late.
+vm.runInContext("FILM.scenes[0].ready_at = 9999;", sandbox);
+render(8.5);
+assert.strictEqual(imgA().src, "era_1865.png", "late paint still plays");
+assert.strictEqual(sandbox.document.getElementById("progress").style.display,
+  "none", "no check interlude in the finished film");
+vm.runInContext("FILM.scenes[0].ready_at = 0;", sandbox);
+
+// The clock shows by default.
+render(8.5);
+assert.strictEqual(sandbox.document.getElementById("clock").style.display,
+  "block", "clock visible");
+assert.strictEqual(sandbox.document.getElementById("clock").textContent,
+  "0:08", "clock reads the film time");
+
 // Pause freezes the clock; replay restarts it.
 const tickPlayer = vm.runInContext("tickPlayer", sandbox);
 const togglePause = vm.runInContext("togglePause", sandbox);

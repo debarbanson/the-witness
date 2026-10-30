@@ -262,7 +262,7 @@ def test_source_title_names_the_page():
     assert builder.source_title("https://example.com/") == "example.com"
 
 
-def test_film_json_carries_readiness_and_attribution(tmp_path):
+def test_film_json_carries_attribution(tmp_path):
     scenes = [scene(1779, "standing", "opened in 1779",
                     sentence="I opened my doors to the town.")]
     research = {
@@ -272,14 +272,12 @@ def test_film_json_carries_readiness_and_attribution(tmp_path):
         "scenes": scenes,
         "timeline": [],
         "timings": {"identify_steps": {"overpass_s": 5}},
-        "stream": [{"event": "scene_painted", "year": 1779, "t": 54.4,
-                    "verdict": "matches"}],
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
                              photo="today.jpg",
                              photo_credit="A. Uthor, CC BY 4.0")
     film = json.loads((out / "film.json").read_text())
-    assert film["scenes"][0]["ready_at"] == 54.4
+    assert "ready_at" not in film["scenes"][0]
     assert any("OpenStreetMap" in a for a in film["attribution"])
     assert film["photo_credit"] == "A. Uthor, CC BY 4.0"
     assert (out / "film.html").exists()
@@ -302,7 +300,7 @@ def test_film_carries_verified_kind_never_typed_place(tmp_path):
     assert "place" not in inspect.signature(builder.write_film).parameters
 
 
-def test_film_without_stream_events_is_ready_at_once(tmp_path):
+def test_film_scenes_carry_no_readiness(tmp_path):
     scenes = [scene(1779, sentence="I opened my doors to the town.")]
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
@@ -313,7 +311,7 @@ def test_film_without_stream_events_is_ready_at_once(tmp_path):
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
                              photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
-    assert film["scenes"][0]["ready_at"] == 0
+    assert "ready_at" not in film["scenes"][0]
 
 
 def test_frame_count_covers_duration():

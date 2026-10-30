@@ -19,6 +19,19 @@ def test_player_has_no_figure_layers():
     assert "translateX" not in template
 
 
+def test_player_plays_the_finished_film():
+    template = TEMPLATE.read_text()
+    assert "Checking " not in template
+    assert "readyAt(" not in template
+    assert "REPLAY" not in template
+    assert "ready_at" not in template
+
+
+def test_clock_shows_unless_opted_out():
+    template = TEMPLATE.read_text()
+    assert 'params.has("noclock")' in template
+
+
 def test_caption_is_never_clamped_or_cut():
     template = TEMPLATE.read_text()
     assert "line-clamp" not in template

@@ -8,7 +8,8 @@ def test_child_caption_keeps_supported_rewrite():
         rewrite_call=lambda adult, source, plain: "I was built in 1779.",
         support_call=lambda line, source: "supported",
         adult="opened in 1779",
-        source="The mill was opened in 1779.")
+        source="The mill was opened in 1779.",
+        url="https://a.example/mill")
     assert out == {"line": "I was built in 1779.", "verified": True,
                    "attempts": 1}
 
@@ -24,7 +25,8 @@ def test_child_caption_retries_plainer_once_then_drops():
         rewrite_call=rewrite,
         support_call=lambda line, source: "unsupported",
         adult="opened in 1779",
-        source="The mill was opened in 1779.")
+        source="The mill was opened in 1779.",
+        url="https://a.example/mill")
     assert out == {"line": None, "verified": False, "attempts": 2}
     assert calls == [False, True]
 
@@ -38,7 +40,8 @@ def test_child_caption_plainer_retry_can_pass():
         support_call=lambda line, source: (
             "supported" if line == "I was built in 1779." else "unsupported"),
         adult="opened in 1779",
-        source="The mill was opened in 1779.")
+        source="The mill was opened in 1779.",
+        url="https://a.example/mill")
     assert out["line"] == "I was built in 1779."
     assert out["verified"] is True
 
@@ -61,3 +64,21 @@ def test_claim_for_line_matches_year_and_url_first():
     assert children.claim_for_line(
         claims, 1802, "https://a.example/x")["quote"] == "First."
     assert children.claim_for_line(claims, 1900, "https://a.example/x") is None
+
+
+def test_child_caption_checks_a_bound_passage():
+    seen = {}
+
+    def support(line, passages):
+        seen["passages"] = passages
+        return "supported"
+
+    out = children.child_caption(
+        rewrite_call=lambda adult, source, plain: "I was built long ago.",
+        support_call=support,
+        adult="opened in 1779",
+        source="The mill was opened in 1779 after years of work.",
+        url="https://a.example/mill")
+    assert out["verified"] is True
+    assert seen["passages"] == [
+        "https://a.example/mill\nThe mill was opened in 1779 after years of work."]

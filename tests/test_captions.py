@@ -80,13 +80,45 @@ def test_write_sentence_keeps_supported_rewrite():
                    "verified": True, "attempts": 1}
 
 
-def test_write_sentence_keeps_partly_verified_rewrite():
+def test_write_sentence_drops_partly_verified_rewrite():
     out = captions.write_sentence(
         rewrite_call=lambda detail, quote, year, plain, stamp="": "I burnt down that evening.",
-        support_call=lambda sentence, quote: "partly",
+        support_call=lambda sentence, passages: "partly",
         claim=claim(1932), year=1932)
-    assert out == {"sentence": "I burnt down that evening.",
-                   "verified": True, "attempts": 1}
+    assert out == {"sentence": None, "verified": False, "attempts": 2}
+
+
+def test_evidence_passages_carry_bound_quotes_with_urls():
+    main = claim(1932, url="https://a.example/mill",
+                 quote="The mill burnt down in 1932.")
+    other = claim(1932, url="https://b.example/news",
+                  quote="On the evening it burnt down.")
+    unrelated = claim(1865, url="https://c.example/old",
+                      quote="Converted to steam in 1865.")
+    passages = captions.evidence_passages(main, [main, other, unrelated], 1932)
+    assert passages == ["https://a.example/mill\nThe mill burnt down in 1932.",
+                        "https://b.example/news\nOn the evening it burnt down."]
+
+
+def test_write_sentence_checks_bound_passages_not_bare_text():
+    seen = {}
+
+    def support(sentence, passages):
+        seen["passages"] = passages
+        return "supported"
+
+    out = captions.write_sentence(
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I burnt down.",
+        support_call=support,
+        claim=claim(1932, url="https://a.example/mill",
+                    quote="The mill burnt down in 1932."),
+        year=1932,
+        claims=[claim(1932, url="https://b.example/news",
+                      quote="On the evening it burnt down.")])
+    assert out["verified"] is True
+    assert seen["passages"] == [
+        "https://a.example/mill\nThe mill burnt down in 1932.",
+        "https://b.example/news\nOn the evening it burnt down."]
 
 
 def test_write_sentence_retries_shorter_once_then_fails():
@@ -225,13 +257,16 @@ def test_write_sentence_checks_the_combined_evidence():
         seen["source"] = quote
         return "I burnt down."
 
-    def support(sentence, quote):
-        return "supported" if "23 April 1932" in quote else "unsupported"
+    def support(sentence, passages):
+        return ("supported"
+                if any("23 April 1932" in p for p in passages)
+                else "unsupported")
 
     out = captions.write_sentence(
         rewrite_call=rewrite, support_call=support,
         claim=claim(1932, quote="The brigade could not prevent it."), year=1932,
-        other_texts=["On the evening of 23 April 1932 it burnt down."])
+        claims=[claim(1932, quote="On the evening of 23 April 1932 it burnt down.",
+                      claim="burnt on 23 April 1932")])
     assert out["verified"] is True
     assert "On the evening of 23 April 1932 it burnt down." in seen["source"]
 
@@ -245,7 +280,7 @@ def test_write_sentence_retries_without_the_contested_detail():
             return "I burnt down in the evening."
         return "I burnt down."
 
-    def support(sentence, quote):
+    def support(sentence, passages):
         if "evening" in sentence:
             return "unsupported"
         return "supported"
@@ -253,7 +288,8 @@ def test_write_sentence_retries_without_the_contested_detail():
     out = captions.write_sentence(
         rewrite_call=rewrite, support_call=support,
         claim=claim(1932, quote="The brigade could not prevent it."), year=1932,
-        other_texts=["On Saturday afternoon, April 23rd, 1932 it burnt."])
+        claims=[claim(1932, quote="On Saturday afternoon, April 23rd, 1932 it burnt.",
+                      claim="burnt on 23 April 1932")])
     assert out == {"sentence": "I burnt down.",
                    "verified": True, "attempts": 2}
     assert seen == [False, True]

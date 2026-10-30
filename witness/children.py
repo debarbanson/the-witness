@@ -16,11 +16,13 @@ def rewrite_prompt(adult, source) -> str:
         f"Adult caption: {adult}")
 
 
-def child_caption(rewrite_call, support_call, adult, source) -> dict:
-    """Rewrite plus re-verification; plainer retry once, else drop."""
+def child_caption(rewrite_call, support_call, adult, source, url) -> dict:
+    """Rewrite plus re-verification; plainer retry once, else drop.
+    Every rewrite is checked again against the bound passage."""
+    passages = [f"{url}\n{source}"]
     for attempt, plain in enumerate((False, True), 1):
         line = (rewrite_call(adult, source, plain) or "").strip()
-        if line and support_call(line, source) == "supported":
+        if line and support_call(line, passages) == "supported":
             return {"line": line, "verified": True, "attempts": attempt}
     return {"line": None, "verified": False, "attempts": 2}
 

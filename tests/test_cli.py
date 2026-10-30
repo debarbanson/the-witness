@@ -35,6 +35,32 @@ def test_votes_for_build_anchor_and_state_setting_claims():
     assert _votes_for({"event": "renamed", "year": 1900}, "Renamed.", 1779) == 1
 
 
+def test_caption_support_runs_on_bound_passages(monkeypatch):
+    import json as _json
+
+    from witness import cli as cli_module
+
+    passage = ("https://a.example/mill\n"
+               "The mill burnt down in 1932 after a lightning strike.")
+
+    def respond(prompt):
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text",
+             "text": _json.dumps(
+                 {"verdict": "supported",
+                  "quote": "The mill burnt down in 1932 after a lightning strike.",
+                  "url": "https://a.example/mill",
+                  "support": [{"url": "https://a.example/mill",
+                               "supports": True,
+                               "quote": "The mill burnt down in 1932 "
+                                        "after a lightning strike."}]}),
+             "annotations": []}]}]}
+
+    monkeypatch.setattr(cli_module, "baseten_support_respond", respond)
+    assert cli_module.caption_support_respond("I burnt down.", [passage]) == "supported"
+    assert cli_module.child_support_respond("I burnt down.", [passage]) == "supported"
+
+
 def test_refresh_film_drops_partly_claims():
     from witness.cli import refresh_film
 
@@ -476,11 +502,11 @@ def test_caption_support_uses_three_votes(monkeypatch):
         return {"verdict": "supported"}
 
     monkeypatch.setattr(cli_module.verify, "judge_claim", fake_judge)
-    out = cli_module.caption_support_respond(
-        "I burnt down.", "The mill burnt down.")
+    passage = "https://a.example/mill\nThe mill burnt down."
+    out = cli_module.caption_support_respond("I burnt down.", [passage])
     assert out == "supported"
     assert seen["votes"] == 3
-    assert seen["passages"] == ["The mill burnt down."]
+    assert seen["passages"] == [passage]
 
 
 def test_baseten_support_falls_back_when_key_missing(monkeypatch):

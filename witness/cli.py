@@ -1432,10 +1432,11 @@ def child_rewrite_respond(adult, source, plain):
     return "\n".join(texts).strip()
 
 
-def child_support_respond(line, source):
-    """Re-verify a rewrite against its own source sentence."""
+def child_support_respond(line, passages):
+    """Re-verify a rewrite against its bound passages."""
     job = {"claim": line, "event": "stood", "detail": line, "year": 0,
-           "keywords": [], "passages": [source], "urls": [], "votes": 1}
+           "keywords": [], "passages": list(passages), "urls": [],
+           "votes": 1}
     return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
 
 
@@ -1454,10 +1455,11 @@ def caption_rewrite_respond(detail, quote, year, plain, stamp=""):
     return "\n".join(texts).strip()
 
 
-def caption_support_respond(sentence, quote):
-    """Re-verify a caption sentence against its own source sentence."""
+def caption_support_respond(sentence, passages):
+    """Re-verify a caption sentence against its bound passages."""
     job = {"claim": sentence, "event": "stood", "detail": sentence, "year": 0,
-           "keywords": [], "passages": [quote], "urls": [], "votes": 3}
+           "keywords": [], "passages": list(passages), "urls": [],
+           "votes": 3}
     return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
 
 
@@ -1484,10 +1486,9 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, out_dir="out"):
         if claim is None:
             print(f"{year}: no claim of its own; dropped from the film")
             continue
-        others = captions.other_texts(claim, data.get("claims", []), year)
         try:
             out = captions.write_sentence(
-                rewrite, support, claim, year, other_texts=others,
+                rewrite, support, claim, year, claims=data.get("claims", []),
                 stamp=scene.get("date_label", "") or "")
         except models.SpendingCapExceeded as exc:
             path.write_text(json.dumps(data, indent=1))
@@ -1529,7 +1530,8 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
                 dropped += 1
                 continue
             try:
-                out = children.child_caption(rewrite, support, entry["line"], claim["quote"])
+                out = children.child_caption(rewrite, support, entry["line"], claim["quote"],
+                                              claim.get("url", ""))
             except models.SpendingCapExceeded as exc:
                 path.write_text(json.dumps(data, indent=1))
                 print(f"stopping: spending cap reached ({exc})")
@@ -1541,7 +1543,8 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
         description = (scene.get("state") or {}).get("description", "")
         if state_claim is not None and description:
             out = children.child_caption(rewrite, support, description,
-                                         state_claim["quote"])
+                                         state_claim["quote"],
+                                         state_claim.get("url", ""))
             scene["child_state"] = out["line"]
             print(f"{scene['from_year']} state: {out['line'] or 'dropped'}"[:140])
         else:

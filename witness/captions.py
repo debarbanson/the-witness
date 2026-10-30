@@ -99,6 +99,8 @@ def other_texts(assigned, claims, year) -> list:
         detail = claim_detail(claim)
         if detail:
             texts.append(detail)
+        if claim.get("quote"):
+            texts.append(claim["quote"])
         texts.extend(supporting(claim))
     texts.extend(q for q in supporting(assigned) if q != main)
     return list(dict.fromkeys(texts))
@@ -124,25 +126,43 @@ def sentence_ok(sentence) -> bool:
     return True
 
 
+def evidence_passages(assigned, claims, year) -> list:
+    """Bound evidence for the sentence check: the assigned claim's
+    accepted quote plus the other accepted quotes of the scene's
+    year, each with the URL it was fetched from."""
+    passages = []
+    main = assigned.get("quote", "")
+    if assigned.get("url") and main:
+        passages.append(f"{assigned['url']}\n{main}")
+    for claim in claims:
+        if claim is assigned or not claim_matches(claim, year):
+            continue
+        url, quote = claim.get("url"), claim.get("quote", "")
+        if url and quote and quote != main:
+            passages.append(f"{url}\n{quote}")
+    return passages
+
+
 def write_sentence(rewrite_call, support_call, claim, year,
-                   other_texts=(), stamp="") -> dict:
+                   claims=(), stamp="") -> dict:
     """Rewrite plus re-verification; shorter retry once, else failure.
 
     The writer sees the scene's other kept evidence with the main
-    quote, and the sentence is checked against all of it combined:
-    every detail must stand somewhere, and disagreed details fail.
+    quote, and every rewrite is checked again against the bound
+    passages: the accepted quotes with their URLs. Only a fully
+    supported sentence counts.
     """
     detail = claim_detail(claim)
     main = claim.get("quote", "")
-    others = [text for text in other_texts if text and text != main]
+    others = [text for text in other_texts(claim, claims, year)
+              if text and text != main]
     source = main if not others else (
         f"{main}\n\nOther kept evidence:\n" + "\n".join(others))
-    combined = "\n".join([main, *others])
+    passages = evidence_passages(claim, claims, year)
     for attempt, plain in enumerate((False, True), 1):
         sentence = (rewrite_call(detail, source, year, plain, stamp)
                     or "").strip()
         if (sentence and sentence_ok(sentence)
-                and support_call(sentence, combined)
-                in ("supported", "partly")):
+                and support_call(sentence, passages) == "supported"):
             return {"sentence": sentence, "verified": True, "attempts": attempt}
     return {"sentence": None, "verified": False, "attempts": 2}

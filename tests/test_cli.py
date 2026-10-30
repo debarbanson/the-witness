@@ -35,21 +35,37 @@ def test_votes_for_build_anchor_and_state_setting_claims():
     assert _votes_for({"event": "renamed", "year": 1900}, "Renamed.", 1779) == 1
 
 
-def test_timeline_events_keep_event_for_partly_claims():
+def test_refresh_film_drops_partly_claims():
+    from witness.cli import refresh_film
+
+    kept = [
+        {"year": 1932, "event": "built", "verdict": "supported",
+         "claim": "Built in 1932.", "quote_span": "Built in 1932.",
+         "completed": True, "visible_change": "", "date_text": "in 1932"},
+        {"year": 1986, "event": "restored", "verdict": "partly",
+         "claim": "Restored in 1986.", "quote_span": "Restored in 1986.",
+         "rewritten": "Decorated in 1986.", "completed": True,
+         "visible_change": "", "date_text": "in 1986"},
+    ]
+    verified, timeline, chosen = refresh_film(kept)
+    assert [c["year"] for c in verified] == [1932]
+    assert [s["from_year"] for s in timeline] == [1932]
+    assert all(s["from_year"] != 1986 for s in chosen)
+
+
+def test_timeline_events_keep_event_for_supported_claims():
     from witness import research
     from witness.cli import timeline_events
 
     events = timeline_events([
         {"year": 1932, "event": "built", "verdict": "supported",
          "quote_span": "Built in 1932.", "completed": True, "visible_change": ""},
-        {"year": 1986, "event": "restored", "verdict": "partly",
-         "quote_span": "Action began to beautify the tower.",
-         "rewritten": "Since 1986 the tower has been decorated with tulips.",
+        {"year": 1986, "event": "restored", "verdict": "supported",
+         "quote_span": "Since 1986 the tower has been decorated with tulips.",
          "completed": True, "visible_change": "tulips added"},
-        {"year": 1920, "event": "built", "verdict": "partly",
-         "quote_span": "Inception in 1920.",
-         "rewritten": "The project was proposed in 1920.",
-         "completed": True, "visible_change": ""},
+        {"year": 1920, "event": "built", "verdict": "supported",
+         "quote_span": "The project was proposed in 1920.",
+         "completed": False, "visible_change": ""},
     ])
     assert events[1]["event"] == "restored" and "tulips" in events[1]["detail"]
     segs = research.build_timeline(events)
@@ -58,18 +74,17 @@ def test_timeline_events_keep_event_for_partly_claims():
     assert segs[1]["state"]["description"] == "tulips added"
 
 
-def test_partly_reopening_after_fire_is_rebuilt_never_burnt():
+def test_reopening_after_fire_is_rebuilt_never_burnt():
     """De Adriaan 2002: context words ("70 years after fire") never set it."""
     from witness import research
     from witness.cli import timeline_events
 
     events = timeline_events([
-        {"year": 1999, "event": "rebuilt", "verdict": "partly",
-         "quote_span": "Rebuild started.", "rewritten": "Rebuilding started April 1999.",
+        {"year": 1999, "event": "rebuilt", "verdict": "supported",
+         "quote_span": "Rebuilding started April 1999.",
          "completed": True, "visible_change": ""},
-        {"year": 2002, "event": "rebuilt", "verdict": "partly",
-         "quote_span": "Reopened.",
-         "rewritten": "Rebuilt Adriaan reopened 23 April 2002, exactly 70 years "
+        {"year": 2002, "event": "rebuilt", "verdict": "supported",
+         "quote_span": "Rebuilt Adriaan reopened 23 April 2002, exactly 70 years "
                       "after fire, on original foundations.",
          "completed": True, "visible_change": "full windmill back on skyline"},
     ])
@@ -78,7 +93,7 @@ def test_partly_reopening_after_fire_is_rebuilt_never_burnt():
         (1999, "under_construction"), (2002, "rebuilt")]
 
 
-def test_partly_re_erection_after_flood_is_rebuilt_never_ruin():
+def test_re_erection_after_flood_is_rebuilt_never_ruin():
     """Kintai 1674: destruction stated plus rebuild is genuine, not a facelift."""
     from witness import research
     from witness.cli import timeline_events
@@ -86,9 +101,8 @@ def test_partly_re_erection_after_flood_is_rebuilt_never_ruin():
     events = timeline_events([
         {"year": 1673, "event": "built", "verdict": "supported",
          "quote_span": "Built in 1673.", "completed": True, "visible_change": ""},
-        {"year": 1674, "event": "rebuilt", "verdict": "partly",
-         "quote_span": "Rebuilt.",
-         "rewritten": "The bridge was destroyed by a flood and was rebuilt in "
+        {"year": 1674, "event": "rebuilt", "verdict": "supported",
+         "quote_span": "The bridge was destroyed by a flood and was rebuilt in "
                       "1674 with improvements.",
          "completed": True, "visible_change": "bridge re-erected"},
     ])
@@ -97,15 +111,14 @@ def test_partly_re_erection_after_flood_is_rebuilt_never_ruin():
         (1673, "standing"), (1674, "rebuilt")]
 
 
-def test_partly_build_finished_and_lit_is_standing():
+def test_build_finished_and_lit_is_standing():
     """Rubjerg 1899: first lighting is operational completion, not 54 years on site."""
     from witness import research
     from witness.cli import timeline_events
 
     events = timeline_events([
-        {"year": 1899, "event": "built", "verdict": "partly",
-         "quote_span": "Built.",
-         "rewritten": "Construction began in 1899 on a lighthouse; light first "
+        {"year": 1899, "event": "built", "verdict": "supported",
+         "quote_span": "Construction began in 1899 on a lighthouse; light first "
                       "turned on 27 December 1900.",
          "completed": True, "visible_change": "new lighthouse built"},
     ])

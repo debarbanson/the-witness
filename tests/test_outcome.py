@@ -76,7 +76,7 @@ def test_two_claims_is_too_little():
     assert outcome.decide(full_set()[:2], identified=True)["outcome"] == "too_little"
 
 
-def test_partly_counts_only_with_rewrite():
+def test_partly_never_counts():
     claims = [
         claim(1932, "built"),
         claim(1940, verdict="partly"),
@@ -84,11 +84,7 @@ def test_partly_counts_only_with_rewrite():
         claim(1960, verdict="unsupported"),
     ]
     result = outcome.decide(claims, identified=True)
-    assert result["verified"] == 3  # supported + 2 rewritten partlies
-    assert result["outcome"] == "short_film"
-    bare = dict(claims[1], rewritten=None)
-    result = outcome.decide([claims[0], bare], identified=True)
-    assert result["verified"] == 1
+    assert result["verified"] == 1  # the rewrite narrows; it never verifies
     assert result["outcome"] == "too_little"
 
 

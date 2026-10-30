@@ -27,7 +27,7 @@ _DAY_MONTH = re.compile(r"\b(\d{1,2}) (" + "|".join(_MONTHS) + r")\b",
 def claim_matches(claim, year) -> bool:
     """A claim belongs to a scene when its year is the scene's year or
     its span covers that year."""
-    if claim.get("verdict") not in ("supported", "partly"):
+    if claim.get("verdict") != "supported":
         return False
     if isinstance(claim.get("year"), int) and claim["year"] == year:
         return True

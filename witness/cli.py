@@ -259,7 +259,7 @@ def stream_scene_kwargs(report, claims, scene) -> dict:
     """Prompt extras for a streamed paint: the shared season, the
     anchor elements no judged claim names yet, and the judged claims."""
     dated = [(claim.get("year"), captions.claim_detail(claim)) for claim in claims
-             if claim.get("verdict") in ("supported", "partly")
+             if claim.get("verdict") == "supported"
              and isinstance(claim.get("year"), int)]
     year = scene.get("from_year")
     if not isinstance(year, int):
@@ -301,9 +301,9 @@ def judge_batch(wiring, jobs, progress=None, completion=True) -> list:
 
 
 def refresh_film(kept) -> tuple:
-    """Verified claims become timeline and chosen scenes."""
-    film_verified = [c for c in kept if c["verdict"] == "supported"
-                     or (c["verdict"] == "partly" and c["rewritten"])]
+    """Verified claims become timeline and chosen scenes. Partly
+    means no: only supported claims reach the film."""
+    film_verified = [c for c in kept if c["verdict"] == "supported"]
     film_timeline = research.build_timeline(timeline_events(film_verified))
     film_chosen = scenes.choose_scenes(film_timeline, film_verified)
     return film_verified, film_timeline, film_chosen
@@ -500,7 +500,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         if on_claim is not None:
             on_claim(index, claim)
         judged_years.append(claim["year"])
-        if claim["verdict"] in ("supported", "partly"):
+        if claim["verdict"] == "supported":
             supported_years.append(claim["year"])
         for scene in stream.newly_ready_scenes(draft, judged_years, to_check_years,
                                                emitted, supported_years):
@@ -1073,15 +1073,12 @@ def apply_judged(claims, jobs, judged) -> None:
 
 
 def timeline_events(verified) -> list:
-    """Verified claims become timeline events. A completed partly claim
-    keeps its event: the rewrite narrows the wording, and context words
-    in it never set the condition."""
+    """Verified claims become timeline events. Callers pass supported
+    claims only; a claim keeps its event, and context words in its
+    detail never set the condition."""
     events = []
     for c in verified:
-        if c["verdict"] == "partly" and c.get("rewritten"):
-            detail = c["rewritten"]
-        else:
-            detail = c.get("quote_span") or c["claim"]
+        detail = c.get("quote_span") or c["claim"]
         events.append({"year": c["year"], "event": c.get("event", "stood"), "detail": detail,
                        "completed": c.get("completed", True), "verdict": "supported",
                        "visible_change": c.get("visible_change", ""),
@@ -1522,7 +1519,7 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
     rewrite = rewrite_call or child_rewrite_respond
     support = support_call or child_support_respond
     verified = [c for c in data.get("claims", [])
-                if c.get("verdict") in ("supported", "partly") and c.get("quote")]
+                if c.get("verdict") == "supported" and c.get("quote")]
     kept, dropped = 0, 0
     for scene in data.get("scenes", []):
         for entry in scene.get("caption_lines", []):

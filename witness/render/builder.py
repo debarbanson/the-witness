@@ -68,7 +68,7 @@ def end_sources(claims, cache=None) -> list:
         url = claim.get("url")
         if not url or url in seen:
             continue
-        if claim.get("verdict") not in ("supported", "partly"):
+        if claim.get("verdict") != "supported":
             continue
         if not _provenanced(claim.get("quote") or "", url, cache):
             continue
@@ -143,7 +143,7 @@ def scene_site(scene, claims=()) -> str:
     for claim in claims:
         if (claim.get("year") == scene.get("from_year")
                 and claim.get("url")
-                and claim.get("verdict") in ("supported", "partly")):
+                and claim.get("verdict") == "supported"):
             return source_site(claim["url"])
     return ""
 

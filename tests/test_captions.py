@@ -20,6 +20,11 @@ def scene(year):
                       "scope": "whole", "description": ""}}
 
 
+def test_partly_claim_matches_no_scene():
+    assert captions.claim_matches(claim(1932, verdict="partly"), 1932) is False
+    assert captions.claim_matches(claim(1932), 1932) is True
+
+
 def test_assign_claims_matches_own_year_only():
     assigned = captions.assign_claims(
         [scene(1779), scene(1865)],

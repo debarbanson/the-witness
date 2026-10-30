@@ -3,8 +3,8 @@
 Pure function of the verified claims. Interpretations pinned here:
 short film needs at least 3 verified claims across at least 2 eras (more
 eras never punish); fewer than 2 eras, like fewer than 3 claims, is too
-little; partly claims count only with their rewrite; war-only or
-politics-only claims never count.
+little; partly means no, even with a rewrite; war-only or politics-only
+claims never count.
 """
 
 from urllib.parse import urlparse
@@ -18,12 +18,7 @@ def decide(claims, identified) -> dict:
     """Choose full_film | short_film | too_little | not_identified."""
     if not identified:
         return _result("not_identified", 0, 0, 0, False, "object not identified")
-    usable = [
-        c
-        for c in claims
-        if c.get("verdict") == "supported"
-        or (c.get("verdict") == "partly" and c.get("rewritten"))
-    ]
+    usable = [c for c in claims if c.get("verdict") == "supported"]
     usable = [c for c in usable if not c.get("war_politics_only")]
     verified = len(usable)
     eras = len({c["year"] for c in usable})

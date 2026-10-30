@@ -137,7 +137,7 @@ def test_end_sources_dedupe_urls():
     cache = DictCache({"https://a.example/1": f"Intro. {LONG_QUOTE} Outro.",
                        "https://b.example/2": f"Intro. {LONG_QUOTE} Outro."})
     assert [entry["url"] for entry in builder.end_sources(claims, cache)] == [
-        "https://a.example/1", "https://b.example/2"]
+        "https://a.example/1"]
 
 
 def test_end_sources_carry_site_and_title():

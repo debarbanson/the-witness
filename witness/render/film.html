@@ -37,6 +37,12 @@
   #sources { font-size: 30px; text-align: left; max-width: 860px;
              word-break: break-all; max-height: 900px; overflow: hidden; }
   #sources li { margin: 10px 0; }
+  #sources a { color: #fff; }
+  #controls { position: absolute; left: 0; right: 0; bottom: 8px;
+              text-align: center; display: none; }
+  #controls button { font-size: 30px; margin: 0 12px; padding: 6px 26px;
+                    background: rgba(0,0,0,.55); color: #fff;
+                    border: 1px solid #ffd98a; border-radius: 8px; }
   .label { font-size: 34px; color: #ffd98a; margin-top: 30px; }
 </style>
 </head>
@@ -55,6 +61,7 @@
   <div id="caption" style="display:none"><span id="cap1"></span><br><span id="cap2"></span><span class="site" id="capsite"></span></div>
   <div id="progress" style="display:none"></div>
   <div id="clock"></div>
+  <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button></div>
 </div>
 <script id="film-data" type="application/json">__FILM_JSON__</script>
 <script>
@@ -179,7 +186,12 @@ function render(t) {
     ul.innerHTML = "";
     FILM.sources.forEach(s => {
       const li = document.createElement("li");
-      li.textContent = s.site + ": " + s.title;
+      const a = document.createElement("a");
+      a.href = s.url;
+      a.textContent = s.site + ": " + s.title;
+      a.target = "_blank";
+      a.rel = "noopener";
+      li.appendChild(a);
       ul.appendChild(li);
     });
     document.getElementById("ailabel").textContent = FILM.ai_label;
@@ -260,6 +272,27 @@ function fit() {
   stage.style.transform = "scale(" + s + ")";
 }
 
+const player = { paused: false, t0: 0, last: 0, total: 0 };
+
+function tickPlayer(now) {
+  if (player.paused) player.t0 += now - player.last;
+  player.last = now;
+  return Math.min((now - player.t0) / 1000, player.total);
+}
+
+function togglePause(btn) {
+  player.paused = !player.paused;
+  btn.textContent = player.paused ? "Play" : "Pause";
+}
+
+function replayFilm() {
+  player.paused = false;
+  player.t0 = performance.now();
+  player.last = player.t0;
+  document.getElementById("pause").textContent = "Pause";
+  render(0);
+}
+
 function start(film) {
   FILM = film;
   fit();
@@ -268,11 +301,17 @@ function start(film) {
     window.__READY = true;
     const fixed = params.get("t");
     if (fixed !== null) { render(parseFloat(fixed)); return; }
-    const t0 = performance.now();
-    const total = film.segments[film.segments.length - 1].end;
+    player.t0 = performance.now();
+    player.last = player.t0;
+    player.total = film.segments[film.segments.length - 1].end;
+    const pauseBtn = document.getElementById("pause");
+    pauseBtn.onclick = () => togglePause(pauseBtn);
+    document.getElementById("replay").onclick = replayFilm;
+    document.getElementById("controls").style.display = "block";
     function frame(now) {
-      render(Math.min((now - t0) / 1000, total));
-      if ((now - t0) / 1000 < total) requestAnimationFrame(frame);
+      const t = tickPlayer(now);
+      render(t);
+      if (t < player.total) requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
   }).catch(() => fail("This film cannot load its pictures."));

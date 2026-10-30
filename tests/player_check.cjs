@@ -140,7 +140,21 @@ vm.runInContext("FILM.today_line = __DATA__.today_line;", sandbox);
 render(26.0);
 const items = sandbox.document.getElementById("sources").children;
 assert.strictEqual(items.length, 1, "one source listed");
-assert.strictEqual(items[0].textContent, "Wikipedia: Mill");
+const link = items[0].children[0];
+assert.strictEqual(link.textContent, "Wikipedia: Mill");
+assert.strictEqual(link.href, "https://en.wikipedia.org/wiki/Mill");
+assert.strictEqual(link.target, "_blank");
+
+// Pause freezes the clock; replay restarts it.
+const tickPlayer = vm.runInContext("tickPlayer", sandbox);
+const togglePause = vm.runInContext("togglePause", sandbox);
+vm.runInContext("player.t0 = 1000; player.last = 1000; player.total = 60;", sandbox);
+assert.strictEqual(tickPlayer(3000), 2, "playing advances");
+const frozen = tickPlayer(4000);
+togglePause({ textContent: "Pause" });
+assert.strictEqual(tickPlayer(9000), frozen, "paused clock frozen");
+vm.runInContext("player.paused = false;", sandbox);
+assert.strictEqual(tickPlayer(10000), frozen + 1, "resume continues");
 
 // Preload covers the photo, the cut-out, every painting and its layers.
 const collectImages = vm.runInContext("collectImages", sandbox);

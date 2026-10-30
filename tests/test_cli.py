@@ -1443,31 +1443,34 @@ def test_judge_batch_uses_wiring_completion():
 
     seen = []
 
+    quote = "The old mill was built in 1850 here by the river bank."
+
     def support(prompt):
         seen.append("support")
         return {"output": [{"type": "message", "content": [
             {"type": "output_text",
              "text": _json.dumps(
-                 {"verdict": "supported", "quote": "Built in 1850 here.",
-                  "url": "https://en.wikipedia.org/wiki/X",
-                  "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                 {"verdict": "supported", "quote": quote,
+                  "url": "https://other.example/x",
+                  "support": [{"url": "https://other.example/x",
                                "supports": True,
-                               "quote": "Built in 1850 here."}]}),
+                               "quote": quote}]}),
              "annotations": []}]}]}
 
     def completion(prompt):
         seen.append("completion")
         return {"output": [{"type": "message", "content": [
-            {"type": "output_text", "text": _json.dumps({"completed": True}),
+            {"type": "output_text",
+             "text": _json.dumps({"completed": True, "quote": quote}),
              "annotations": []}]}]}
 
-    wiring = {"support": support, "search": support,
-              "completion": completion, "workers": 1}
+    wiring = {"support": support, "completion": completion, "workers": 1}
     job = {"claim": "Built in 1850.", "event": "built",
            "detail": "Built in 1850.", "year": 1850, "date_text": "in 1850",
-           "keywords": ["built"], "passages": ["Built in 1850 here."],
+           "keywords": ["built"],
+           "passages": [f"https://en.wikipedia.org/wiki/X\n{quote}"],
            "urls": ["https://en.wikipedia.org/wiki/X"], "votes": 1,
-           "anchor": "build", "claim_index": 0}
+           "anchor": None, "claim_index": 0}
     (judged,) = cli_module.judge_batch(wiring, [job], progress=None)
     assert judged["verdict"] == "supported"
     assert "support" in seen
@@ -1516,26 +1519,29 @@ def _answered(obj):
          "annotations": []}]}]}
 
 
+_JOB_SENTENCES = {
+    "1850": "The test mill was built in 1850 by the river bank.",
+    "1900": "The roof was holed in a great storm in 1900.",
+    "1920": "The mill was rebuilt in 1920 after the great storm.",
+}
+
+
 def _job_respond(prompt):
+    lines = prompt.split("\n")
+    claim_line = lines[1] if len(lines) > 1 else prompt
+    year = next((y for y in _JOB_SENTENCES if y in claim_line), "1920")
     if prompt.startswith("Claim:\n"):
-        return _answered({"completed": True})
-    claim_line = prompt.split("\n")[1] if prompt.startswith("Claim to check:") else prompt
-    if "1850" in claim_line:
-        quote = "Built in 1850 here."
-    elif "1900" in claim_line:
-        quote = "Roof holed in 1900."
-    else:
-        quote = "Rebuilt in 1920."
+        return _answered({"completed": True, "quote": _JOB_SENTENCES[year]})
     return _answered(
-        {"verdict": "supported", "quote": quote, "url": _JOB_WIKI,
+        {"verdict": "supported", "quote": _JOB_SENTENCES[year],
+         "url": _JOB_WIKI,
          "support": [{"url": _JOB_WIKI, "supports": True,
-                      "quote": quote}]})
+                      "quote": _JOB_SENTENCES[year]}]})
 
 
 class _JobTexts:
     def __init__(self, cache=None, progress=None):
-        self.texts = {_JOB_WIKI: ("Built in 1850 here. Roof holed in 1900. "
-                                        "Rebuilt in 1920.")}
+        self.texts = {_JOB_WIKI: " ".join(_JOB_SENTENCES.values())}
         self.failures = []
 
     def fetch(self, claims, urls, verify_with, quiet=False):
@@ -1567,7 +1573,6 @@ def _stub_job(monkeypatch, calls=None):
     monkeypatch.setattr(cli_module, "SourceTexts", _JobTexts)
     monkeypatch.setattr(cli_module, "support_respond", _job_respond)
     monkeypatch.setattr(cli_module, "baseten_support_respond", _job_respond)
-    monkeypatch.setattr(cli_module, "verify_respond", _job_respond)
 
 
 def test_research_question_uses_municipality_never_typed_place(tmp_path, monkeypatch):

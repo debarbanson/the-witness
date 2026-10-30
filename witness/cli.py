@@ -279,21 +279,21 @@ def _future_response_id(future):
 
 
 def verify_wiring(verify_with) -> dict:
-    """One verify wiring for every path: support votes, search
-    fallback, completion check, workers. The completion check stays
-    on Meta until the comparison proves otherwise."""
+    """One verify wiring for every path: support votes, completion
+    check, workers. The completion check stays on Meta until the
+    comparison proves otherwise. Snippets never judge: claims without
+    fetched passages stay unverified."""
     if verify_with == "baseten":
         support, workers = baseten_support_respond, models.VERIFY_OPEN.workers
     else:
         support, workers = support_respond, models.VERIFY.workers
-    return {"support": support, "search": verify_respond,
-            "completion": support_respond, "workers": workers}
+    return {"support": support, "completion": support_respond,
+            "workers": workers}
 
 
 def judge_batch(wiring, jobs, progress=None, completion=True) -> list:
     """Judge jobs with one shared wiring, results in film order."""
     return verify.judge_all(wiring["support"], jobs,
-                            search_respond=wiring["search"],
                             completion_respond=wiring["completion"],
                             completion=completion,
                             max_workers=wiring["workers"], progress=progress,
@@ -488,7 +488,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
     numbers = stream.scene_numbers(draft)
     phase = time.perf_counter()
     for index, result in verify.judge_stream(
-            wiring["support"], jobs, search_respond=wiring["search"],
+            wiring["support"], jobs,
             completion_respond=wiring["completion"],
             max_workers=wiring["workers"], progress=progress,
             dispute_check=verify.sentence_disputed):
@@ -1687,17 +1687,6 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
     total = film["segments"][-1]["end"]
     print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, {total} s)")
     return 0
-
-
-def verify_respond(prompt):
-    resp = models.respond(
-        _respond_for(models.VERIFY),
-        models.VERIFY,
-        tools=[{"type": "web_search"}],
-        include=["web_search_call.results"],
-        input=prompt,
-    )
-    return json.loads(resp.model_dump_json())
 
 
 if __name__ == "__main__":

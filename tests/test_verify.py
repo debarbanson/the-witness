@@ -501,6 +501,42 @@ def test_war_politics_only_flag_defaults_and_parses():
     assert result["war_politics_only"] is True
 
 
+def test_refused_content_flag_defaults_and_parses():
+    result = verify.verify_claim(
+        lambda prompt: fixture("verify_supported.json"), "claim", ["snippet"]
+    )
+    assert result["refused_content"] is False
+    flagged = {"output": [{"type": "message", "content": [{"type": "output_text", "text": '{"verdict": "supported", "quote": "q", "refused_content": true}', "annotations": []}]}]}
+    result = verify.verify_claim(lambda prompt: flagged, "claim", ["snippet"])
+    assert result["refused_content"] is True
+
+
+def test_support_prompt_asks_about_refused_content():
+    seen = {}
+
+    def respond(prompt):
+        seen["prompt"] = prompt
+        return fixture("verify_supported.json")
+
+    verify.verify_claim(respond, "claim", ["snippet"])
+    assert "refused_content" in seen["prompt"]
+    assert "private" in seen["prompt"]
+    assert "hateful" in seen["prompt"]
+
+
+def test_judge_threads_refused_content():
+    hateful = answered_with(
+        {"verdict": "supported", "quote": scripted_quote(),
+         "url": "https://en.wikipedia.org/wiki/X", "refused_content": True,
+         "support": [{"url": "https://en.wikipedia.org/wiki/X",
+                      "supports": True, "quote": scripted_quote()}]})
+    result = verify.judge_claim(lambda prompt: hateful, job(),
+                                completion_respond=completion_quoting())
+    assert result["verdict"] == "supported"
+    assert result["refused_content"] is True
+    assert result["war_politics_only"] is False
+
+
 def test_precheck_needs_year_and_keyword_in_one_passage():
     passage = "De watertoren is sinds 1986 opgesierd met een metershoge tulp."
     assert verify.precheck_hit(1986, ["tulip", "meters", "decorated"], [passage]) is True

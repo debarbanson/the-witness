@@ -6,6 +6,7 @@ Pure function of the timeline and the verified claims.
 """
 
 from witness import states
+from witness.verify import refused
 
 LIMIT = 7
 
@@ -35,8 +36,9 @@ def choose_scenes(timeline, claims, limit=LIMIT):
         year = claim["year"]
         if year in covered:
             continue
-        if not claim.get("war_politics_only"):
-            counts[year] = counts.get(year, 0) + 1
+        if refused(claim):
+            continue
+        counts[year] = counts.get(year, 0) + 1
         first_claim.setdefault(
             year, (claim.get("claim", ""), claim.get("date_text", ""), claim.get("url")))
     slots = limit - 1 - len(scenes)

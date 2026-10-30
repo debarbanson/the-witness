@@ -52,6 +52,18 @@ class VerifyError(Exception):
     """The verify call failed or returned an unusable verdict."""
 
 
+def refused(claim) -> bool:
+    """A claim that must never be shown: only about war, armed
+    conflict or politics, or hateful, or about a private person. A
+    factual mention of war inside an object claim is not refused."""
+    return bool(claim.get("war_politics_only") or claim.get("refused_content"))
+
+
+def filmed(claim) -> bool:
+    """A claim that may reach the film: supported and not refused."""
+    return claim.get("verdict") == "supported" and not refused(claim)
+
+
 def text_answer(text: str) -> dict:
     """Plain answer text wrapped as a response, so Chat Completions
     answers parse through the same contract."""
@@ -92,7 +104,9 @@ def verify_claim(respond, claim, snippets) -> dict:
         "\"support\": [{\"url\", \"supports\": true|false, \"quote\"}] for "
         "each passage, \"rewritten\": the claim rewritten to what the "
         "passages state (only when partly), \"war_politics_only\": true "
-        "when the claim is only about war, armed conflict or politics}."
+        "when the claim is only about war, armed conflict or politics, "
+        "\"refused_content\": true when the claim text is hateful or "
+        "about a private individual rather than a public figure}."
     )
     return _judge_support(respond(prompt))
 
@@ -173,6 +187,7 @@ def _judge_support(response) -> dict:
         "note": note,
         "rewritten": parsed.get("rewritten"),
         "war_politics_only": bool(parsed.get("war_politics_only", False)),
+        "refused_content": bool(parsed.get("refused_content", False)),
     }
 
 
@@ -361,6 +376,7 @@ def judge_claim(support_respond, job, completion_respond=None,
                     "completed": True,
                     "completion_note": "wikidata anchor needs no completion check",
                     "rewritten": None, "war_politics_only": False,
+                "refused_content": False,
                     "rounds": [], "votes": 0, "fast_path": "anchor",
                 }
             # A disputed anchor is not evidence: fall through to votes.
@@ -389,7 +405,7 @@ def judge_claim(support_respond, job, completion_respond=None,
             "verdict": "unverified", "quote": "", "url": None, "support": [],
             "note": "no fetched evidence", "completed": True,
             "completion_note": None, "rewritten": None,
-            "war_politics_only": False, "rounds": [],
+            "war_politics_only": False, "refused_content": False, "rounds": [],
             "votes": 0, "fast_path": None,
         }
     decided = [r for r in rounds if r["verdict"] != "error"]
@@ -402,7 +418,7 @@ def judge_claim(support_respond, job, completion_respond=None,
             "verdict": "unverified", "quote": "", "url": None, "support": [],
             "note": f"{note}; no verdict after a retry", "completed": True,
             "completion_note": None, "rewritten": None,
-            "war_politics_only": False, "rounds": _slim(rounds),
+            "war_politics_only": False, "refused_content": False, "rounds": _slim(rounds),
             "votes": len(rounds), "fast_path": None,
         }
     if fast_path == "literal_quote":
@@ -439,6 +455,7 @@ def judge_claim(support_respond, job, completion_respond=None,
                 "completed": True, "completion_note": None,
                 "rewritten": winner.get("rewritten"),
                 "war_politics_only": winner.get("war_politics_only", False),
+                "refused_content": winner.get("refused_content", False),
                 "rounds": _slim(rounds), "votes": len(rounds),
                 "fast_path": fast_path,
             }
@@ -480,6 +497,7 @@ def judge_claim(support_respond, job, completion_respond=None,
         "completion_note": completion_note,
         "rewritten": winner.get("rewritten"),
         "war_politics_only": winner.get("war_politics_only", False),
+                "refused_content": winner.get("refused_content", False),
         "rounds": _slim(rounds),
         "votes": len(rounds),
         "fast_path": fast_path,
@@ -558,7 +576,9 @@ def _second_judgement(respond, job, passages) -> dict:
         "\"support\": [{\"url\", \"supports\": true|false, \"quote\"}] for "
         "each passage, \"rewritten\": the claim rewritten to what the "
         "passages state (only when partly), \"war_politics_only\": true "
-        "when the claim is only about war, armed conflict or politics}."
+        "when the claim is only about war, armed conflict or politics, "
+        "\"refused_content\": true when the claim text is hateful or "
+        "about a private individual rather than a public figure}."
     )
     try:
         return _judge_support(respond(prompt))
@@ -594,7 +614,7 @@ def judge_stream(support_respond, jobs, completion_respond=None,
                 "verdict": "unverified", "quote": "", "url": None, "support": [],
                 "note": f"verify failed: {exc}", "completed": True,
                 "completion_note": None, "rewritten": None,
-                "war_politics_only": False, "rounds": [], "votes": 0,
+                "war_politics_only": False, "refused_content": False, "rounds": [], "votes": 0,
                 "fast_path": None,
             }
 
@@ -924,6 +944,7 @@ def verify_all(respond, jobs, max_workers=6) -> list:
                 "verdict": "unverified", "quote": "", "url": None, "support": [],
                 "note": f"verify failed: {exc}", "completed": True,
                 "rewritten": None, "war_politics_only": False,
+                "refused_content": False,
             }
 
     pool = ThreadPoolExecutor(max_workers=max_workers)

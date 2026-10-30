@@ -146,6 +146,28 @@ def test_refresh_film_drops_partly_claims():
     assert all(s["from_year"] != 1986 for s in chosen)
 
 
+def test_refresh_film_drops_refused_claims():
+    from witness.cli import refresh_film
+
+    kept = [
+        {"year": 1932, "event": "built", "verdict": "supported",
+         "claim": "Built in 1932.", "quote_span": "Built in 1932.",
+         "completed": True, "visible_change": "", "date_text": "in 1932"},
+        {"year": 1944, "event": "damaged", "verdict": "supported",
+         "claim": "Shelled in 1944.", "quote_span": "Shelled in 1944.",
+         "completed": True, "visible_change": "", "date_text": "in 1944",
+         "war_politics_only": True},
+        {"year": 1952, "event": "stood", "verdict": "supported",
+         "claim": "A wedding in 1952.", "quote_span": "A wedding in 1952.",
+         "completed": True, "visible_change": "", "date_text": "in 1952",
+         "refused_content": True},
+    ]
+    verified, timeline, chosen = refresh_film(kept)
+    assert [c["year"] for c in verified] == [1932]
+    assert [s["from_year"] for s in timeline] == [1932]
+    assert {s["from_year"] for s in chosen} <= {1932, "today"}
+
+
 def test_timeline_events_keep_event_for_supported_claims():
     from witness import research
     from witness.cli import timeline_events

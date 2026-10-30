@@ -25,6 +25,13 @@ def test_partly_claim_matches_no_scene():
     assert captions.claim_matches(claim(1932), 1932) is True
 
 
+def test_refused_claim_matches_no_scene():
+    assert captions.claim_matches(
+        claim(1932, war_politics_only=True), 1932) is False
+    assert captions.claim_matches(
+        claim(1932, refused_content=True), 1932) is False
+
+
 def test_assign_claims_matches_own_year_only():
     assigned = captions.assign_claims(
         [scene(1779), scene(1865)],

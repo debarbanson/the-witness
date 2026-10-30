@@ -11,6 +11,7 @@ run without live calls.
 import re
 
 from witness import states
+from witness.verify import filmed
 
 TARGET_CHARS = 80  # what the writer aims at; fits two caption lines
 MAX_CHARS = 110  # hard gate; beyond this the run fails, nothing is cut
@@ -25,9 +26,9 @@ _DAY_MONTH = re.compile(r"\b(\d{1,2}) (" + "|".join(_MONTHS) + r")\b",
 
 
 def claim_matches(claim, year) -> bool:
-    """A claim belongs to a scene when its year is the scene's year or
-    its span covers that year."""
-    if claim.get("verdict") != "supported":
+    """A claim belongs to a scene when it may be filmed and its year
+    is the scene's year or its span covers that year."""
+    if not filmed(claim):
         return False
     if isinstance(claim.get("year"), int) and claim["year"] == year:
         return True

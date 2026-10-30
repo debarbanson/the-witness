@@ -3,13 +3,15 @@
 Pure function of the verified claims. Interpretations pinned here:
 short film needs at least 3 verified claims across at least 2 eras (more
 eras never punish); fewer than 2 eras, like fewer than 3 claims, is too
-little; partly means no, even with a rewrite; war-only or politics-only
-claims never count.
+little; partly means no, even with a rewrite; war-only, political,
+hateful or private-person claims never count, and a subject with only
+such claims is too little with the reason saying so.
 """
 
 from urllib.parse import urlparse
 
 from witness.research import is_weak_source
+from witness.verify import filmed, refused
 
 BUILD_WORDS = frozenset({"built", "opened", "completed"})
 
@@ -18,8 +20,7 @@ def decide(claims, identified) -> dict:
     """Choose full_film | short_film | too_little | not_identified."""
     if not identified:
         return _result("not_identified", 0, 0, 0, False, "object not identified")
-    usable = [c for c in claims if c.get("verdict") == "supported"]
-    usable = [c for c in usable if not c.get("war_politics_only")]
+    usable = [c for c in claims if filmed(c)]
     verified = len(usable)
     eras = len({c["year"] for c in usable})
     good = sorted({_domain(u) for c in usable for u in c.get("sources", []) if not is_weak_source(u)})
@@ -28,6 +29,9 @@ def decide(claims, identified) -> dict:
         return _result("full_film", verified, eras, len(good), build_year, "all thresholds met")
     if verified >= 3 and eras >= 2:
         return _result("short_film", verified, eras, len(good), build_year, "enough for a short film")
+    if not usable and any(c.get("verdict") == "supported" and refused(c) for c in claims):
+        return _result("too_little", verified, eras, len(good), build_year,
+                       "only war, political, hateful or private-person claims")
     return _result("too_little", verified, eras, len(good), build_year, "below thresholds")
 
 

@@ -60,8 +60,8 @@ def test_dropped_periods_become_caption_lines():
 
 
 def test_caption_lines_carry_their_source_url():
-    timeline = [seg(1900, 1910)]
-    tagged = claim(1950, "something happened", war_politics_only=True)
+    timeline = [seg(1900 + i * 10, 1910 + i * 10) for i in range(6)]
+    tagged = claim(1990, "something happened")
     tagged["url"] = "https://en.wikipedia.org/wiki/X"
     lines = [line for s in scenes.choose_scenes(timeline, [tagged])
              for line in s["caption_lines"]]
@@ -72,13 +72,13 @@ def test_today_always_last_even_when_empty():
     assert scenes.choose_scenes([], [])[-1]["from_year"] == "today"
 
 
-def test_war_politics_only_claims_are_captions_never_scenes():
+def test_refused_claims_are_neither_scenes_nor_lines():
     timeline = [seg(1900, None)]
     claims = [claim(1950, f"war-only claim {i}", war_politics_only=True) for i in range(3)]
     chosen = scenes.choose_scenes(timeline, claims)
     assert all(s["from_year"] != 1950 for s in chosen)
     lines = [line for s in chosen for line in s["caption_lines"]]
-    assert any(line["year"] == 1950 for line in lines)
+    assert not any(line["year"] == 1950 for line in lines)
 
 
 def test_caption_lines_prefer_vague_date_text():

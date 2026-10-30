@@ -303,8 +303,8 @@ def judge_batch(wiring, jobs, progress=None, completion=True) -> list:
 
 def refresh_film(kept) -> tuple:
     """Verified claims become timeline and chosen scenes. Partly
-    means no: only supported claims reach the film."""
-    film_verified = [c for c in kept if c["verdict"] == "supported"]
+    means no, and refused content never reaches the film."""
+    film_verified = [c for c in kept if verify.filmed(c)]
     film_timeline = research.build_timeline(timeline_events(film_verified))
     film_chosen = scenes.choose_scenes(film_timeline, film_verified)
     return film_verified, film_timeline, film_chosen

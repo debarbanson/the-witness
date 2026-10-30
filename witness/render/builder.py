@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from witness import states
-from witness.verify import normalise_text
+from witness.verify import filmed, normalise_text
 
 TITLE_S = 3
 ANCHOR_S = 2
@@ -36,7 +36,7 @@ def refusal_reason(scene, claims) -> str | None:
     for claim in claims:
         if (claim.get("year") == stored.get("claim_year")
                 and claim.get("url") == evidence["url"]):
-            if claim.get("verdict") != "supported":
+            if not filmed(claim):
                 return "its claim is no longer supported"
             if claim.get("quote") != evidence["quote"]:
                 return "its claim changed since the caption was written"
@@ -88,7 +88,7 @@ def end_sources(claims, cache=None) -> list:
         url = claim.get("url")
         if not url or url in seen:
             continue
-        if claim.get("verdict") != "supported":
+        if not filmed(claim):
             continue
         if not _provenanced(claim.get("quote") or "", url, cache):
             continue
@@ -163,7 +163,7 @@ def scene_site(scene, claims=()) -> str:
     for claim in claims:
         if (claim.get("year") == scene.get("from_year")
                 and claim.get("url")
-                and claim.get("verdict") == "supported"):
+                and filmed(claim)):
             return source_site(claim["url"])
     return ""
 

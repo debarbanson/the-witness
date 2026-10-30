@@ -149,6 +149,20 @@ def test_filmable_accepts_a_matching_supported_claim():
     assert builder.filmable(made, [kept_claim()]) is True
 
 
+def test_filmable_refuses_a_refused_claim():
+    made = scene(1779, sentence="I opened.")
+    made["caption_sentence"]["evidence"] = {
+        "claim": "something happened in 1779",
+        "url": "https://a.example/x",
+        "quote": "The mill opened in 1779 after years of work."}
+    war = kept_claim()
+    war["war_politics_only"] = True
+    assert builder.filmable(made, [war]) is False
+    hateful = kept_claim()
+    hateful["refused_content"] = True
+    assert builder.filmable(made, [hateful]) is False
+
+
 def test_filmable_refuses_a_changed_claim():
     made = scene(1779, sentence="I opened.")
     made["caption_sentence"]["evidence"] = {

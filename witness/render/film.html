@@ -58,7 +58,7 @@
   <div id="caption" style="display:none"><span id="cap1"></span><br><span id="cap2"></span><span class="site" id="capsite"></span></div>
   <div id="progress" style="display:none"></div>
   <div id="clock"></div>
-  <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button><button id="audience" style="display:none"></button></div>
+  <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button><button id="audience" style="display:none"></button><button id="spotbtn" style="display:none">Spot the difference</button></div>
 </div>
 <script id="film-data" type="application/json">__FILM_JSON__</script>
 <script>
@@ -269,6 +269,13 @@ function start(film) {
       };
     } else {
       audienceBtn.style.display = "none";
+    }
+    const spotBtn = document.getElementById("spotbtn");
+    if (film.spot) {
+      spotBtn.style.display = "";
+      spotBtn.onclick = () => { location.href = film.spot; };
+    } else {
+      spotBtn.style.display = "none";
     }
     document.getElementById("controls").style.display = "block";
     function frame(now) {

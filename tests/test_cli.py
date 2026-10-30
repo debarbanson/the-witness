@@ -1253,6 +1253,45 @@ def test_cmd_render_skips_child_film_when_a_year_is_missing(tmp_path, monkeypatc
     assert adult_film["sibling"] is None
 
 
+def test_cmd_render_adds_a_grounded_game_to_the_child_film(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, _ = render_both_setup(tmp_path)
+    (out_dir / "spot.json").write_text(json.dumps(
+        {"year": 1850,
+         "differences": [{"text": f"Difference {n}.",
+                          "change": "1850: Whole."} for n in (1, 2, 3)]}))
+    code = cli_module.cmd_render("q1-test", photo, photo_credit="me")
+    assert code == 0
+    adult_film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert adult_film["spot"] is None
+    child_film = json.loads((out_dir / "film" / "child" / "film.json").read_text())
+    assert child_film["spot"] == "spot.html"
+    page = (out_dir / "film" / "child" / "spot.html").read_text()
+    assert "Difference 1." in page
+
+
+def test_cmd_render_drops_a_game_that_lost_its_grounding(tmp_path, monkeypatch, capsys):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, _ = render_both_setup(tmp_path)
+    (out_dir / "spot.json").write_text(json.dumps(
+        {"year": 1850,
+         "differences": [{"text": f"Difference {n}.",
+                          "change": "1850: Whole."} for n in (1, 2)]
+         + [{"text": "A dragon.", "change": "1850: A dragon landed."}]}))
+    code = cli_module.cmd_render("q1-test", photo, photo_credit="me")
+    assert code == 0
+    assert "grounded" in capsys.readouterr().out
+    child_film = json.loads((out_dir / "film" / "child" / "film.json").read_text())
+    assert child_film["spot"] is None
+    assert not (out_dir / "film" / "child" / "spot.html").exists()
+
+
 def test_cmd_render_refuses_child_manifest_as_primary(tmp_path, monkeypatch, capsys):
     import json
     from witness import cli as cli_module
@@ -1263,6 +1302,127 @@ def test_cmd_render_refuses_child_manifest_as_primary(tmp_path, monkeypatch, cap
                                  era_dir="eras_parallel_child")
     assert code == 2
     assert "children" in capsys.readouterr().out
+
+
+def spot_setup(tmp_path):
+    import io
+    import json
+    from PIL import Image
+
+    years = [1779, 1865, 1932, 2002]
+    texts = {1779: "The mill stands whole with four sails.",
+             1865: "The mill gained a brick base.",
+             1932: "The mill burnt, only the base left.",
+             2002: "The mill rebuilt with new sails."}
+    out_dir = tmp_path / "out" / "q1-test"
+    child_dir = out_dir / "eras_parallel_child"
+    child_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "blue").save(buf, "PNG")
+    for year in years:
+        (child_dir / f"{year}.png").write_bytes(buf.getvalue())
+    (out_dir / "paint_parallel_child.json").write_text(json.dumps(
+        {"audience": "child",
+         "eras": [{"year": year, "verdict": "matches", "attempts": 1,
+                   "caption": f"Little words for {year}."}
+                  for year in years]}))
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": year, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": texts[year],
+                    "quote": texts[year]} for year in years],
+        "scenes": [
+            {"from_year": year, "date_label": str(year),
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": texts[year]},
+             "caption_lines": [],
+             "caption_sentence": {"text": f"Adult words for {year}.",
+                                 "claim_year": year,
+                                 "claim_url": "https://a.example/x",
+                                 "child": {"text": f"Little words for {year}."},
+                                 "evidence": {"claim": texts[year],
+                                              "url": "https://a.example/x",
+                                              "quote": texts[year]}}}
+            for year in years],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(buf.getvalue())
+    return out_dir, str(photo), texts
+
+
+def grounded_stub(texts):
+    def vision(era_bytes, photo_bytes, prompt):
+        assert era_bytes and photo_bytes
+        for line in texts.values():
+            assert line in prompt
+        return [{"text": "The sails are gone.",
+                 "change": f"1932: {texts[1932]}"},
+                {"text": "The base is brick.",
+                 "change": f"1865: {texts[1865]}"},
+                {"text": "New sails again.",
+                 "change": f"2002: {texts[2002]}"}]
+    return vision
+
+
+def test_cmd_spot_writes_a_grounded_game(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, texts = spot_setup(tmp_path)
+    code = cli_module.cmd_spot("q1-test", photo,
+                               vision_call=grounded_stub(texts))
+    assert code == 0
+    game = json.loads((out_dir / "spot.json").read_text())
+    assert game["year"] == 1779
+    assert [d["text"] for d in game["differences"]] == [
+        "The sails are gone.", "The base is brick.", "New sails again."]
+
+
+def test_cmd_spot_skips_when_too_little_is_verified(tmp_path, monkeypatch, capsys):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, texts = spot_setup(tmp_path)
+    data = json.loads((out_dir / "research.json").read_text())
+    data["scenes"] = data["scenes"][:2]
+    data["claims"] = data["claims"][:2]
+    (out_dir / "research.json").write_text(json.dumps(data))
+    seen = []
+    code = cli_module.cmd_spot(
+        "q1-test", photo, vision_call=lambda e, p, pr: seen.append(pr))
+    assert code == 0
+    assert seen == []
+    assert "too little" in capsys.readouterr().out
+    assert not (out_dir / "spot.json").exists()
+
+
+def test_cmd_spot_skips_when_vision_grounds_too_little(tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, texts = spot_setup(tmp_path)
+    code = cli_module.cmd_spot(
+        "q1-test", photo,
+        vision_call=lambda e, p, pr: [{"text": "A dragon.",
+                                       "change": "1932: A dragon landed."}])
+    assert code == 0
+    assert "grounded" in capsys.readouterr().out
+    assert not (out_dir / "spot.json").exists()
+
+
+def test_cmd_spot_needs_childrens_paintings_first(tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, texts = spot_setup(tmp_path)
+    (out_dir / "paint_parallel_child.json").unlink()
+    code = cli_module.cmd_spot("q1-test", photo,
+                               vision_call=grounded_stub(texts))
+    assert code == 2
+    assert "paint" in capsys.readouterr().out
 
 
 def test_cmd_render_reports_refused_scenes(tmp_path, monkeypatch, capsys):

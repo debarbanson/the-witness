@@ -213,6 +213,55 @@ def test_write_film_builds_a_sibling_child_film(tmp_path):
     assert (child / "film.html").exists()
 
 
+def game_for():
+    return {"year": 1850, "era": "era_1850.png", "photo": "today.jpg",
+            "differences": [
+                {"text": "The sails are gone.", "change": "x"},
+                {"text": "The base is brick.", "change": "y"},
+                {"text": "New sails again.", "change": "z"}]}
+
+
+def test_write_film_adds_the_spot_game_to_the_child_film(tmp_path):
+    from PIL import Image
+
+    era = tmp_path / "1850.png"
+    Image.new("RGB", (16, 24), "blue").save(era)
+    scenes = [child_scene(1850, "Little mill words.")]
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
+                               photo="today.jpg", photo_credit="me",
+                               era_files={"1850": str(era)},
+                               folder="film/child", audience="child",
+                               sibling="../film.json", spot=game_for())
+    film = json.loads((out / "film.json").read_text())
+    assert film["spot"] == "spot.html"
+    assert (out / "spot.json").exists()
+    page = (out / "spot.html").read_text()
+    assert "The sails are gone." in page
+    assert "era_1850.png" in page
+    assert "film.html" in page
+
+
+def test_write_film_marks_a_film_without_a_game(tmp_path):
+    scenes = [child_scene(1850, "Little mill words.")]
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
+                             photo="today.jpg", photo_credit="me")
+    film = json.loads((out / "film.json").read_text())
+    assert film["spot"] is None
+    assert not (out / "spot.html").exists()
+
+
 def test_caption_without_sentence_is_empty():
     stamp, sentence = builder.caption_for(scene(1779))
     assert (stamp, sentence) == ("1779", "")

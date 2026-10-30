@@ -223,7 +223,7 @@ def served_era_name(key, src) -> str:
 def write_film(out_dir, research, images, photo, photo_credit,
                era_files=None, photo_file=None,
                cutout_file=None, photo_year=None, own_photo=False, cache=None,
-               folder="film", audience="adult", sibling=None):
+               folder="film", audience="adult", sibling=None, spot=None):
     """film.json plus film.html plus copied assets under out_dir/film/.
 
     Paintings ship byte-identical in their original format, so the
@@ -242,7 +242,7 @@ def write_film(out_dir, research, images, photo, photo_credit,
                     era_files=era_files,
                     photo_file=photo_file, cutout_file=cutout_file,
                     photo_year=photo_year, own_photo=own_photo, cache=cache,
-                    audience=audience, sibling=sibling)
+                    audience=audience, sibling=sibling, spot=spot)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -267,7 +267,7 @@ def write_film(out_dir, research, images, photo, photo_credit,
 def _build_film(film_dir, research, images, photo, photo_credit,
                 era_files=None, photo_file=None,
                 cutout_file=None, photo_year=None, own_photo=False,
-                cache=None, audience="adult", sibling=None):
+                cache=None, audience="adult", sibling=None, spot=None):
     """Write one complete film folder; write_film publishes it."""
     name = research["object"]["name"]
     claims = research.get("claims", [])
@@ -309,7 +309,8 @@ def _build_film(film_dir, research, images, photo, photo_credit,
             "ai_label": "Painted scenes are AI imagery, checked against verified sources.",
             "sources": end_sources(research.get("claims", []), cache),
             "segments": plan, "scenes": film_scenes,
-            "audience": audience, "sibling": sibling}
+            "audience": audience, "sibling": sibling,
+            "spot": "spot.html" if spot is not None else None}
     (film_dir / "film.json").write_text(json.dumps(film, indent=1))
     template = (Path(__file__).parent / "film.html").read_text()
     embedded = json.dumps(film).replace("</", "<\\/")
@@ -325,4 +326,13 @@ def _build_film(film_dir, research, images, photo, photo_credit,
             shutil.copy(src, film_dir / images[key])
     if cutout_file is not None:
         shutil.copy(cutout_file, film_dir / "cutout.png")
+    if spot is not None:
+        (film_dir / "spot.json").write_text(json.dumps(spot, indent=1))
+        template = (Path(__file__).parent / "spot.html").read_text()
+        embedded = json.dumps(spot).replace("</", "<\\/")
+        tag = ('<script id="spot-data" type="application/json">'
+               "__SPOT_JSON__</script>")
+        assert tag in template
+        (film_dir / "spot.html").write_text(
+            template.replace(tag, tag.replace("__SPOT_JSON__", embedded)))
     return film_dir

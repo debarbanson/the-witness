@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from witness import captions, check, children, identify, models, outcome, paint, research, scenes, states, stream, verify
+from witness import captions, check, children, identify, models, outcome, paint, research, scenes, spot, states, stream, verify
 from witness.cache import Cache
 from witness.photo import PhotoError, photo_bytes_clean, prepare_photo
 from witness.render import builder as render_builder
@@ -82,6 +82,10 @@ def main(argv=None):
     child_cmd = sub.add_parser("children")
     child_cmd.add_argument("slug")
     child_cmd.add_argument("--out-dir", default="out")
+    spot_cmd = sub.add_parser("spot")
+    spot_cmd.add_argument("slug")
+    spot_cmd.add_argument("--out-dir", default="out")
+    spot_cmd.add_argument("--photo", required=True)
     caption_cmd = sub.add_parser("captions")
     caption_cmd.add_argument("slug")
     caption_cmd.add_argument("--out-dir", default="out")
@@ -115,6 +119,8 @@ def main(argv=None):
         return cmd_keep(args.slug, out_dir=args.out_dir)
     if args.command == "children":
         return cmd_children(args.slug, out_dir=args.out_dir)
+    if args.command == "spot":
+        return cmd_spot(args.slug, args.photo, out_dir=args.out_dir)
     if args.command == "captions":
         return cmd_captions(args.slug, out_dir=args.out_dir)
     if args.command == "render":
@@ -1256,6 +1262,32 @@ def paint_respond(prompt, prev_id, photo_bytes=None):
     return {"image": base64.b64decode(b64), "response_id": data["id"]}
 
 
+def spot_respond(era_bytes, photo_bytes, prompt):
+    """One grounded difference list on Muse Spark with vision."""
+    era_uri, _ = check.data_uri(era_bytes)
+    photo_uri, _ = check.data_uri(photo_bytes)
+    resp = models.respond(
+        _respond_for(models.VISION),
+        models.VISION,
+        text={"format": {"type": "json_schema", "name": "spot_differences",
+                         "schema": spot.DIFFERENCE_SCHEMA, "strict": True}},
+        input=[{"role": "user", "content": [
+            {"type": "input_text", "text": prompt},
+            {"type": "input_image", "image_url": era_uri},
+            {"type": "input_image", "image_url": photo_uri},
+        ]}],
+    )
+    data = json.loads(resp.model_dump_json())
+    for item in data.get("output", []):
+        for block in item.get("content", []) or []:
+            if block.get("type") == "output_text":
+                try:
+                    return json.loads(block.get("text", "")).get("differences")
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+    return None
+
+
 def check_respond(image_bytes, prompt):
     """One painting check on Muse Spark with vision."""
     uri, _ = check.data_uri(image_bytes)
@@ -1702,6 +1734,64 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
     return 0
 
 
+def cmd_spot(slug, photo, vision_call=None, out_dir="out"):
+    """Spot the difference from the children's paintings: the earliest
+    painted era with a verified change, against today's photo. Only
+    grounded differences reach the game; anything less is no game."""
+    out_dir = Path(out_dir) / slug
+    path = out_dir / "research.json"
+    if not path.exists():
+        print(f"no research at {path}")
+        return 2
+    children_manifests = sorted(out_dir.glob("paint_*_child.json"),
+                                key=lambda p: p.stat().st_mtime)
+    if not children_manifests:
+        print("no children's paintings yet; run paint --audience child first")
+        return 2
+    newest = children_manifests[-1]
+    try:
+        entries = json.loads(newest.read_text()).get("eras", [])
+    except (json.JSONDecodeError, OSError):
+        print(f"unreadable children's manifest at {newest}")
+        return 2
+    era_dir = f"eras_{newest.stem.removeprefix('paint_')}"
+    painted = {}
+    for entry in entries:
+        if entry.get("verdict") not in ("matches", "recovered"):
+            continue
+        rel = entry.get("file") or f"{era_dir}/{entry.get('year')}.png"
+        candidate = out_dir / rel
+        if candidate.exists():
+            painted[str(entry.get("year"))] = candidate
+    data = json.loads(path.read_text())
+    scenes, claims = data.get("scenes", []), data.get("claims", [])
+    year = spot.pick_year(scenes, claims, set(painted))
+    changes = spot.verified_changes(scenes, claims)
+    if year is None or len(changes) < spot.MIN_DIFFERENCES:
+        print("too little verified change for spot-the-difference")
+        return 0
+    try:
+        photo_bytes = photo_bytes_clean(photo)
+    except PhotoError as exc:
+        print(f"bad photo: {exc}")
+        return 2
+    try:
+        differences = spot.choose(vision_call or spot_respond,
+                                  painted[str(year)].read_bytes(),
+                                  photo_bytes, changes)
+    except models.SpendingCapExceeded as exc:
+        print(f"stopping: spending cap reached ({exc})")
+        return 2
+    if differences is None:
+        print("the vision call grounded too little; no game")
+        return 0
+    (out_dir / "spot.json").write_text(json.dumps(
+        {"year": year, "differences": differences}, indent=1))
+    print(f"spot the difference: {year} against today "
+          f"({len(differences)} differences)")
+    return 0
+
+
 def sam_respond(text, jpeg_bytes):
     """One SAM request; returns the output text for the parser."""
     import base64
@@ -1812,6 +1902,8 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
     if child_files is not None:
         child_images = {key: render_builder.served_era_name(key, src)
                         for key, src in child_files.items()}
+        game = load_spot_game(out_dir, data.get("scenes", []), claims,
+                              set(child_files), child_images)
         render_builder.write_film(
             out_dir, data, child_images, "today.jpg", photo_credit,
             era_files=child_files,
@@ -1819,7 +1911,8 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
             cutout_file=str(cutout_path) if cutout_path else None,
             photo_year=photo_year, own_photo=own_photo,
             cache=cache or Cache("out/cache"),
-            folder="film/child", audience="child", sibling="../film.json")
+            folder="film/child", audience="child", sibling="../film.json",
+            spot=game)
     film = json.loads((film_dir / "film.json").read_text())
     total = film["segments"][-1]["end"]
     audiences = "adult and children's" if child_files is not None else "adult"
@@ -1846,6 +1939,23 @@ def collect_era_files(out_dir, entries, scenes, era_dir, audience="adult"):
         if candidate.exists():
             era_files[candidate.stem] = str(candidate)
     return era_files
+
+
+def load_spot_game(out_dir, scenes, claims, painted, child_images):
+    """The stored game when it is still grounded, else None."""
+    game_path = out_dir / "spot.json"
+    if not game_path.exists():
+        return None
+    try:
+        game = json.loads(game_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        print(f"unreadable spot game at {game_path}")
+        return None
+    if not spot.check_game(game, scenes, claims, painted):
+        print("spot-the-difference game dropped (no longer grounded)")
+        return None
+    return {"year": game["year"], "era": child_images[str(game["year"])],
+            "photo": "today.jpg", "differences": game["differences"]}
 
 
 def child_era_files(out_dir, era_dir, scenes, claims, adult_years):

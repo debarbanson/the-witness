@@ -71,6 +71,20 @@ def test_player_offers_an_audience_switch_when_a_sibling_exists():
     assert '"Adults"' in template
 
 
+def test_player_links_the_spot_game_when_present():
+    template = TEMPLATE.read_text()
+    assert 'id="spotbtn"' in template
+    assert "film.spot" in template
+    assert "Spot the difference" in template
+
+
+def test_spot_page_reveals_differences_on_tap():
+    page = (TEMPLATE.parent / "spot.html").read_text()
+    assert "__SPOT_JSON__" in page
+    assert "Found" in page
+    assert "film.html" in page
+
+
 def test_player_behavior_in_node():
     node = shutil.which("node")
     if node is None:

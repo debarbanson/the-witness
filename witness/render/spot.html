@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spot the difference</title>
+<style>
+  html, body { margin: 0; background: #111; color: #fff;
+               font-family: Georgia, serif; }
+  body { display: flex; justify-content: center; }
+  #page { width: 1080px; max-width: 100%; padding: 40px 48px 80px;
+          box-sizing: border-box; }
+  h1 { font-size: 64px; font-weight: normal; margin: 0 0 8px; }
+  p.sub { font-size: 40px; font-style: italic; color: #ffd98a;
+          margin: 0 0 32px; }
+  .pair { display: flex; gap: 24px; }
+  .pair figure { margin: 0; flex: 1; }
+  .pair img { width: 100%; display: block; }
+  .pair figcaption { font-size: 34px; font-style: italic;
+                     margin-top: 12px; color: #ffd98a; }
+  #tiles { margin-top: 40px; display: flex; flex-direction: column;
+           gap: 20px; }
+  .tile { font-size: 44px; padding: 28px 32px; border-radius: 12px;
+          border: 2px solid #ffd98a; background: #2a2417;
+          cursor: pointer; text-align: left; color: #fff;
+          font-family: Georgia, serif; }
+  .tile.found { background: #1d3a24; cursor: default; }
+  #count { font-size: 40px; margin-top: 32px; color: #ffd98a; }
+  #back { display: inline-block; margin-top: 24px; font-size: 38px;
+          color: #fff; }
+</style>
+</head>
+<body>
+<div id="page">
+  <h1>Spot the difference</h1>
+  <p class="sub" id="sub"></p>
+  <div class="pair">
+    <figure><img id="then" alt="The place long ago"><figcaption id="thencap"></figcaption></figure>
+    <figure><img id="now" alt="The place today"><figcaption>Today</figcaption></figure>
+  </div>
+  <div id="tiles"></div>
+  <p id="count"></p>
+  <a id="back" href="film.html">Back to the film</a>
+</div>
+<script id="spot-data" type="application/json">__SPOT_JSON__</script>
+<script>
+"use strict";
+const game = JSON.parse(document.getElementById("spot-data").textContent);
+document.getElementById("then").src = game.era;
+document.getElementById("now").src = game.photo;
+document.getElementById("thencap").textContent = "Long ago, in " + game.year;
+document.getElementById("sub").textContent =
+  "Tap a covered card when you spot it in the pictures.";
+const tiles = document.getElementById("tiles");
+const count = document.getElementById("count");
+let found = 0;
+function showCount() {
+  count.textContent = "Found " + found + " of " + game.differences.length + ".";
+  if (found === game.differences.length)
+    count.textContent += " Well spotted, every one.";
+}
+game.differences.forEach((d, i) => {
+  const tile = document.createElement("button");
+  tile.className = "tile";
+  tile.textContent = "Difference " + (i + 1) + ": tap to reveal";
+  tile.onclick = () => {
+    if (tile.classList.contains("found")) return;
+    tile.classList.add("found");
+    tile.textContent = d.text;
+    found++;
+    showCount();
+  };
+  tiles.appendChild(tile);
+});
+showCount();
+</script>
+</body>
+</html>

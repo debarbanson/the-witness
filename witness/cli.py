@@ -497,6 +497,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         claim.update(result)
         claim["war_politics_only"] = (
             claim["war_politics_only"] or bool(verify.flag_content(claim["claim"])))
+        verify_visible_changes([claim], wiring["support"], found.name)
         judged_by_index[index] = result
         if on_claim is not None:
             on_claim(index, claim)
@@ -543,6 +544,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
                                 min([c["year"] for c in gathered["kept"]]))
         judged = judge_batch(wiring, spare_jobs, progress)
         apply_judged(spares, spare_jobs, judged)
+        verify_visible_changes(spares, wiring["support"], found.name)
         timings["verify_s"] = round(timings["verify_s"] + time.perf_counter() - phase, 1)
         verified, timeline, chosen = refresh_film(gathered["kept"])
     result = outcome.decide([{**c, "event": c.get("event", "stood")} for c in verified], identified=True)
@@ -1469,6 +1471,39 @@ def caption_support_respond(sentence, passages):
            "keywords": [], "passages": list(passages), "urls": [],
            "votes": 3}
     return verify.judge_claim(baseten_support_respond, job, completion=False)["verdict"]
+
+
+def description_support_respond(support_respond, claim, object_name) -> str:
+    """One vote: does the accepted quote state this visible change?
+    Year 0: the date is established; only the detail is judged."""
+    text = f"In {claim['year']}, {object_name}: {claim.get('visible_change', '')}"
+    job = {"claim": text, "event": "stood", "detail": text, "year": 0,
+           "keywords": [],
+           "passages": [f"{claim['url']}\n{claim['quote']}"], "urls": [],
+           "votes": 1}
+    return verify.judge_claim(support_respond, job, completion=False)["verdict"]
+
+
+def verify_visible_changes(claims, support_respond, object_name) -> list:
+    """Blank visible changes the accepted quote does not state, so no
+    painted detail rests on an unverified phrase. Returns the years
+    blanked. Uncheckable details are not painted either."""
+    blanked = []
+    for claim in claims:
+        if claim.get("verdict") != "supported" or not claim.get("visible_change"):
+            continue
+        if not claim.get("url") or not claim.get("quote"):
+            continue
+        try:
+            verdict = description_support_respond(
+                support_respond, claim, object_name)
+        except Exception:  # noqa: BLE001 - an uncheckable detail is not painted
+            verdict = "unverified"
+        if verdict != "supported":
+            claim["visible_change"] = ""
+            claim["visible_change_note"] = "not stated in the accepted quote"
+            blanked.append(claim["year"])
+    return blanked
 
 
 def recheck_paintings(slug_dir, data, checker) -> list:

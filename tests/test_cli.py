@@ -61,6 +61,73 @@ def test_caption_support_runs_on_bound_passages(monkeypatch):
     assert cli_module.child_support_respond("I burnt down.", [passage]) == "supported"
 
 
+def test_visible_change_kept_only_when_the_quote_states_it():
+    import json as _json
+
+    from witness import cli as cli_module
+
+    quote = "The mill burnt down in 1932, leaving only the brick base."
+
+    def support(prompt):
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text",
+             "text": _json.dumps(
+                 {"verdict": "supported", "quote": quote,
+                  "url": "https://a.example/mill",
+                  "support": [{"url": "https://a.example/mill",
+                               "supports": True, "quote": quote}]}),
+             "annotations": []}]}]}
+
+    def deny(prompt):
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text",
+             "text": _json.dumps(
+                 {"verdict": "unsupported", "quote": "",
+                  "url": "https://a.example/mill",
+                  "support": [{"url": "https://a.example/mill",
+                               "supports": False, "quote": ""}]}),
+             "annotations": []}]}]}
+
+    kept = {"year": 1932, "verdict": "supported",
+            "url": "https://a.example/mill", "quote": quote,
+            "visible_change": "only the brick base left"}
+    assert cli_module.verify_visible_changes(
+        [kept], support, "Mill") == []
+    assert kept["visible_change"] == "only the brick base left"
+    dropped = dict(kept, visible_change="a new copper roof")
+    assert cli_module.verify_visible_changes(
+        [dropped], deny, "Mill") == [1932]
+    assert dropped["visible_change"] == ""
+    assert "accepted quote" in dropped["visible_change_note"]
+
+
+def test_run_job_blanks_visible_change_missing_from_quote(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    _stub_job(monkeypatch)
+
+    def denying(prompt):
+        lines = prompt.split("\n")
+        claim_line = lines[1] if len(lines) > 1 else prompt
+        if claim_line.startswith("In ") and ", Test Mill: " in claim_line:
+            return _answered(
+                {"verdict": "unsupported", "quote": "",
+                 "url": _JOB_WIKI,
+                 "support": [{"url": _JOB_WIKI, "supports": False,
+                              "quote": ""}]})
+        return _job_respond(prompt)
+
+    monkeypatch.setattr(cli_module, "support_respond", denying)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"))
+    assert [c["verdict"] for c in result["kept"]] == ["supported"] * 3
+    assert [c["visible_change"] for c in result["kept"]] == ["", "", ""]
+    assert all("accepted quote" in c["visible_change_note"]
+               for c in result["kept"])
+
+
 def test_refresh_film_drops_partly_claims():
     from witness.cli import refresh_film
 
@@ -1744,7 +1811,8 @@ def _job_first():
             "claims": [{"year": 1850, "event": "built", "kind": "object",
                         "claim": "Built in 1850.",
                         "quote_span": "built in 1850",
-                        "date_text": "in 1850", "visible_change": "",
+                        "date_text": "in 1850",
+                        "visible_change": "new mill whole and white",
                         "sources": [_JOB_WIKI], "anchor": "build"}],
             "build_anchor_year": 1850}
 
@@ -1752,10 +1820,12 @@ def _job_first():
 def _job_answer():
     return {"events": [{"year": 1900, "event": "damaged",
                         "detail": "roof holed in a storm",
-                        "date_text": "in 1900", "visible_change": ""},
+                        "date_text": "in 1900",
+                        "visible_change": "roof holed open to the sky"},
                        {"year": 1920, "event": "rebuilt",
                         "detail": "rebuilt after the storm",
-                        "date_text": "in 1920", "visible_change": ""}],
+                        "date_text": "in 1920",
+                        "visible_change": "mill whole and white again"}],
             "sources": [],
             "citations": [{"url": _JOB_WIKI, "title": "Test Mill"}],
             "snippets": []}

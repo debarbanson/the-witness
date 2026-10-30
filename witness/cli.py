@@ -315,7 +315,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             cache=None, verify_with="baseten", progress=None, quiet=False,
             compare_support=False,
             on_identified=None, on_facts=None, on_claim=None, on_scene=None,
-            location=None, out_dir="out") -> dict:
+            location=None, out_dir="out", visitor="cli") -> dict:
     """One job for the web and both commands: identify, research,
     verify. No input; no print when quiet; milestones via progress.
     Only free facts fetch while `decide` confirms the identified
@@ -329,6 +329,13 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         progress = (lambda event, data: None) if quiet else cli_progress
     if cache is None and not no_cache:
         cache = Cache("out/cache")
+    if models._DAILY is not None:
+        try:
+            models._DAILY.admit(visitor)
+        except (models.SpendingCapExceeded, models.AccountingError) as exc:
+            progress("refused", {"error": str(exc)})
+            return {"confirmed": False, "identified": False, "cached": False,
+                    "error_kind": "quota", "error": str(exc)}
     timings = {}
     start = time.perf_counter()
     wiring = verify_wiring(verify_with)
@@ -540,7 +547,9 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
 
 def report_not_identified(result) -> None:
     """CLI lines for a failed identify, shared by both commands."""
-    if result["error_kind"] == "no_location":
+    if result["error_kind"] == "quota":
+        print(f"refused: {result['error']}")
+    elif result["error_kind"] == "no_location":
         print(f"no location: {result['error']}; give --place or --lat/--lon")
         print("outcome: not_identified")
     elif result["error_kind"] == "not_identified":
@@ -664,85 +673,88 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
             return answer in ("", "y", "yes")
 
     try:
-        result = run_job(photo, place=place, lang=lang, decide=decide,
-                         no_cache=no_cache, verify_with=verify_with,
-                         progress=progress, quiet=False,
-                         on_identified=on_identified, on_facts=on_facts,
-                         on_claim=on_claim, on_scene=on_scene,
-                         location=location, out_dir=out_dir)
-        if not result["identified"]:
-            report_not_identified(result)
-            return 2
-        if result["cached"] == "reviewed":
-            print("reviewed research reused (use --no-cache to redo)")
-            print(f"outcome: {result['result'].get('outcome')}")
-            return refresh_cached_film(photo, result["slug"], out_dir)
-        if result["cached"] == "film":
-            print(f"cached research from {result['saved_at']} "
-                  f"(use --no-cache to check again)")
-            print(f"outcome: {result['result'].get('outcome')}")
-            return refresh_cached_film(photo, result["slug"], out_dir)
-        if not result["confirmed"]:
-            print(f"not confirmed; nothing spent beyond identify ({result['spent']} tokens)")
-            return 2
-        chosen = result["chosen"]
-        if paint_eras:
-            # The final choice can differ from the draft (failed claims move
-            # scenes); chosen scenes never painted as drafts paint now, late
-            # but complete, numbered in final film order. A draft painting
-            # whose state no longer matches is repainted, never kept.
-            final_numbers = stream.scene_numbers(chosen)
-            actions = final_paint_actions(chosen, set(paint_futures), painted_states)
-            for scene in chosen:
-                year = scene["from_year"]
-                action = actions.get(year)
-                if action is None or action == "keep":
-                    continue
-                if action == "paint":
-                    filmed.emit("scene_verified", {"scene": final_numbers[year],
-                                                   "year": year,
-                                                   "date_label": scene.get("date_label")})
-                    print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
-                          f"verified (final choice)", flush=True)
-                    paint_futures[year] = models.submit_context(paint_pool, 
-                        paint_scene_worker, scene, final_numbers[year], False)
-                else:
-                    print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
-                          f"repainted (final state differs)", flush=True)
-                    paint_futures[year] = models.submit_context(paint_pool, 
-                        repaint_scene_worker, paint_futures[year], scene,
-                        final_numbers[year])
-                painted_states[year] = dict(scene.get("state") or {})
-            entries = collect_paint_entries(paint_futures)
-            kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
-            if kept_files:
-                paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
-                                    str(era_dir / "contact.png"))
-            (era_dir.parent / "paint_stream.json").write_text(json.dumps(
-                {"mode": "stream", "object": found.name,
-                 "eras": [entries[y] for y in sorted(entries)]}, indent=1))
-        report_and_save(found, lang, result["order"], result["kept"],
-                        result["timeline"], chosen, result["result"],
-                        result["timings"], verify_with, result["failures"], None,
-                        stream_events=filmed.events, out_root=out_dir)
-        first_scene = filmed.metric("scene_verified")
-        line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
-                f"first scene verified at {first_scene} s, "
-                f"film ready at {result['timings']['total_s']} s")
-        if paint_eras:
-            painted_times = {e["year"]: e["t"] for e in filmed.events
-                             if e["event"] == "scene_painted" and e["verdict"] == "matches"}
-            ready = [(s["from_year"], painted_times[s["from_year"]])
-                     for s in chosen if s["from_year"] in painted_times]
-            ready.append(("today", 0.0))  # the user's photo needs no build
-            playback = stream.simulate_playback(ready)
-            pauses = ", ".join(str(y) for y in playback["pauses"]) or "none"
+        with models.job_ledger():
+            result = run_job(photo, place=place, lang=lang, decide=decide,
+                             no_cache=no_cache, verify_with=verify_with,
+                             progress=progress, quiet=False,
+                             on_identified=on_identified, on_facts=on_facts,
+                             on_claim=on_claim, on_scene=on_scene,
+                             location=location, out_dir=out_dir)
+            if not result["identified"]:
+                report_not_identified(result)
+                return 2
+            if result["cached"] == "reviewed":
+                print("reviewed research reused (use --no-cache to redo)")
+                print(f"outcome: {result['result'].get('outcome')}")
+                return refresh_cached_film(photo, result["slug"], out_dir)
+            if result["cached"] == "film":
+                print(f"cached research from {result['saved_at']} "
+                      f"(use --no-cache to check again)")
+                print(f"outcome: {result['result'].get('outcome')}")
+                return refresh_cached_film(photo, result["slug"], out_dir)
+            if not result["confirmed"]:
+                print(f"not confirmed; nothing spent beyond identify ({result['spent']} tokens)")
+                return 2
+            chosen = result["chosen"]
+            if paint_eras:
+                # The final choice can differ from the draft (failed claims move
+                # scenes); chosen scenes never painted as drafts paint now, late
+                # but complete, numbered in final film order. A draft painting
+                # whose state no longer matches is repainted, never kept.
+                final_numbers = stream.scene_numbers(chosen)
+                actions = final_paint_actions(chosen, set(paint_futures), painted_states)
+                for scene in chosen:
+                    year = scene["from_year"]
+                    action = actions.get(year)
+                    if action is None or action == "keep":
+                        continue
+                    if action == "paint":
+                        filmed.emit("scene_verified", {"scene": final_numbers[year],
+                                                       "year": year,
+                                                       "date_label": scene.get("date_label")})
+                        print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
+                              f"verified (final choice)", flush=True)
+                        paint_futures[year] = models.submit_context(paint_pool, 
+                            paint_scene_worker, scene, final_numbers[year], False)
+                    else:
+                        print(f"Scene {final_numbers[year]} ({scene.get('date_label', year)}) "
+                              f"repainted (final state differs)", flush=True)
+                        paint_futures[year] = models.submit_context(paint_pool, 
+                            repaint_scene_worker, paint_futures[year], scene,
+                            final_numbers[year])
+                    painted_states[year] = dict(scene.get("state") or {})
+                entries = collect_paint_entries(paint_futures)
+                kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
+                if kept_files:
+                    paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
+                                        str(era_dir / "contact.png"))
+                (era_dir.parent / "paint_stream.json").write_text(json.dumps(
+                    {"mode": "stream", "object": found.name,
+                     "eras": [entries[y] for y in sorted(entries)]}, indent=1))
+            report_and_save(found, lang, result["order"], result["kept"],
+                            result["timeline"], chosen, result["result"],
+                            result["timings"], verify_with, result["failures"], None,
+                            stream_events=filmed.events, out_root=out_dir,
+                            tokens=models.usage_totals(),
+                            cost_usd=models.current_cost_usd())
+            first_scene = filmed.metric("scene_verified")
             line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
                     f"first scene verified at {first_scene} s, "
-                    f"first scene painted at {filmed.metric('scene_painted')} s, "
-                    f"film ready at {result['timings']['total_s']} s, playback pauses: {pauses}")
-        print(line)
-        return 0
+                    f"film ready at {result['timings']['total_s']} s")
+            if paint_eras:
+                painted_times = {e["year"]: e["t"] for e in filmed.events
+                                 if e["event"] == "scene_painted" and e["verdict"] == "matches"}
+                ready = [(s["from_year"], painted_times[s["from_year"]])
+                         for s in chosen if s["from_year"] in painted_times]
+                ready.append(("today", 0.0))  # the user's photo needs no build
+                playback = stream.simulate_playback(ready)
+                pauses = ", ".join(str(y) for y in playback["pauses"]) or "none"
+                line = (f"stream: opening card at {filmed.metric('opening_card')} s, "
+                        f"first scene verified at {first_scene} s, "
+                        f"first scene painted at {filmed.metric('scene_painted')} s, "
+                        f"film ready at {result['timings']['total_s']} s, playback pauses: {pauses}")
+            print(line)
+            return 0
     finally:
         if paint_pool is not None:
             paint_pool.shutdown(wait=True, cancel_futures=True)

@@ -993,6 +993,66 @@ def test_film_cached_without_paintings_refuses(tmp_path, monkeypatch, capsys):
     assert "opens instantly" not in capsys.readouterr().out
 
 
+def test_run_job_admits_before_paid_identify(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    seen = []
+    _stub_job(monkeypatch)
+    monkeypatch.setattr(cli_module.identify, "identify",
+                        lambda *a, **k: seen.append(1) or _job_found())
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0,
+                              daily_films=1, visitor_films=1)
+    try:
+        first = cli_module.run_job(
+            str(tmp_path / "photo.jpg"), decide=lambda found: True,
+            no_cache=True, verify_with="meta", progress=None, quiet=True,
+            out_dir=str(tmp_path / "out"), visitor="visitor-a")
+        assert first["confirmed"] is True
+        result = cli_module.run_job(
+            str(tmp_path / "photo.jpg"), decide=lambda found: True,
+            no_cache=True, verify_with="meta", progress=None, quiet=True,
+            out_dir=str(tmp_path / "out"), visitor="visitor-a")
+        assert result["confirmed"] is False
+        assert result["error_kind"] == "quota"
+        assert len(seen) == 1  # the refused job never reached identify
+    finally:
+        models.configure_spending(None)
+
+
+def test_film_save_records_real_job_cost(tmp_path, monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+    from witness import cli as cli_module
+    from witness import models
+
+    models.reset_usage()
+
+    @models.with_job_ledger
+    def fake_run(*args, **kwargs):
+        models.current_ledger().note("meta", "muse-spark-1.3",
+                                    {"input_tokens": 1000})
+        return {"identified": True, "confirmed": True, "cached": False,
+                "slug": "q1-test", "found": SimpleNamespace(name="Mill"),
+                "order": [], "kept": [], "timeline": [], "chosen": [],
+                "result": {"outcome": "too_little"}, "timings": {"total_s": 0},
+                "failures": [], "comparison": None,
+                "tokens": models.usage_totals(),
+                "cost_usd": models.current_cost_usd()}
+
+    saved = {}
+
+    def save(*args, **kwargs):
+        saved.update(kwargs)
+
+    monkeypatch.setattr(cli_module, "run_job", fake_run)
+    monkeypatch.setattr(cli_module, "report_and_save", save)
+    assert cli_module.cmd_film("unused", yes=True,
+                               out_dir=str(tmp_path / "out")) == 0
+    assert saved["cost_usd"] == pytest.approx(1000 / 1e6 * 1.25)
+    assert saved["cost_usd"] > 0
+
+
 def test_collect_paint_entries_marks_crashed_future_dropped():
     from concurrent.futures import ThreadPoolExecutor
     from witness import cli as cli_module

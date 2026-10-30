@@ -108,7 +108,7 @@ def test_daily_cap_blocks_before_call(tmp_path):
     class FakeClient:
         responses = FakeResponses()
 
-    models.configure_spending(str(tmp_path), daily_cap_usd=0.01)
+    models.configure_spending(str(tmp_path), daily_cap_usd=0.10)
     try:
         models.respond(FakeClient(), models.VERIFY, input="hi")
         with pytest.raises(models.SpendingCapExceeded):
@@ -119,9 +119,10 @@ def test_daily_cap_blocks_before_call(tmp_path):
 
 
 def test_daily_ledger_persists_per_day(tmp_path):
-    first = models.DailyCap(str(tmp_path), cap_usd=10.0)
-    first.record(0.25)
-    second = models.DailyCap(str(tmp_path), cap_usd=10.0)
+    first = models.BudgetAuthority(str(tmp_path), daily_cap_usd=10.0)
+    ticket = first.reserve(0.25)
+    first.reconcile(ticket, 0.25)
+    second = models.BudgetAuthority(str(tmp_path), daily_cap_usd=10.0)
     assert second.total_usd() == pytest.approx(0.25)
 
 
@@ -286,3 +287,153 @@ def test_sam_uses_segmentation_model_on_meta():
     assert models.SAM.provider == "meta"
     assert models.SAM.model == "sam-3.1"
     assert models.SAM.key_name == "MODEL_API_KEY"
+
+
+def test_parallel_reserves_against_last_budget_unit(tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    authority = models.BudgetAuthority(str(tmp_path), daily_cap_usd=0.15)
+    barrier = threading.Barrier(4)
+    won = []
+    refused = []
+
+    def attempt():
+        barrier.wait(timeout=5)
+        try:
+            authority.reserve(0.10)
+            won.append(1)
+        except models.SpendingCapExceeded:
+            refused.append(1)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda _: attempt(), range(4)))
+    assert len(won) == 1
+    assert len(refused) == 3
+
+
+def test_respond_reserves_ceiling_then_reconciles_actual(tmp_path):
+    from types import SimpleNamespace
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return {"usage": {"prompt_tokens": 1000, "completion_tokens": 0,
+                             "total_tokens": 1000}}
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        models.respond(FakeClient(), models.VERIFY, input="hi")
+        assert models._DAILY.total_usd() == pytest.approx(1000 / 1e6 * 1.25)
+        assert models._DAILY.reserved_usd() == pytest.approx(0.0)
+    finally:
+        models.configure_spending(None)
+
+
+def test_failed_call_releases_its_reservation(tmp_path):
+    class FakeResponses:
+        def create(self, **kwargs):
+            raise TimeoutError("synthetic transport failure")
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        with pytest.raises(TimeoutError):
+            models.respond(FakeClient(), models.VERIFY, input="hi")
+        assert models._DAILY.total_usd() == pytest.approx(0.0)
+        assert models._DAILY.reserved_usd() == pytest.approx(0.0)
+    finally:
+        models.configure_spending(None)
+
+
+def test_corrupt_accounting_fails_closed(tmp_path):
+    from types import SimpleNamespace
+
+    class FakeResponses:
+        def create(self, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("unreserved call ran")
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    from datetime import date
+    path = tmp_path / f"spending-{date.today().isoformat()}.json"
+    path.write_text("{not json")
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        with pytest.raises(models.AccountingError):
+            models.respond(FakeClient(), models.VERIFY, input="hi")
+    finally:
+        models.configure_spending(None)
+
+
+def test_film_quota_admits_then_refuses(tmp_path):
+    authority = models.BudgetAuthority(str(tmp_path), daily_cap_usd=10.0,
+                                      daily_films=2, visitor_films=5)
+    authority.admit("visitor-a")
+    authority.admit("visitor-b")
+    with pytest.raises(models.SpendingCapExceeded):
+        authority.admit("visitor-c")
+
+
+def test_per_visitor_limit(tmp_path):
+    authority = models.BudgetAuthority(str(tmp_path), daily_cap_usd=10.0,
+                                      daily_films=10, visitor_films=1)
+    authority.admit("visitor-a")
+    with pytest.raises(models.SpendingCapExceeded):
+        authority.admit("visitor-a")
+    authority.admit("visitor-b")  # another visitor is unaffected
+
+
+def test_respond_bounds_max_output_tokens():
+    seen = {}
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return {"usage": {}}
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    models.respond(FakeClient(), models.VERIFY, input="hi")
+    assert seen["max_output_tokens"] == models.VERIFY.max_output_tokens
+    assert models.VERIFY.max_output_tokens > 0
+
+
+def test_every_paid_spec_carries_a_ceiling():
+    for spec in (models.RESEARCH, models.VISION, models.VERIFY, models.PAINT,
+                 models.SAM, models.VERIFY_OPEN):
+        assert spec.ceiling_usd > 0
+
+
+def test_job_search_budget_blocks_further_calls():
+    class FakeResponses:
+        def create(self, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("over-budget call ran")
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    models.reset_usage()
+    with models.job_ledger() as ledger:
+        ledger.searches = models.SEARCH_BUDGET_PER_JOB
+        with pytest.raises(models.SpendingCapExceeded):
+            models.respond(FakeClient(), models.RESEARCH, input="hi")
+
+
+def test_nested_job_ledger_shares_one_ledger():
+    models.reset_usage()
+    with models.job_ledger() as outer:
+        models.note_usage("meta", {"prompt_tokens": 100, "completion_tokens": 0,
+                                   "total_tokens": 100})
+        with models.job_ledger() as inner:
+            assert inner is outer
+            models.note_usage("meta", {"prompt_tokens": 10, "completion_tokens": 0,
+                                       "total_tokens": 10})
+        assert models.usage_totals()["meta"]["total_tokens"] == 110
+    assert models.usage_totals() == {}

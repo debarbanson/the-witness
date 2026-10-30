@@ -1638,7 +1638,8 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
         try:
             out = captions.write_sentence(
                 rewrite, support, claim, year, claims=data.get("claims", []),
-                stamp=scene.get("date_label", "") or "")
+                stamp=scene.get("date_label", "") or "",
+                object_name=data.get("object", {}).get("name", ""))
         except models.SpendingCapExceeded as exc:
             path.write_text(json.dumps(data, indent=1))
             print(f"stopping: spending cap reached ({exc})")
@@ -1682,6 +1683,7 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
     support = support_call or child_support_respond
     verified = [c for c in data.get("claims", [])
                 if c.get("verdict") == "supported" and c.get("quote")]
+    name = data.get("object", {}).get("name", "")
     kept, dropped = 0, 0
     for scene in data.get("scenes", []):
         stored = scene.get("caption_sentence") or {}
@@ -1691,7 +1693,8 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
             try:
                 out = children.child_caption(
                     rewrite, support, stored["text"], evidence["quote"],
-                    evidence["url"], gentle=gentle)
+                    evidence["url"], gentle=gentle,
+                    year=scene.get("from_year", 0), object_name=name)
             except models.SpendingCapExceeded as exc:
                 path.write_text(json.dumps(data, indent=1))
                 print(f"stopping: spending cap reached ({exc})")
@@ -1711,7 +1714,9 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
                 continue
             try:
                 out = children.child_caption(rewrite, support, entry["line"], claim["quote"],
-                                              claim.get("url", ""))
+                                              claim.get("url", ""),
+                                              year=entry.get("year", 0),
+                                              object_name=name)
             except models.SpendingCapExceeded as exc:
                 path.write_text(json.dumps(data, indent=1))
                 print(f"stopping: spending cap reached ({exc})")
@@ -1724,7 +1729,9 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
         if state_claim is not None and description:
             out = children.child_caption(rewrite, support, description,
                                          state_claim["quote"],
-                                         state_claim.get("url", ""))
+                                         state_claim.get("url", ""),
+                                         year=scene.get("from_year", 0),
+                                         object_name=name)
             scene["child_state"] = out["line"]
             print(f"{scene['from_year']} state: {out['line'] or 'dropped'}"[:140])
         else:

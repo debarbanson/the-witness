@@ -107,6 +107,37 @@ def test_evidence_passages_carry_bound_quotes_with_urls():
                         "https://b.example/news\nOn the evening it burnt down."]
 
 
+def test_write_sentence_judges_with_object_and_year_context():
+    seen = {}
+
+    def support(sentence, passages):
+        seen["judged"] = sentence
+        return "supported"
+
+    out = captions.write_sentence(
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
+        support_call=support,
+        claim=claim(1779, quote="The mill opened in 1779."), year=1779,
+        object_name="De Adriaan")
+    assert out["verified"] is True
+    assert out["sentence"] == "I opened my doors."
+    assert seen["judged"] == "In 1779, De Adriaan: I opened my doors."
+
+
+def test_write_sentence_without_context_judges_the_bare_sentence():
+    seen = {}
+
+    def support(sentence, passages):
+        seen["judged"] = sentence
+        return "supported"
+
+    captions.write_sentence(
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
+        support_call=support,
+        claim=claim(1779, quote="The mill opened in 1779."), year=1779)
+    assert seen["judged"] == "I opened my doors."
+
+
 def test_write_sentence_checks_bound_passages_not_bare_text():
     seen = {}
 
@@ -225,6 +256,11 @@ def test_sentence_prompt_leaves_out_disputed_details():
     prompt = captions.sentence_prompt("detail words.", "Quote words.", 1932)
     assert "disagree" in prompt
     assert "leave that detail out" in prompt
+
+
+def test_sentence_prompt_asks_for_the_main_event_only():
+    prompt = captions.sentence_prompt("d", "q", 1932)
+    assert "main event only" in prompt
 
 
 def test_sentence_prompt_names_the_stamp_and_asks_for_natural_numbers():

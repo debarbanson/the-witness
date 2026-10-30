@@ -25,13 +25,16 @@ def rewrite_prompt(adult, source, gentle=False) -> str:
 
 
 def child_caption(rewrite_call, support_call, adult, source, url,
-                  gentle=False) -> dict:
+                  gentle=False, year=0, object_name="") -> dict:
     """Rewrite plus re-verification; plainer retry once, else drop.
-    Every rewrite is checked again against the bound passage."""
+    Every rewrite is checked again against the bound passage, judged
+    with its object and year like every other voice text."""
     passages = [f"{url}\n{source}"]
     for attempt, plain in enumerate((False, True), 1):
         line = (rewrite_call(adult, source, plain, gentle) or "").strip()
-        if line and support_call(line, passages) == "supported":
+        judged = (f"In {year}, {object_name}: {line}"
+                  if object_name else line)
+        if line and support_call(judged, passages) == "supported":
             return {"line": line, "verified": True, "attempts": attempt}
     return {"line": None, "verified": False, "attempts": 2}
 

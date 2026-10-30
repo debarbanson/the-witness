@@ -72,7 +72,8 @@ def sentence_prompt(detail, quote, year, stamp=None) -> str:
         "Write one first-person sentence for a museum film caption about "
         f"the year {year}: I or my, never I saw, we or our. "
         "For the object's parts or buildings, say my (my sails, my buildings). "
-        "Cover the claim's main event; if the source gives an age, include it. "
+        "Cover the claim's main event only, in one short sentence; "
+        "leave out secondary detail; if the source gives an age, include it. "
         "Fold numbers into the sentence naturally; never list them. "
         "Say only what the source sentences say, no more. "
         "Say only what the sources agree on: if they disagree on a detail, "
@@ -145,13 +146,14 @@ def evidence_passages(assigned, claims, year) -> list:
 
 
 def write_sentence(rewrite_call, support_call, claim, year,
-                   claims=(), stamp="") -> dict:
+                   claims=(), stamp="", object_name="") -> dict:
     """Rewrite plus re-verification; shorter retry once, else failure.
 
     The writer sees the scene's other kept evidence with the main
     quote, and every rewrite is checked again against the bound
     passages: the accepted quotes with their URLs. Only a fully
-    supported sentence counts.
+    supported sentence counts. The judge sees the sentence with its
+    object and year, exactly what the film asserts with its stamp.
     """
     detail = claim_detail(claim)
     main = claim.get("quote", "")
@@ -163,7 +165,9 @@ def write_sentence(rewrite_call, support_call, claim, year,
     for attempt, plain in enumerate((False, True), 1):
         sentence = (rewrite_call(detail, source, year, plain, stamp)
                     or "").strip()
+        judged = (f"In {year}, {object_name}: {sentence}"
+                  if object_name else sentence)
         if (sentence and sentence_ok(sentence)
-                and support_call(sentence, passages) == "supported"):
+                and support_call(judged, passages) == "supported"):
             return {"sentence": sentence, "verified": True, "attempts": attempt}
     return {"sentence": None, "verified": False, "attempts": 2}

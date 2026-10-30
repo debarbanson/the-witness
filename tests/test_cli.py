@@ -166,6 +166,36 @@ def test_cmd_children_writes_sentence_next_to_adult_one(tmp_path, monkeypatch):
     assert "child" not in saved["scenes"][1].get("caption_sentence", {})
 
 
+def test_cmd_children_judges_lines_with_object_context(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    data = _caption_research()
+    data["scenes"][0]["caption_sentence"] = {
+        "text": "I opened my doors to the town.", "claim_year": 1779,
+        "claim_url": "https://a.example/x",
+        "evidence": {"claim": "opened in 1779",
+                     "url": "https://a.example/x",
+                     "quote": "The mill opened in 1779."}}
+    data["scenes"][0]["state"] = {"condition": "standing"}
+    (slug_dir / "research.json").write_text(json.dumps(data))
+    seen = []
+
+    def support(line, passages):
+        seen.append(line)
+        return "supported"
+
+    code = cli_module.cmd_children(
+        "q1-test",
+        rewrite_call=lambda adult, source, plain, gentle=False: "I opened long ago.",
+        support_call=support)
+    assert code == 0
+    assert seen[0] == "In 1779, Mill: I opened long ago."
+
+
 def test_cmd_children_marks_heavy_scenes_gentle(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module
@@ -2713,6 +2743,28 @@ def test_cmd_captions_writes_sentence_and_skips_claimless(tmp_path, monkeypatch,
                      "url": "https://a.example/x",
                      "quote": "The mill opened in 1779."}}
     assert "caption_sentence" not in second
+
+
+def test_cmd_captions_judges_sentences_with_object_context(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
+    seen = []
+
+    def support(sentence, passages):
+        seen.append(sentence)
+        return "supported"
+
+    code = cli_module.cmd_captions(
+        "q1-test",
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
+        support_call=support)
+    assert code == 0
+    assert seen == ["In 1779, Mill: I opened my doors."]
 
 
 def test_cmd_captions_stops_cleanly_on_cap(tmp_path, monkeypatch, capsys):

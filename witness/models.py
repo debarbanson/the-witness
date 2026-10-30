@@ -152,6 +152,10 @@ VERIFY_OPEN = ModelSpec(
 
 
 SEARCH_BUDGET_PER_JOB = 200  # web searches; the job stops paying past this
+# No per-call web_search bound found in Meta's public docs (checked
+# 30 Oct; only other vendors document max_uses), so the RESEARCH
+# ceiling reserves the worst case the budget allows: all 200 searches
+# in one call ($0.50) plus token headroom.
 
 
 _CLIENTS = {}
@@ -306,7 +310,9 @@ class _FakeProviderClient:
 
 def client_for(spec, environ=None):
     """One OpenAI-compatible client per spec and key, shared by every
-    call. Key never leaves the environment."""
+    call. Key never leaves the environment. The SDK never retries:
+    one reservation covers exactly one billed attempt, and any retry
+    is a new call with its own reservation through the authority."""
     from openai import OpenAI
 
     env = environ if environ is not None else os.environ
@@ -319,7 +325,7 @@ def client_for(spec, environ=None):
     client = _CLIENTS.get(cache_key)
     if client is None:
         client = OpenAI(base_url=spec.base_url, api_key=key,
-                        timeout=spec.timeout, max_retries=1)
+                        timeout=spec.timeout, max_retries=0)
         _CLIENTS[cache_key] = client
     return client
 
@@ -445,7 +451,8 @@ def _paid_call(spec, response, ticket=None):
 def respond(client, spec, **kwargs):
     """One Responses call: model id, reasoning effort, temperature and
     the output bound injected. The ceiling is reserved first; a failed
-    call releases its reservation and records nothing."""
+    call keeps its reservation, since a timeout cannot prove the
+    server did not bill."""
     if spec.effort is not None:
         kwargs["reasoning"] = {"effort": spec.effort}
     if spec.temperature is not None:
@@ -458,7 +465,7 @@ def respond(client, spec, **kwargs):
         response = client.responses.create(model=spec.model, **kwargs)
     except Exception:
         if ticket is not None:
-            _DAILY.reconcile(ticket, 0.0)
+            _DAILY.reconcile(ticket, ticket.ceiling_usd)
         raise
     return _paid_call(spec, response, ticket)
 
@@ -467,8 +474,8 @@ def chat(client, spec, messages, **kwargs):
     """One Chat Completions call (the Baseten path): model id,
     temperature and the output bound injected. No reasoning control:
     Muse Spark Open always reasons; read the answer with chat_answer.
-    The ceiling is reserved first; a failed call releases its
-    reservation and records nothing."""
+    The ceiling is reserved first; a failed call keeps it, since a
+    timeout cannot prove the server did not bill."""
     if spec.temperature is not None:
         kwargs["temperature"] = spec.temperature
     _bound_output("max_tokens", spec, kwargs)
@@ -480,7 +487,7 @@ def chat(client, spec, messages, **kwargs):
             model=spec.model, messages=messages, **kwargs)
     except Exception:
         if ticket is not None:
-            _DAILY.reconcile(ticket, 0.0)
+            _DAILY.reconcile(ticket, ticket.ceiling_usd)
         raise
     return _paid_call(spec, response, ticket)
 
@@ -691,6 +698,10 @@ class BudgetAuthority:
                 "spending accounting is corrupt; refusing to spend")
         return data
 
+    def total_films(self) -> int:
+        with self._account() as data:
+            return int(data.get("films", 0))
+
     def total_usd(self) -> float:
         return float(self._read().get("total_usd", 0.0))
 
@@ -711,17 +722,20 @@ class BudgetAuthority:
             return BudgetTicket(ceiling_usd)
 
     def reconcile(self, ticket: BudgetTicket, actual_usd: float) -> None:
-        """Release a reservation and record what the call cost (0.0
-        when it failed before billing)."""
+        """Release a reservation and record what the call cost. Callers
+        pass the ceiling when the call failed, since a failure cannot
+        prove the server did not bill."""
         with self._account() as data:
             held = float(data.get("reserved_usd", 0.0))
             data["reserved_usd"] = max(0.0, held - ticket.ceiling_usd)
             data["total_usd"] = float(data.get("total_usd", 0.0)) + actual_usd
             data["calls"] = int(data.get("calls", 0)) + 1
 
-    def admit(self, visitor: str) -> None:
+    def admit(self, visitor: str, extra=None) -> None:
         """Admit one film for a visitor under the daily and per-visitor
-        quotas. A None quota means unlimited (the CLI default)."""
+        quotas. A None quota means unlimited (the CLI default). `extra`
+        is a second visitor key (the network hash) checked under the
+        same per-visitor quota; the film is counted once."""
         with self._account() as data:
             films = int(data.get("films", 0))
             if self.daily_films is not None and films >= self.daily_films:
@@ -731,12 +745,17 @@ class BudgetAuthority:
             if not isinstance(seen, dict):
                 raise AccountingError(
                     "spending accounting is corrupt; refusing to spend")
-            count = int(seen.get(visitor, 0))
-            if self.visitor_films is not None and count >= self.visitor_films:
-                raise SpendingCapExceeded(
-                    "this visitor's film quota is spent; try again tomorrow")
+            keys = [visitor] + ([extra] if extra else [])
+            for key in keys:
+                count = int(seen.get(key, 0))
+                if (self.visitor_films is not None
+                        and count >= self.visitor_films):
+                    raise SpendingCapExceeded(
+                        "this visitor's film quota is spent; "
+                        "try again tomorrow")
             data["films"] = films + 1
-            seen[visitor] = count + 1
+            for key in keys:
+                seen[key] = int(seen.get(key, 0)) + 1
             data["visitors"] = seen
 
 

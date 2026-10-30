@@ -45,24 +45,26 @@
                     background: rgba(0,0,0,.55); color: #fff;
                     border: 1px solid #ffd98a; border-radius: 8px; }
   .label { font-size: 34px; color: #ffd98a; margin-top: 30px; }
+  /* Initial state only; the player toggles visibility inline. */
+  .hidden { display: none; }
 </style>
 </head>
 <body>
 <div id="stage">
   <img class="bg" id="imgA" alt="">
   <img class="bg" id="imgB" alt="">
-  <div class="card" id="card" style="display:none"><h1 id="cardTitle"></h1><p id="cardSub"></p></div>
-  <div class="card" id="endcard" style="display:none">
+  <div class="card hidden" id="card"><h1 id="cardTitle"></h1><p id="cardSub"></p></div>
+  <div class="card hidden" id="endcard">
     <h1>Sources</h1>
     <ul id="sources"></ul>
     <p class="label" id="ailabel"></p>
     <p class="label" id="credit"></p>
   </div>
-  <div id="caption" style="display:none"><span id="cap1"></span><br><span id="cap2"></span><span class="site" id="capsite"></span></div>
-  <div id="progress" style="display:none"></div>
+  <div id="caption" class="hidden"><span id="cap1"></span><br><span id="cap2"></span><span class="site" id="capsite"></span></div>
+  <div id="progress" class="hidden"></div>
   <div id="clock"></div>
   <div id="painted"></div>
-  <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button><button id="audience" style="display:none"></button><button id="spotbtn" style="display:none">Spot the difference</button></div>
+  <div id="controls"><button id="pause">Pause</button><button id="replay">Replay</button><button id="audience" class="hidden"></button><button id="spotbtn" class="hidden">Spot the difference</button></div>
 </div>
 <script id="film-data" type="application/json">__FILM_JSON__</script>
 <script>
@@ -262,6 +264,7 @@ function start(film) {
     const audienceBtn = document.getElementById("audience");
     if (film.sibling) {
       audienceBtn.textContent = film.audience === "child" ? "Adults" : "Children";
+      audienceBtn.classList.remove("hidden");
       audienceBtn.style.display = "";
       audienceBtn.onclick = () => {
         audienceBtn.disabled = true;
@@ -280,6 +283,7 @@ function start(film) {
     }
     const spotBtn = document.getElementById("spotbtn");
     if (film.spot) {
+      spotBtn.classList.remove("hidden");
       spotBtn.style.display = "";
       spotBtn.onclick = () => { location.href = film.spot; };
     } else {

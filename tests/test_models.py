@@ -154,7 +154,7 @@ def test_respond_counts_web_searches(tmp_path):
 def test_client_bounds_timeout_and_retries_per_spec():
     client = models.client_for(models.VERIFY, environ={"MODEL_API_KEY": "k-123"})
     assert client.timeout == models.VERIFY.timeout
-    assert client.max_retries == 1
+    assert client.max_retries == 0
     assert models.PAINT.timeout > models.VERIFY.timeout
 
 
@@ -343,7 +343,7 @@ def test_respond_reserves_ceiling_then_reconciles_actual(tmp_path):
         models.configure_spending(None)
 
 
-def test_failed_call_releases_its_reservation(tmp_path):
+def test_failed_call_keeps_its_reservation(tmp_path):
     class FakeResponses:
         def create(self, **kwargs):
             raise TimeoutError("synthetic transport failure")
@@ -355,7 +355,8 @@ def test_failed_call_releases_its_reservation(tmp_path):
     try:
         with pytest.raises(TimeoutError):
             models.respond(FakeClient(), models.VERIFY, input="hi")
-        assert models._DAILY.total_usd() == pytest.approx(0.0)
+        assert models._DAILY.total_usd() == pytest.approx(
+            models.VERIFY.ceiling_usd)
         assert models._DAILY.reserved_usd() == pytest.approx(0.0)
     finally:
         models.configure_spending(None)
@@ -575,3 +576,74 @@ def test_nested_job_ledger_shares_one_ledger():
                                        "total_tokens": 10})
         assert models.usage_totals()["meta"]["total_tokens"] == 110
     assert models.usage_totals() == {}
+
+
+def test_failed_paid_call_keeps_its_reservation(tmp_path):
+    import pytest
+
+    auth = models.BudgetAuthority(tmp_path, daily_cap_usd=5.0)
+    models.configure_spending(authority=auth)
+
+    class Timeout(Exception):
+        pass
+
+    class Client:
+        class responses:
+            @staticmethod
+            def create(**kw):
+                raise Timeout("read timed out after the server billed")
+
+    try:
+        with pytest.raises(Timeout):
+            models.respond(Client, models.RESEARCH, input="q")
+    finally:
+        models.configure_spending(None)
+    assert auth.total_usd() == models.RESEARCH.ceiling_usd
+    assert auth.reserved_usd() == 0.0
+
+
+def test_failed_chat_call_keeps_its_reservation(tmp_path):
+    import pytest
+
+    from witness.models import VERIFY_OPEN
+
+    auth = models.BudgetAuthority(tmp_path, daily_cap_usd=5.0)
+    models.configure_spending(authority=auth)
+
+    class Client:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    raise ConnectionError("billed then dropped")
+
+    try:
+        with pytest.raises(ConnectionError):
+            models.chat(Client, VERIFY_OPEN, [{"role": "user"}])
+    finally:
+        models.configure_spending(None)
+    assert auth.total_usd() == VERIFY_OPEN.ceiling_usd
+
+
+def test_sdk_never_retries_behind_one_reservation():
+    client = models.client_for(models.VISION, environ={"MODEL_API_KEY": "k"})
+    assert client.max_retries == 0
+
+
+def test_admit_checks_both_visitor_keys_counts_once(tmp_path):
+    auth = models.BudgetAuthority(tmp_path, daily_films=10, visitor_films=2)
+    import pytest
+
+    auth.admit("vid-a", extra="ip:hash-a")
+    auth.admit("vid-b", extra="ip:hash-a")  # new cookie, same network
+    with pytest.raises(models.SpendingCapExceeded):
+        auth.admit("vid-c", extra="ip:hash-a")
+    auth.admit("vid-a", extra="ip:hash-b")  # second film, new network
+    with pytest.raises(models.SpendingCapExceeded):
+        auth.admit("vid-a", extra="ip:hash-c")
+    assert auth.total_films() == 3
+
+
+def test_research_ceiling_covers_worst_case_searches():
+    worst = models.SEARCH_BUDGET_PER_JOB * models.WEB_SEARCH_USD
+    assert models.RESEARCH.ceiling_usd >= worst

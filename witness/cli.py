@@ -320,7 +320,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             compare_support=False,
             on_identified=None, on_facts=None, on_claim=None, on_scene=None,
             location=None, out_dir="out", visitor="cli", control=None,
-            deadline_s=1800) -> dict:
+            deadline_s=1800, pre_admitted=False) -> dict:
     """One job for the web and both commands: identify, research,
     verify. No input; no print when quiet; milestones via progress.
     Only free facts fetch while `decide` confirms the identified
@@ -336,7 +336,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
     if cache is None and not no_cache:
         cache = Cache("out/cache")
     models._check_control()
-    if models._DAILY is not None:
+    if models._DAILY is not None and not pre_admitted:
         try:
             models._DAILY.admit(visitor)
         except (models.SpendingCapExceeded, models.AccountingError) as exc:

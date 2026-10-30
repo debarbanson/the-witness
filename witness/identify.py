@@ -19,7 +19,7 @@ from dataclasses import dataclass, field, replace
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, IFD
 
-from witness.photo import load_clean
+from witness.photo import ALLOWED_FORMATS, load_clean
 from witness.research import read_langs
 from witness.web import USER_AGENT, WebError, fetch_public, mediawiki_get, scrub_query
 
@@ -47,6 +47,12 @@ nwr(around:{radius},{lat},{lon})[name][~"^(wikidata|wikipedia|heritage|historic|
 out tags center;"""
 
 _cache: dict = {}
+_LOOKUP_GEN = 0
+
+
+def _stale(gen) -> bool:
+    """A lookup thread is stale once a later lookup cleared the cache."""
+    return gen is not None and gen != _LOOKUP_GEN
 
 
 class IdentifyError(Exception):
@@ -103,7 +109,9 @@ class Identification:
 
 
 def clear_cache() -> None:
+    global _LOOKUP_GEN
     _cache.clear()
+    _LOOKUP_GEN += 1
 
 
 def _budgeted(key, budget, func, *args, progress=None, **kwargs):
@@ -235,11 +243,13 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     radius = PLACE_RADIUS_M if from_place else RADIUS_M
     emit("location", {"precision": location.precision})
     osm_box: dict = {}
+    gen = _LOOKUP_GEN
 
     def overpass_job():
         started = time.perf_counter()
         try:
-            osm_box["osm"] = fetch_overpass(lat, lon, post, sleep, cache, radius)
+            osm_box["osm"] = fetch_overpass(lat, lon, post, sleep, cache, radius,
+                                            gen=gen)
         except SourceError as exc:
             osm_box["osm"] = []
             emit("source_error", {"source": "overpass", "error": scrub_query(str(exc))[:160]})
@@ -256,10 +266,10 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     try:
         wiki_future = pool.submit(_budgeted, "wikidata", WIKIDATA_BUDGET,
                                   fetch_wikidata_nearby, lat, lon, get, sleep, cache,
-                                  radius, progress=progress)
+                                  radius, progress=progress, gen=gen)
         wp_future = pool.submit(_budgeted, "wpgeo", WP_BUDGET,
                                 fetch_wp_nearby, lat, lon, order[0], get, sleep, cache,
-                                radius, progress=progress)
+                                radius, progress=progress, gen=gen)
         (_, wiki, wiki_s), (_, wpedia, wp_s) = wiki_future.result(), wp_future.result()
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
@@ -278,7 +288,7 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         place or "", location.direction)
     if not ranked:
         raise NotIdentifiedError("no named candidates near the photo")
-    emit("candidates", {"count": len(ranked), "names": [c.name for c in ranked]})
+    emit("candidates", {"count": len(ranked)})
     photo_bytes = _reencoded(photo)
     pool = ThreadPoolExecutor(max_workers=2)
     try:
@@ -332,7 +342,6 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         pool.shutdown(wait=True, cancel_futures=True)
     if chosen is None:
         raise NotIdentifiedError("second look rejected every pick")
-    emit("pick", {"name": chosen.name, "rejected": rejected})
     return Identification(
         name=chosen.name,
         kind=chosen.kind,
@@ -371,7 +380,7 @@ def read_location(photo) -> PhotoLocation:
 def _capture_stamp(photo):
     """The photo's EXIF date stamp parts, if it has one."""
     try:
-        exif = Image.open(photo).getexif()
+        exif = Image.open(photo, formats=tuple(ALLOWED_FORMATS)).getexif()
     except (OSError, ValueError):
         return []
     for tag in (36867, 306):  # DateTimeOriginal, then DateTime
@@ -404,7 +413,10 @@ def capture_month(photo) -> int | None:
 
 
 def _gps_tags(photo) -> dict:
-    exif = Image.open(photo).getexif()
+    try:
+        exif = Image.open(photo, formats=tuple(ALLOWED_FORMATS)).getexif()
+    except Exception:  # noqa: BLE001 - unreadable means no GPS, never a crash
+        raise NoGpsError("photo has no EXIF GPS; give --place instead")
     gps_ifd = exif.get_ifd(IFD.GPSInfo) if hasattr(exif, "get_ifd") else {}
     return {GPSTAGS.get(k, k): v for k, v in gps_ifd.items()}
 
@@ -428,11 +440,13 @@ def _reencoded(photo) -> bytes:
     return buf.getvalue()
 
 
-def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RADIUS_M) -> list:
+def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RADIUS_M,
+                   gen=None) -> list:
     """Optional candidates: one fast try per instance, never a wait.
 
     The lookup key carries coordinates, so only the in-memory cache is
     used; `cache` is accepted and ignored. Same for the geosearch calls.
+    A stale generation still returns its answer but never writes it.
     """
     key = ("overpass", round(lat, 5), round(lon, 5), radius)
     if key in _cache:
@@ -454,13 +468,14 @@ def fetch_overpass(lat, lon, post=None, sleep=time.sleep, cache=None, radius=RAD
         if fetched.status >= 400:
             raise SourceError(f"Overpass refused ({fetched.status} at {url})")
         elements = json.loads(fetched.body.decode("utf-8")).get("elements", [])
-        _cache[key] = elements
+        if not _stale(gen):
+            _cache[key] = elements
         return elements
     raise SourceError(f"Overpass failed on all instances ({last_error})")
 
 
 def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None,
-                        radius=RADIUS_M) -> list:
+                        radius=RADIUS_M, gen=None) -> list:
     """Nearby items via geosearch on wikidata.org (WDQS avoided per pipeline).
 
     Labels come later from enrich_candidates, so one call failing never
@@ -493,12 +508,13 @@ def fetch_wikidata_nearby(lat, lon, get=None, sleep=time.sleep, cache=None,
         {"qid": r["title"], "lat": r["lat"], "lon": r["lon"]}
         for r in data["query"]["geosearch"]
     ]
-    _cache[key] = items
+    if not _stale(gen):
+        _cache[key] = items
     return items
 
 
 def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None,
-                  radius=RADIUS_M) -> list:
+                  radius=RADIUS_M, gen=None) -> list:
     """Nearby articles via Wikipedia geosearch, independent of Overpass."""
     key = ("wp_nearby", lang, round(lat, 5), round(lon, 5), radius)
     if key in _cache:
@@ -534,7 +550,8 @@ def fetch_wp_nearby(lat, lon, lang, get=None, sleep=time.sleep, cache=None,
             "lat": coords["lat"],
             "lon": coords["lon"],
         })
-    _cache[key] = items
+    if not _stale(gen):
+        _cache[key] = items
     return items
 
 

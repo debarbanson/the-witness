@@ -3503,3 +3503,36 @@ def test_cmd_paint_skips_scenes_without_supported_claims(tmp_path, monkeypatch):
     manifest = json.loads((slug_dir / "paint_parallel.json").read_text())
     assert {e["year"]: e["verdict"] for e in manifest["eras"]} == {
         1790: "matches", 1970: "skipped"}
+
+
+def test_pre_admitted_run_job_skips_admission(tmp_path, monkeypatch):
+    import pytest
+
+    import witness.cli as cli_module
+    from witness import models
+
+    class Recording:
+        def __init__(self):
+            self.admitted = []
+
+        def admit(self, visitor, extra=None):
+            self.admitted.append((visitor, extra))
+
+    def boom(verify_with):
+        raise RuntimeError("stop after admission")
+
+    monkeypatch.setattr(cli_module, "verify_wiring", boom)
+    rec = Recording()
+    models.configure_spending(authority=rec)
+    try:
+        with pytest.raises(RuntimeError):
+            cli_module.run_job(str(tmp_path / "p.jpg"), decide=lambda found: True,
+                               no_cache=True, visitor="web-vid")
+        assert rec.admitted == [("web-vid", None)]
+        with pytest.raises(RuntimeError):
+            cli_module.run_job(str(tmp_path / "p.jpg"), decide=lambda found: True,
+                               no_cache=True, visitor="web-vid",
+                               pre_admitted=True)
+        assert rec.admitted == [("web-vid", None)]
+    finally:
+        models.configure_spending(None)

@@ -352,7 +352,7 @@ def test_identify_emits_progress_events(tmp_path):
     events = []
     identify.identify(photo, post=post, get=routed(), respond=vision_pick(),
                       progress=lambda event, data: events.append(event))
-    assert events == ["location", "candidates", "pick"]
+    assert events == ["location", "candidates"]
 
 
 def test_identify_reads_local_languages_for_sitelinks_and_labels(tmp_path):
@@ -1116,3 +1116,103 @@ def test_failed_source_never_empties_other_sources(tmp_path):
     found = identify.identify(photo, post=failing_post, get=failing_wiki,
                               respond=respond, sleep=lambda s: None)
     assert found.name in ("Testtoren", "Test Tower", "Testplein")
+
+
+def test_progress_events_name_no_candidates(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    seen = []
+    found = identify.identify(photo, post=post, get=routed(),
+                              respond=vision_pick(),
+                              progress=lambda e, d: seen.append((e, d)))
+    names = [c.name for c in found.candidates] + [found.name]
+    assert [event for event, _ in seen] == ["location", "candidates"]
+    for event, data in seen:
+        assert event != "pick"
+        for name in names:
+            assert name not in repr(data)
+
+
+def test_pick_and_look_prompts_hide_distances_and_bearings():
+    pool = [identify.Candidate(name="Near Mill", kind="mill", source="osm",
+                               qid="Q1", distance_m=1234, bearing_deg=45),
+            identify.Candidate(name="Far Hall", kind="hall", source="osm",
+                               qid="Q2", distance_m=5678, bearing_deg=200)]
+    prompt = identify._pick_prompt(pool, ["Ruled Out"])
+    for leaked in ("1234", "5678", "45", "200"):
+        assert leaked not in prompt
+    look = identify._look_prompt(pool[0])
+    for leaked in ("1234", "45"):
+        assert leaked not in look
+
+
+def test_stale_generation_drops_cache_writes():
+    post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+    identify.clear_cache()
+    gen = identify._LOOKUP_GEN
+    identify.clear_cache()  # a newer lookup started
+    try:
+        out = identify.fetch_overpass(52.1, 4.3, post, sleep=lambda s: None,
+                                      gen=gen)
+        assert out != []
+        assert identify._cache == {}
+        fresh_post = FakeTransport([(200, fixture("overpass_nearby.json"))])
+        identify.fetch_overpass(52.1, 4.3, fresh_post, sleep=lambda s: None,
+                                gen=identify._LOOKUP_GEN)
+        assert identify._cache != {}
+    finally:
+        identify.clear_cache()
+
+
+def test_late_overpass_answer_does_not_refill_cache(tmp_path, monkeypatch):
+    import time
+
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+    monkeypatch.setattr(identify, "OVERPASS_BUDGET", 0.1)
+
+    def slow_post(url, **kwargs):
+        time.sleep(0.5)
+        return FakeResponse(200, fixture("overpass_nearby.json"))
+
+    def pick_first(prompt, photo_bytes):
+        if "YES or NO" in prompt:
+            text = "YES\nThe photo shows it."
+        else:
+            first = next(line for line in prompt.splitlines()
+                         if line.startswith("1. "))
+            text = f"1 {first[3:].split(' (')[0]}\nConfident."
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": text, "annotations": []}]}]}
+
+    try:
+        found = identify.identify(photo, post=slow_post, get=routed(),
+                                  respond=pick_first,
+                                  sleep=lambda s: None)
+        assert found.name  # identified without Overpass
+        time.sleep(0.6)  # the late answer lands after the clear
+        assert identify._cache == {}
+    finally:
+        identify.clear_cache()
+
+
+def test_read_location_rejects_non_photo_formats(tmp_path, monkeypatch):
+    from PIL import Image
+
+    import pytest
+
+    seen = {}
+    real_open = Image.open
+
+    def spy(path, *args, **kwargs):
+        seen.update(kwargs)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Image, "open", spy)
+    bmp = tmp_path / "x.bmp"
+    Image.new("RGB", (40, 40)).save(bmp, format="BMP")
+    with pytest.raises(identify.NoGpsError):
+        identify.read_location(bmp)
+    assert set(seen.get("formats", ())) <= {"JPEG", "PNG", "WEBP"}
+    assert seen.get("formats")

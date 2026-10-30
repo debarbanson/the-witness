@@ -8,7 +8,7 @@ import socket
 import ssl
 import time
 from dataclasses import dataclass
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse, urlsplit
 
 USER_AGENT = "the-witness/0.1 (https://github.com/debarbanson/the-witness)"
 
@@ -131,8 +131,9 @@ class Fetched:
     body: bytes
 
 
-def _read_capped(resp, max_bytes: int) -> bytes:
-    """Read a response body up to the cap, closing on every path."""
+def _read_capped(resp, max_bytes: int, deadline=None) -> bytes:
+    """Read a response body up to the cap, closing on every path. The
+    total deadline is enforced while reading, not just before."""
     chunks, size = [], 0
     try:
         if hasattr(resp, "iter_content"):
@@ -146,6 +147,8 @@ def _read_capped(resp, max_bytes: int) -> bytes:
         else:  # minimal doubles shaped for .json() only
             pieces = [json.dumps(resp.json()).encode("utf-8")]
         for piece in pieces:
+            if deadline is not None and time.monotonic() > deadline:
+                raise _refuse("fetch exceeded its total time", limit="time")
             if not piece:
                 continue
             size += len(piece)
@@ -244,18 +247,29 @@ def fetch_public(url, sender=None, *, params=None, data=None, headers=None,
                     timeout=timeout, allow_redirects=False)
         status = getattr(resp, "status_code", 200)
         if status in (301, 302, 303, 307, 308):
-            location = (getattr(resp, "headers", {}) or {}).get("Location")
+            headers = getattr(resp, "headers", {}) or {}
+            location = next((value for key, value in headers.items()
+                             if key.lower() == "location"), None)
             close = getattr(resp, "close", None)
             if callable(close):
                 close()
             if not location:
                 raise WebError(f"redirect without Location at {current}")
-            current = urljoin(current, location)
+            if data is not None and status in (307, 308):
+                raise WebError(
+                    "refused to resend a POST body on a "
+                    f"{status} redirect from {current}")
+            target = urljoin(current, location)
+            if (urlsplit(current).scheme == "https"
+                    and urlsplit(target).scheme == "http"):
+                raise WebError(
+                    f"refused redirect from https to http at {current}")
+            current = target
             if status in (301, 302, 303):
                 data = None  # redirected POSTs continue as GETs
             params = None
             continue
-        body = _read_capped(resp, max_bytes)
+        body = _read_capped(resp, max_bytes, deadline)
         if raise_status and status >= 400:
             raise _HttpStatusError(status)
         return Fetched(url=getattr(resp, "url", None) or current,

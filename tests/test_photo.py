@@ -149,3 +149,50 @@ def test_ingest_error_still_deletes_original(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         photo.ingest_upload(src, tmp_path / "job")
     assert not src.exists()
+
+
+def test_format_gate_runs_before_decode(tmp_path, monkeypatch):
+    bmp = tmp_path / "x.bmp"
+    Image.new("RGB", (40, 40)).save(bmp, format="BMP")
+    loaded = []
+    real = Image.Image.load
+
+    def spy(self):
+        loaded.append(self.format)
+        return real(self)
+
+    monkeypatch.setattr(Image.Image, "load", spy)
+    import pytest
+
+    with pytest.raises(photo.PhotoError):
+        photo.load_clean(bmp)
+    assert "BMP" not in loaded
+
+
+def test_decoder_pixel_limit_is_ours():
+    import PIL.Image
+
+    assert PIL.Image.MAX_IMAGE_PIXELS == photo.MAX_UPLOAD_PIXELS
+
+
+def test_pixel_gate_runs_before_decode(tmp_path, monkeypatch):
+    import pytest
+
+    class Huge:
+        format = "JPEG"
+        size = (20000, 20000)
+
+        def load(self):
+            raise AssertionError("decode must not run past the pixel gate")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("PIL.Image.open", lambda *a, **k: Huge())
+    (tmp_path / "huge.jpg").write_bytes(b"\xff\xd8fake")
+    with pytest.raises(photo.PhotoError) as excinfo:
+        photo.load_clean(tmp_path / "huge.jpg")
+    assert "pixels" in str(excinfo.value)

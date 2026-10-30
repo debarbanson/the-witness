@@ -22,10 +22,13 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB per upload
 MAX_UPLOAD_PIXELS = 100_000_000  # 100 MP covers phone panos
 ALLOWED_FORMATS = frozenset({"JPEG", "PNG", "WEBP"})
 
+Image.MAX_IMAGE_PIXELS = MAX_UPLOAD_PIXELS  # a bomb never decodes
+
 
 def load_clean(photo) -> Image.Image:
     """The photo upright in RGB on a fresh canvas: pixels only, an
-    empty info dict, nothing inherited from the file."""
+    empty info dict, nothing inherited from the file. The format and
+    pixel gates run on the header, before any decoder runs."""
     try:
         data = Path(photo).read_bytes()
     except OSError as exc:
@@ -33,16 +36,19 @@ def load_clean(photo) -> Image.Image:
     if len(data) > MAX_UPLOAD_BYTES:
         raise PhotoError(f"upload too large ({len(data)} bytes)")
     try:
-        with Image.open(io.BytesIO(data)) as img:
+        with Image.open(io.BytesIO(data), formats=tuple(ALLOWED_FORMATS)) as img:
+            size = img.size
+            if size[0] * size[1] > MAX_UPLOAD_PIXELS:
+                raise PhotoError(
+                    f"upload too many pixels ({size[0]}x{size[1]})")
             img.load()
-            found, size = img.format, img.size
             upright = ImageOps.exif_transpose(img).convert("RGB")
+    except PhotoError:
+        raise
+    except Image.UnidentifiedImageError:
+        raise PhotoError("upload must be JPEG, PNG or WebP")
     except Exception as exc:
         raise PhotoError(f"unreadable upload: {exc.__class__.__name__}")
-    if found not in ALLOWED_FORMATS:
-        raise PhotoError(f"upload must be JPEG, PNG or WebP, not {found}")
-    if size[0] * size[1] > MAX_UPLOAD_PIXELS:
-        raise PhotoError(f"upload too many pixels ({size[0]}x{size[1]})")
     fresh = Image.new("RGB", upright.size)
     fresh.paste(upright)
     return fresh

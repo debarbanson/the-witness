@@ -319,3 +319,131 @@ def test_web_error_strips_query_strings():
     assert "nl.wikipedia.org" in str(excinfo.value)
     assert "ggscoord" not in str(excinfo.value)
     assert "52.15965" not in str(excinfo.value)
+
+
+def test_body_read_honours_the_total_deadline(monkeypatch):
+    import time
+
+    from witness import web
+
+    class Slow:
+        status_code = 200
+        headers = {}
+        url = "https://example.org/"
+
+        def iter_content(self, n):
+            for _ in range(4):
+                time.sleep(0.3)
+                yield b"x"
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(web, "assert_public_url", lambda url: None)
+    started = time.monotonic()
+    with pytest.raises(web.WebError) as excinfo:
+        web.fetch_public("https://example.org/", sender=lambda *a, **k: Slow(),
+                         total_timeout=0.1)
+    assert time.monotonic() - started < 1.0
+    assert "total time" in str(excinfo.value)
+
+
+def test_redirect_location_matches_case_insensitively(monkeypatch):
+    from witness import web
+
+    calls = []
+
+    class Redirect:
+        status_code = 302
+        headers = {"location": "/next"}
+
+        def close(self):
+            pass
+
+    class Final:
+        status_code = 200
+        headers = {}
+        url = "https://example.org/next"
+        content = b"done"
+
+        def close(self):
+            pass
+
+    def sender(url, **kwargs):
+        calls.append(url)
+        return Final() if url.endswith("/next") else Redirect()
+
+    monkeypatch.setattr(web, "assert_public_url", lambda url: None)
+    got = web.fetch_public("https://example.org/", sender=sender)
+    assert got.body == b"done"
+    assert calls == ["https://example.org/", "https://example.org/next"]
+
+
+def test_https_never_downgrades_to_http(monkeypatch):
+    from witness import web
+
+    class Redirect:
+        status_code = 302
+        headers = {"Location": "http://example.org/plain"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(web, "assert_public_url", lambda url: None)
+    with pytest.raises(web.WebError) as excinfo:
+        web.fetch_public("https://example.org/",
+                         sender=lambda *a, **k: Redirect())
+    assert "https to http" in str(excinfo.value)
+
+
+def test_post_body_never_resent_on_307_and_308(monkeypatch):
+    from witness import web
+
+    for status in (307, 308):
+        sent = []
+
+        class Redirect:
+            status_code = status
+            headers = {"Location": "https://example.org/other"}
+
+            def close(self):
+                pass
+
+        def sender(url, **kwargs):
+            sent.append((url, kwargs.get("data")))
+            return Redirect()
+
+        monkeypatch.setattr(web, "assert_public_url", lambda url: None)
+        with pytest.raises(web.WebError) as excinfo:
+            web.fetch_public("https://example.org/overpass", sender=sender,
+                             data=b"coords in the body")
+        assert "POST" in str(excinfo.value)
+        assert sent == [("https://example.org/overpass", b"coords in the body")]
+
+
+def test_get_redirect_307_is_followed_without_a_body(monkeypatch):
+    from witness import web
+
+    class Redirect:
+        status_code = 307
+        headers = {"Location": "/other"}
+
+        def close(self):
+            pass
+
+    class Final:
+        status_code = 200
+        headers = {}
+        url = "https://example.org/other"
+        content = b"done"
+
+        def close(self):
+            pass
+
+    def sender(url, **kwargs):
+        assert kwargs.get("data") is None
+        return Final() if url.endswith("/other") else Redirect()
+
+    monkeypatch.setattr(web, "assert_public_url", lambda url: None)
+    got = web.fetch_public("https://example.org/", sender=sender)
+    assert got.body == b"done"

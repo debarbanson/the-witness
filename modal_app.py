@@ -11,11 +11,19 @@ Volume, and a daily cron enforces the 24 h retention rule.
 Volume protocol: the web container commits before spawning the
 worker, the worker reloads on start and commits when done, and film
 asset reads reload first, so no container ever serves stale bytes.
+
+Deploy protocol: stop the app before each deploy (modal app stop),
+so the old ledger container never overlaps the new one; a Dict has
+no compare-and-set. The ledger schema version fails closed when a
+newer container meets an older record.
 """
 
+import os
 import threading
 
 import modal
+
+from witness.webapp import MAX_FILMS_PER_DAY, MAX_VISITOR_FILMS_PER_DAY
 
 EXAMPLES = [
     {"slug": "de-adriaan", "name": "De Adriaan, Haarlem",
@@ -27,8 +35,10 @@ EXAMPLES = [
 ]
 
 TRY_DAILY_CAP_USD = 5.0
-TRY_DAILY_FILMS = 10
-TRY_VISITOR_FILMS = 2
+TRY_DAILY_FILMS = MAX_FILMS_PER_DAY
+TRY_VISITOR_FILMS = MAX_VISITOR_FILMS_PER_DAY
+
+LEDGER_SCHEMA = 1
 
 _LEDGER_LOCK = threading.Lock()
 
@@ -54,6 +64,55 @@ store_dict = modal.Dict.from_name("witness-store", create_if_missing=True)
 ledger_dict = modal.Dict.from_name("witness-ledger", create_if_missing=True)
 
 
+def _apply_ledger_op(data, op):
+    """One ledger op on the loaded record. Pure and tested; the
+    function below only loads, locks and saves. Returns the record
+    and the answer. `extra` is a second visitor key under the same
+    per-visitor quota; the film is counted once."""
+    if data.get("schema", LEDGER_SCHEMA) != LEDGER_SCHEMA:
+        return data, {"ok": False, "error": "accounting corrupt"}
+    data.setdefault("schema", LEDGER_SCHEMA)
+    data.setdefault("total_usd", 0.0)
+    data.setdefault("reserved_usd", 0.0)
+    data.setdefault("calls", 0)
+    data.setdefault("films", 0)
+    data.setdefault("visitors", {})
+    kind = op.get("kind")
+    if kind == "reserve":
+        ceiling = float(op["ceiling_usd"])
+        cap = op.get("cap_usd")
+        if (cap is not None and data["total_usd"] + data["reserved_usd"]
+                + ceiling > cap):
+            return data, {"ok": False, "error": "cap"}
+        data["reserved_usd"] += ceiling
+    elif kind == "reconcile":
+        data["reserved_usd"] = max(
+            0.0, data["reserved_usd"] - float(op["ceiling_usd"]))
+        data["total_usd"] += float(op["actual_usd"])
+        data["calls"] += 1
+    elif kind == "admit":
+        daily, per_visitor = op.get("daily_films"), op.get("visitor_films")
+        keys = [op["visitor"]] + ([op["extra"]] if op.get("extra") else [])
+        if daily is not None and data["films"] >= daily:
+            return data, {"ok": False, "error": "daily quota"}
+        seen = data["visitors"]
+        if not isinstance(seen, dict):
+            return data, {"ok": False, "error": "accounting corrupt"}
+        for key in keys:
+            if (per_visitor is not None
+                    and seen.get(key, 0) >= per_visitor):
+                return data, {"ok": False, "error": "visitor quota"}
+        data["films"] += 1
+        for key in keys:
+            seen[key] = seen.get(key, 0) + 1
+    elif kind == "total":
+        pass
+    else:
+        return data, {"ok": False, "error": "unknown op"}
+    return data, {"ok": True, "total_usd": data["total_usd"],
+                  "reserved_usd": data["reserved_usd"]}
+
+
 @app.function(max_containers=1)
 def ledger_op(op):
     """The one budget authority: serialized read-modify-write on the
@@ -70,46 +129,14 @@ def ledger_op(op):
             return {"ok": False, "error": "accounting corrupt"}
         if not isinstance(data, dict):
             return {"ok": False, "error": "accounting corrupt"}
-        data.setdefault("total_usd", 0.0)
-        data.setdefault("reserved_usd", 0.0)
-        data.setdefault("calls", 0)
-        data.setdefault("films", 0)
-        data.setdefault("visitors", {})
-        kind = op.get("kind")
-        if kind == "reserve":
-            ceiling = float(op["ceiling_usd"])
-            cap = op.get("cap_usd")
-            if (cap is not None and data["total_usd"] + data["reserved_usd"]
-                    + ceiling > cap):
-                return {"ok": False, "error": "cap"}
-            data["reserved_usd"] += ceiling
-        elif kind == "reconcile":
-            data["reserved_usd"] = max(
-                0.0, data["reserved_usd"] - float(op["ceiling_usd"]))
-            data["total_usd"] += float(op["actual_usd"])
-            data["calls"] += 1
-        elif kind == "admit":
-            daily, per_visitor, visitor = (op.get("daily_films"),
-                                           op.get("visitor_films"),
-                                           op["visitor"])
-            if daily is not None and data["films"] >= daily:
-                return {"ok": False, "error": "daily quota"}
-            seen = data["visitors"]
-            if (per_visitor is not None
-                    and seen.get(visitor, 0) >= per_visitor):
-                return {"ok": False, "error": "visitor quota"}
-            data["films"] += 1
-            seen[visitor] = seen.get(visitor, 0) + 1
-        elif kind == "total":
-            pass
-        else:
-            return {"ok": False, "error": "unknown op"}
+        data, answer = _apply_ledger_op(data, op)
+        if not answer.get("ok"):
+            return answer
         try:
             ledger_dict[name] = json.dumps(data)
         except OSError:
             return {"ok": False, "error": "accounting unavailable"}
-        return {"ok": True, "total_usd": data["total_usd"],
-                "reserved_usd": data["reserved_usd"]}
+        return answer
 
 
 class ModalAuthority:
@@ -146,8 +173,8 @@ class ModalAuthority:
                     "ceiling_usd": ticket.ceiling_usd,
                     "actual_usd": actual_usd})
 
-    def admit(self, visitor):
-        self._call({"kind": "admit", "visitor": visitor,
+    def admit(self, visitor, extra=None):
+        self._call({"kind": "admit", "visitor": visitor, "extra": extra,
                     "daily_films": self.daily_films,
                     "visitor_films": self.visitor_films})
 
@@ -159,112 +186,212 @@ class ModalAuthority:
 
 
 class DictStore:
-    """MemoryStore protocol over a Modal Dict. No locations, no places."""
+    """MemoryStore protocol over a Modal Dict. No locations, no places.
+
+    One key per field: the worker's progress writes can never clobber
+    the web container's cancel flag or decision, and back. A single
+    Dict put is the atomic unit; whole-record read-modify-write is
+    gone. Appended events can still race each other (two workers
+    never share a job, so only a retry overlaps), losing at most a
+    progress line, never a flag.
+    """
+
+    _FIELDS = ("meta", "status", "events", "confirm", "decision",
+               "cancel", "result", "ended", "poll")
 
     def __init__(self, handle=None):
         self._dict = handle if handle is not None else store_dict
 
-    def _job(self, job_id):
+    def _key(self, job_id, field):
+        return f"{job_id}:{field}"
+
+    def _meta(self, job_id):
         try:
-            return dict(self._dict[job_id])
+            return dict(self._dict[self._key(job_id, "meta")])
         except KeyError:
             raise KeyError(job_id)
 
-    def _save(self, job_id, job):
-        self._dict[job_id] = job
+    def _field(self, job_id, field, default):
+        try:
+            return self._dict[self._key(job_id, field)]
+        except KeyError:
+            return default
 
     def create_job(self, job_id, record):
-        self._dict[job_id] = record
+        meta = {key: record.get(key) for key in
+                ("vid", "vkey", "token", "job_dir", "started_at")}
+        self._dict[self._key(job_id, "meta")] = meta
+        self._dict[self._key(job_id, "status")] = record.get("status",
+                                                             "started")
+        self._dict[self._key(job_id, "events")] = list(
+            record.get("events", []))
+        self._dict[self._key(job_id, "confirm")] = record.get("confirm")
+        self._dict[self._key(job_id, "decision")] = record.get("decision")
+        self._dict[self._key(job_id, "cancel")] = bool(
+            record.get("cancel", False))
+        self._dict[self._key(job_id, "result")] = record.get("result")
+        self._dict[self._key(job_id, "ended")] = record.get("ended_at")
+        self._dict[self._key(job_id, "poll")] = record.get(
+            "last_poll", record.get("started_at", 0.0))
 
     def get_job(self, job_id):
-        return self._job(job_id)
+        meta = self._meta(job_id)
+        return {"vid": meta.get("vid"), "vkey": meta.get("vkey"),
+                "token": meta.get("token"), "job_dir": meta.get("job_dir"),
+                "started_at": meta.get("started_at", 0.0),
+                "status": self._field(job_id, "status", "started"),
+                "events": self._field(job_id, "events", []),
+                "confirm": self._field(job_id, "confirm", None),
+                "decision": self._field(job_id, "decision", None),
+                "cancel": self._field(job_id, "cancel", False),
+                "result": self._field(job_id, "result", None),
+                "ended_at": self._field(job_id, "ended", None),
+                "last_poll": self._field(job_id, "poll",
+                                          meta.get("started_at", 0.0))}
 
     def set_status(self, job_id, status):
-        job = self._job(job_id)
-        job["status"] = status
-        self._save(job_id, job)
+        self._meta(job_id)
+        self._dict[self._key(job_id, "status")] = status
 
     def append_event(self, job_id, event):
-        job = self._job(job_id)
-        job["events"] = job["events"] + [event]
-        self._save(job_id, job)
+        self._meta(job_id)
+        key = self._key(job_id, "events")
+        try:
+            events = list(self._dict[key])
+        except KeyError:
+            events = []
+        self._dict[key] = events + [event]
 
     def set_confirm(self, job_id, confirm):
-        job = self._job(job_id)
-        job["confirm"] = confirm
+        self._meta(job_id)
+        self._dict[self._key(job_id, "confirm")] = confirm
         if confirm is not None:
-            job["status"] = "confirming"
-        self._save(job_id, job)
+            self._dict[self._key(job_id, "status")] = "confirming"
 
     def get_decision(self, job_id):
-        return self._job(job_id)["decision"]
+        self._meta(job_id)
+        return self._field(job_id, "decision", None)
 
     def set_decision(self, job_id, confirm):
-        job = self._job(job_id)
-        job["decision"] = confirm
-        self._save(job_id, job)
+        self._meta(job_id)
+        self._dict[self._key(job_id, "decision")] = confirm
 
     def set_cancel(self, job_id):
-        job = self._job(job_id)
-        job["cancel"] = True
-        if job["status"] in ("started", "confirming", "working"):
-            job["status"] = "cancelled"
-        self._save(job_id, job)
-
-    def is_cancelled(self, job_id):
-        return self._job(job_id)["cancel"]
-
-    def finish_job(self, job_id, result):
         import time as _time
 
-        job = self._job(job_id)
-        job["status"] = "done"
-        job["result"] = result
-        job["ended_at"] = result.get("ended_at") or _time.time()
-        self._save(job_id, job)
+        self._meta(job_id)
+        self._dict[self._key(job_id, "cancel")] = True
+        if self._field(job_id, "ended", None) is None:
+            self._dict[self._key(job_id, "ended")] = _time.time()
+        if self._field(job_id, "status", "started") in (
+                "started", "confirming", "working"):
+            self._dict[self._key(job_id, "status")] = "cancelled"
+
+    def is_cancelled(self, job_id):
+        self._meta(job_id)
+        return self._field(job_id, "cancel", False)
+
+    def touch(self, job_id):
+        import time as _time
+
+        self._meta(job_id)
+        self._dict[self._key(job_id, "poll")] = _time.time()
+
+    def last_poll(self, job_id):
+        meta = self._meta(job_id)
+        return self._field(job_id, "poll", meta.get("started_at", 0.0))
+
+    def end_job(self, job_id, status, result):
+        import time as _time
+
+        self._meta(job_id)
+        self._dict[self._key(job_id, "status")] = status
+        self._dict[self._key(job_id, "result")] = result
+        self._dict[self._key(job_id, "ended")] = (
+            result.get("ended_at") or _time.time())
+
+    def finish_job(self, job_id, result):
+        self.end_job(job_id, "done", result)
 
     def drop_job(self, job_id):
-        try:
-            del self._dict[job_id]
-        except KeyError:
-            pass
+        for field in self._FIELDS:
+            try:
+                del self._dict[self._key(job_id, field)]
+            except KeyError:
+                pass
 
     def job_ids(self):
-        return list(self._dict.keys())
+        return sorted(key[:-5] for key in self._dict.keys()
+                      if key.endswith(":meta"))
 
 
 def _worker_store():
     return DictStore(modal.Dict.from_name("witness-store"))
 
 
+def _contact():
+    """The page's contact, from the secret. Refusing to start without
+    a real address: the notice names this contact."""
+    try:
+        return os.environ["WITNESS_CONTACT"]
+    except KeyError:
+        raise RuntimeError("WITNESS_CONTACT is not set: the page needs "
+                           "a real contact before it goes live")
+
+
+def _watch_job(store, job_id, control, stop, poll_s=2.0, heartbeat_s=120,
+               now=None):
+    """Cancel the job when the visitor cancels or the tab goes quiet:
+    no poll for `heartbeat_s` seconds means a closed tab."""
+    import time as _time
+
+    tick = now or _time.time
+
+    def poll():
+        while not stop.wait(poll_s):
+            try:
+                if store.is_cancelled(job_id):
+                    control.cancel()
+                    return
+                if tick() - store.last_poll(job_id) > heartbeat_s:
+                    control.cancel()
+                    return
+            except KeyError:
+                return
+
+    threading.Thread(target=poll, daemon=True).start()
+
+
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume},
              timeout=1800)
-def run_film(spec):
+def run_film(ref):
     """One Try-your-own film through the tested runner; a closed tab
-    (or DELETE) cancels through the job control."""
-    import threading
-
-    from witness.webfilm import run_web_film
+    (or DELETE) cancels through the job control. `ref` carries only
+    the job id and folder: the place and location stay in the job's
+    private spec file, never in spawn arguments or logs."""
+    from witness.webfilm import load_spec, run_web_film
 
     jobs_volume.reload()
-    job_id = spec["job_id"]
+    job_id = ref["job_id"]
     store = _worker_store()
+    try:
+        spec = load_spec(ref["job_dir"])
+    except (OSError, ValueError) as exc:
+        try:
+            store.end_job(
+                job_id, "failed",
+                {"message": f"broken job spec: {exc.__class__.__name__}"})
+        except KeyError:
+            pass
+        jobs_volume.commit()
+        return {"status": "failed"}
     authority = ModalAuthority(cap_usd=TRY_DAILY_CAP_USD,
                                daily_films=TRY_DAILY_FILMS,
                                visitor_films=TRY_VISITOR_FILMS)
     stop = threading.Event()
 
     def watch_cancel(control):
-        def poll():
-            while not stop.wait(2.0):
-                try:
-                    if store.is_cancelled(job_id):
-                        control.cancel()
-                        return
-                except KeyError:
-                    return
-
-        threading.Thread(target=poll, daemon=True).start()
+        _watch_job(store, job_id, control, stop)
 
     try:
         outcome = run_web_film({**spec, "on_cancel": watch_cancel}, store,
@@ -278,37 +405,39 @@ def run_film(spec):
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume},
              schedule=modal.Period(days=1))
 def prune_daily():
-    """Enforce the 24 h retention rule across job files and records."""
+    """Enforce the 24 h retention rule across job files and records,
+    and sweep job folders the store no longer knows."""
     import time as _time
 
-    from witness.webapp import prune_jobs
+    from witness.webapp import prune_jobs, sweep_job_dirs
 
     jobs_volume.reload()
-    pruned = prune_jobs(_worker_store(), _time.time())
+    store = _worker_store()
+    pruned = prune_jobs(store, _time.time())
+    swept = sweep_job_dirs(store, "/jobs", _time.time())
     jobs_volume.commit()
-    return {"pruned": pruned}
-
-
-CONTACT = "the studio behind this demo (contact on the hackathon page)"
+    return {"pruned": pruned, "swept": swept}
 
 
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume})
 @modal.asgi_app()
 def web():
     """The private page: examples plus Try your own."""
-    import os
-
     from witness.webapp import WebDeps, create_app
 
-    def spawn(spec):
+    def spawn(ref):
         jobs_volume.commit()
-        run_film.spawn(spec)
+        run_film.spawn(ref)
 
     app = create_app(WebDeps(
-        store=DictStore(), authority=None, runner=spawn,
+        store=DictStore(),
+        authority=ModalAuthority(cap_usd=TRY_DAILY_CAP_USD,
+                                 daily_films=TRY_DAILY_FILMS,
+                                 visitor_films=TRY_VISITOR_FILMS),
+        runner=spawn,
         jobs_root="/jobs", examples_root="/app/examples",
         examples=[{"slug": ex["slug"], "name": ex["name"]} for ex in EXAMPLES],
-        contact=os.environ.get("WITNESS_CONTACT", CONTACT),
+        contact=_contact(),
         secure_cookies=True))
 
     volume = jobs_volume

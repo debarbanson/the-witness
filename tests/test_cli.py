@@ -888,7 +888,10 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "opened in 1850",
+                    "quote": "The mill opened in 1850."}],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
@@ -896,7 +899,10 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
              "caption_lines": [],
              "caption_sentence": {"text": "I opened my doors.",
                                  "claim_year": 1850,
-                                 "claim_url": "https://a.example/x"}},
+                                 "claim_url": "https://a.example/x",
+                                 "evidence": {"claim": "opened in 1850",
+                                              "url": "https://a.example/x",
+                                              "quote": "The mill opened in 1850."}}},
         ],
         "timeline": [], "timings": {}}))
     photo = tmp_path / "photo.jpg"
@@ -924,6 +930,55 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     assert film["scenes"][0]["caption"][0] == "1850"
 
 
+def test_cmd_render_reports_refused_scenes(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+    from witness import segment as segment_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "red").save(buf, "PNG")
+    (era_dir / "1850.png").write_bytes(buf.getvalue())
+    (out_dir / "paint_parallel.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "opened in 1850",
+                    "quote": "The mill opened in 1850."}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(buf.getvalue())
+    cutout = segment_module.Cutout(
+        (0, 0, 8, 8), 0.5, Image.new("L", (16, 24)),
+        Image.new("RGBA", (16, 24), (1, 2, 3, 255)))
+
+    code = cli_module.cmd_render(
+        "q1-test", str(photo), subject="mill",
+        era_dir="eras_parallel", photo_credit="me",
+        segment_call=lambda call_sam, path, subject: cutout)
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "1850" in out and "refused" in out
+    film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert film["scenes"] == []
+
+
 def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
     import json
     from PIL import Image
@@ -938,7 +993,10 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1}]}))
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "opened in 1850",
+                    "quote": "The mill opened in 1850."}],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
@@ -946,7 +1004,10 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
              "caption_lines": [],
              "caption_sentence": {"text": "I opened my doors.",
                                  "claim_year": 1850,
-                                 "claim_url": "https://a.example/x"}},
+                                 "claim_url": "https://a.example/x",
+                                 "evidence": {"claim": "opened in 1850",
+                                              "url": "https://a.example/x",
+                                              "quote": "The mill opened in 1850."}}},
         ],
         "timeline": [], "timings": {}}))
     photo = tmp_path / "photo.png"
@@ -1342,7 +1403,10 @@ def _render_fixture(tmp_path, slug="q1-test", root=None):
     Image.new("RGB", (16, 24), "red").save(era_dir / "1850.png")
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "opened in 1850",
+                    "quote": "The mill opened in 1850."}],
         "scenes": [
             {"from_year": 1850, "date_label": "1850",
              "state": {"condition": "standing", "degree": "total",
@@ -1350,7 +1414,10 @@ def _render_fixture(tmp_path, slug="q1-test", root=None):
              "caption_lines": [],
              "caption_sentence": {"text": "I opened my doors.",
                                  "claim_year": 1850,
-                                 "claim_url": "https://a.example/x"}},
+                                 "claim_url": "https://a.example/x",
+                                 "evidence": {"claim": "opened in 1850",
+                                              "url": "https://a.example/x",
+                                              "quote": "The mill opened in 1850."}}},
         ],
         "timeline": [], "timings": {}}))
     photo = tmp_path / "photo.jpg"
@@ -1957,7 +2024,10 @@ def test_cmd_captions_writes_sentence_and_skips_claimless(tmp_path, monkeypatch,
     first, second = saved["scenes"]
     assert first["caption_sentence"] == {
         "text": "I opened my doors to the town.",
-        "claim_year": 1779, "claim_url": "https://a.example/x"}
+        "claim_year": 1779, "claim_url": "https://a.example/x",
+        "evidence": {"claim": "opened in 1779",
+                     "url": "https://a.example/x",
+                     "quote": "The mill opened in 1779."}}
     assert "caption_sentence" not in second
 
 

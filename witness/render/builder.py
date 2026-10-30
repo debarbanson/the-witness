@@ -16,12 +16,32 @@ TODAY_S = 5
 END_S = 6
 
 
-def filmable(scene) -> bool:
-    """A scene reaches the film only with a written sentence from its
-    own verified claim. No sentence, or a sentence without a claim,
-    and the scene is dropped; there is no filler line."""
+def filmable(scene, claims) -> bool:
+    """A scene reaches the film only with a written sentence pinned
+    to immutable evidence (claim, URL, quote) that still matches a
+    supported kept claim. Anything else is refused; there is no
+    filler line."""
+    return refusal_reason(scene, claims) is None
+
+
+def refusal_reason(scene, claims) -> str | None:
+    """Why a scene cannot reach the film, or None when it can. A
+    caption whose claim changed or lost support is invalidated."""
     stored = scene.get("caption_sentence") or {}
-    return bool(stored.get("text")) and stored.get("claim_year") is not None
+    if not stored.get("text") or stored.get("claim_year") is None:
+        return "no written sentence from its own claim"
+    evidence = stored.get("evidence") or {}
+    if not evidence.get("claim") or not evidence.get("url") or not evidence.get("quote"):
+        return "no evidence reference"
+    for claim in claims:
+        if (claim.get("year") == stored.get("claim_year")
+                and claim.get("url") == evidence["url"]):
+            if claim.get("verdict") != "supported":
+                return "its claim is no longer supported"
+            if claim.get("quote") != evidence["quote"]:
+                return "its claim changed since the caption was written"
+            return None
+    return "its claim is gone from the research"
 
 
 def caption_for(scene):
@@ -188,12 +208,12 @@ def kept_layers(layers_root, era_files) -> dict:
     return kept
 
 
-def build_timeline(scenes, images, claims=()) -> list:
+def build_timeline(scenes, images, claims) -> list:
     """Contiguous segments: title, anchor, one era per painting, today, end."""
     plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
     plan.append({"kind": "anchor", "start": TITLE_S, "end": TITLE_S + ANCHOR_S})
     eras = [s for s in dated(scenes)
-            if str(s["from_year"]) in images and filmable(s)]
+            if str(s["from_year"]) in images and filmable(s, claims)]
     t = TITLE_S + ANCHOR_S
     for position, scene in enumerate(eras):
         year = scene["from_year"]
@@ -268,7 +288,7 @@ def _build_film(film_dir, research, images, photo, photo_credit, layers,
     film_scenes = []
     for scene in scenes:
         key = str(scene["from_year"])
-        if key not in images or not filmable(scene):
+        if key not in images or not filmable(scene, claims):
             continue
         stamp, sentence = caption_for(scene)
         stored = scene.get("caption_sentence") or {}
@@ -288,7 +308,7 @@ def _build_film(film_dir, research, images, photo, photo_credit, layers,
     if research.get("timings", {}).get("identify_steps", {}).get("overpass_s") is not None:
         attribution.append("© OpenStreetMap contributors")
     painted = [s for s in scenes
-               if str(s["from_year"]) in images and filmable(s)]
+               if str(s["from_year"]) in images and filmable(s, claims)]
     last = painted[-1] if painted else {"from_year": "today", "state": {}}
     today_line, today_sub = today_card(photo_year, own_photo, last, claims)
     first = (research.get("scenes", []) or [{}])[0]

@@ -18,15 +18,28 @@ def scene(year, condition="standing", description="", lines=(), sentence=None,
         made["caption_sentence"] = {
             "text": sentence,
             "claim_year": year if claim_year is None else claim_year,
-            "claim_url": claim_url}
+            "claim_url": claim_url,
+            "evidence": {"claim": f"something happened in {year}",
+                         "url": claim_url,
+                         "quote": f"It happened in {year}."}}
     return made
 
 
+def claims_for(scenes):
+    return [{"year": s["caption_sentence"]["claim_year"],
+             "url": s["caption_sentence"]["claim_url"],
+             "verdict": "supported",
+             "claim": s["caption_sentence"]["evidence"]["claim"],
+             "quote": s["caption_sentence"]["evidence"]["quote"]}
+            for s in scenes if "caption_sentence" in s]
+
+
 def test_timeline_gives_every_part_its_seconds():
+    scenes = [scene(1779, sentence="I opened."),
+              scene(1865, sentence="I ground.")]
     plan = builder.build_timeline(
-        [scene(1779, sentence="I opened."),
-         scene(1865, sentence="I ground.")],
-        {"1779": "e/1779.png", "1865": "e/1865.png"})
+        scenes, {"1779": "e/1779.png", "1865": "e/1865.png"},
+        claims_for(scenes))
     kinds = [(seg["kind"], seg["start"], seg["end"]) for seg in plan]
     assert kinds[0][0] == "title" and kinds[0][1] == 0
     assert kinds[1][0] == "anchor"
@@ -39,17 +52,19 @@ def test_timeline_gives_every_part_its_seconds():
 
 
 def test_timeline_skips_eras_without_paintings():
+    scenes = [scene(1779, sentence="I opened."),
+              scene(1865, sentence="I ground.")]
     plan = builder.build_timeline(
-        [scene(1779, sentence="I opened."), scene(1865, sentence="I ground.")],
-        {"1865": "e/1865.png"})
+        scenes, {"1865": "e/1865.png"}, claims_for(scenes))
     eras = [seg for seg in plan if seg["kind"] == "era"]
     assert [seg["year"] for seg in eras] == [1865]
 
 
 def test_timeline_skips_eras_without_written_sentences():
+    scenes = [scene(1779, sentence="I opened."), scene(1865)]
     plan = builder.build_timeline(
-        [scene(1779, sentence="I opened."), scene(1865)],
-        {"1779": "e/1779.png", "1865": "e/1865.png"})
+        scenes, {"1779": "e/1779.png", "1865": "e/1865.png"},
+        claims_for(scenes))
     eras = [seg for seg in plan if seg["kind"] == "era"]
     assert [seg["year"] for seg in eras] == [1779]
 
@@ -61,9 +76,10 @@ def age_scene():
 
 
 def test_timeline_never_films_an_age_range():
+    scenes = [age_scene(), scene(1790, sentence="I was renamed.")]
     plan = builder.build_timeline(
-        [age_scene(), scene(1790, sentence="I was renamed.")],
-        {"1026": "e/1026.png", "1790": "e/1790.png"})
+        scenes, {"1026": "e/1026.png", "1790": "e/1790.png"},
+        claims_for(scenes))
     eras = [seg for seg in plan if seg["kind"] == "era"]
     assert [seg["year"] for seg in eras] == [1790]
 
@@ -77,10 +93,11 @@ def test_anchor_card_for_age_range_and_for_year():
 
 
 def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
+    scenes = [age_scene(), scene(1790, sentence="I was renamed.")]
     research = {
         "object": {"name": "Oak", "qid": "Q1", "lang": "en"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [age_scene(), scene(1790, sentence="I was renamed.")],
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research,
@@ -107,8 +124,42 @@ def test_caption_is_a_date_stamp_and_one_sentence():
 def test_caption_without_sentence_is_empty():
     stamp, sentence = builder.caption_for(scene(1779))
     assert (stamp, sentence) == ("1779", "")
-    assert builder.filmable(scene(1779)) is False
-    assert builder.filmable(scene(1779, sentence="I opened.")) is True
+    assert builder.filmable(scene(1779), []) is False
+    assert builder.filmable(scene(1779, sentence="I opened."), []) is False
+
+
+def kept_claim(year=1779, url="https://a.example/x",
+               quote="The mill opened in 1779 after years of work."):
+    return {"year": year, "url": url, "verdict": "supported",
+            "claim": f"something happened in {year}", "quote": quote}
+
+
+def test_filmable_needs_an_evidence_reference():
+    made = scene(1779, sentence="I opened.")
+    del made["caption_sentence"]["evidence"]
+    assert builder.filmable(made, [kept_claim()]) is False
+
+
+def test_filmable_accepts_a_matching_supported_claim():
+    made = scene(1779, sentence="I opened.")
+    made["caption_sentence"]["evidence"] = {
+        "claim": "something happened in 1779",
+        "url": "https://a.example/x",
+        "quote": "The mill opened in 1779 after years of work."}
+    assert builder.filmable(made, [kept_claim()]) is True
+
+
+def test_filmable_refuses_a_changed_claim():
+    made = scene(1779, sentence="I opened.")
+    made["caption_sentence"]["evidence"] = {
+        "claim": "something happened in 1779",
+        "url": "https://a.example/x",
+        "quote": "The mill opened in 1779 after years of work."}
+    changed = kept_claim(quote="The mill opened in 1780 after years of work.")
+    assert builder.filmable(made, [changed]) is False
+    dropped = kept_claim()
+    dropped["verdict"] = "unsupported"
+    assert builder.filmable(made, [dropped]) is False
 
 
 def test_source_site_names_domain():
@@ -194,13 +245,13 @@ def test_source_title_names_the_page():
 
 
 def test_film_json_carries_readiness_and_attribution(tmp_path):
+    scenes = [scene(1779, "standing", "opened in 1779",
+                    sentence="I opened my doors to the town.")]
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
         "outcome": {"outcome": "full_film"},
-        "claims": [{"url": "https://a.example/1", "quote": "q",
-                    "verdict": "supported"}],
-        "scenes": [scene(1779, "standing", "opened in 1779",
-                         sentence="I opened my doors to the town.")],
+        "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [],
         "timings": {"identify_steps": {"overpass_s": 5}},
         "stream": [{"event": "scene_painted", "year": 1779, "t": 54.4,
@@ -235,10 +286,11 @@ def test_film_carries_verified_kind_never_typed_place(tmp_path):
 
 
 def test_film_without_stream_events_is_ready_at_once(tmp_path):
+    scenes = [scene(1779, sentence="I opened my doors to the town.")]
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1779, sentence="I opened my doors to the town.")],
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
@@ -486,13 +538,14 @@ def test_caption_never_cuts_a_sentence():
 
 
 def test_film_captions_cite_own_year_claims(tmp_path):
+    scenes = [scene(1779, "standing", "opened",
+                    sentence="I opened my doors to the town."),
+              scene(1865, "standing", "millstones",
+                    sentence="My new millstones ground day and night.")]
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1779, "standing", "opened",
-                         sentence="I opened my doors to the town."),
-                   scene(1865, "standing", "millstones",
-                         sentence="My new millstones ground day and night.")],
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research,
@@ -538,12 +591,13 @@ def test_today_card_never_repeats_the_last_line():
 
 
 def test_film_drops_scenes_without_written_sentences(tmp_path):
+    scenes = [scene(1779, "standing", "opened",
+                    sentence="I opened my doors to the town."),
+              scene(1865, "standing", "millstones")]
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1779, "standing", "opened",
-                         sentence="I opened my doors to the town."),
-                   scene(1865, "standing", "millstones")],
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research,
@@ -596,11 +650,12 @@ def test_write_film_serves_jpeg_paintings(tmp_path):
 
     era = tmp_path / "1850.png"
     Image.new("RGB", (16, 24), "red").save(era)
+    scenes = [scene(1850, "standing", "opened in 1779",
+                    sentence="I opened my doors.")]
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1850, "standing", "opened in 1779",
-                         sentence="I opened my doors.")],
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1850": "era_1850.jpg"},

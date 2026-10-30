@@ -1498,9 +1498,12 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, out_dir="out"):
             failed.append(year)
             print(f"{year}: sentence failed verification")
             continue
-        scene["caption_sentence"] = {"text": out["sentence"],
-                                     "claim_year": year,
-                                     "claim_url": claim.get("url")}
+        scene["caption_sentence"] = {
+            "text": out["sentence"], "claim_year": year,
+            "claim_url": claim.get("url"),
+            "evidence": {"claim": claim.get("claim", ""),
+                         "url": claim.get("url"),
+                         "quote": claim.get("quote", "")}}
         print(f"{year}: {out['sentence']}"[:140])
     path.write_text(json.dumps(data, indent=1))
     if failed:
@@ -1663,6 +1666,13 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         print(f"no kept paintings in {manifest_path}")
         return 2
     images = {key: f"era_{key}.jpg" for key in era_files}
+    claims = data.get("claims", [])
+    for scene in render_builder.dated(data.get("scenes", [])):
+        if str(scene["from_year"]) not in images:
+            continue
+        reason = render_builder.refusal_reason(scene, claims)
+        if reason is not None:
+            print(f"{scene['from_year']}: refused ({reason})")
     layer_files = {}
     if layers_dir is not None and (out_dir / layers_dir).exists():
         layer_files = render_builder.kept_layers(out_dir / layers_dir, era_files)

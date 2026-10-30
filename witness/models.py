@@ -11,6 +11,7 @@ import contextlib
 import contextvars
 import json
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -151,6 +152,153 @@ SEARCH_BUDGET_PER_JOB = 200  # web searches; the job stops paying past this
 
 _CLIENTS = {}
 
+FAKE_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFElEQVR4nGM8ISfHgA0w"
+    "YRUdtBIA0MoBFD5jqJkAAAAASUVORK5CYII=")
+
+
+class _FakeSDKResponse(dict):
+    """A scripted provider answer shaped like an SDK response."""
+
+    @property
+    def usage(self):
+        return self.get("usage", {})
+
+    def model_dump_json(self):
+        return json.dumps({k: v for k, v in self.items()})
+
+
+def _fake_texts(value) -> str:
+    """All input text in a Responses call, for answer routing."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(_fake_texts(v) for v in value)
+    if isinstance(value, dict):
+        if value.get("type") == "input_text":
+            return str(value.get("text", ""))
+        return "\n".join(_fake_texts(v) for v in value.values())
+    return ""
+
+
+def _fake_message(text, annotations=()) -> dict:
+    return {"type": "message", "content": [
+        {"type": "output_text", "text": text,
+         "annotations": list(annotations)}]}
+
+
+_FAKE_URL = "https://en.wikipedia.org/wiki/Fake_Mill"
+
+
+def _fake_research_payload() -> dict:
+    events = [
+        {"year": 1850, "event": "built",
+         "detail": "The mill was built in 1850.", "visible_change": "",
+         "date_text": "1850"},
+        {"year": 1900, "event": "burnt",
+         "detail": "The mill burnt down in 1900.",
+         "visible_change": "roof lost", "date_text": "1900"},
+    ]
+    sources = [_FAKE_URL]
+    return {
+        "output": [
+            {"type": "web_search_call", "results": [
+                {"url": _FAKE_URL,
+                 "snippet": "The mill was built in 1850 and burnt in 1900."}]},
+            _fake_message(
+                json.dumps({"events": events, "sources": sources}),
+                [{"type": "url_citation", "url": _FAKE_URL,
+                  "title": "Fake Mill"}]),
+        ],
+        "usage": {"prompt_tokens": 500, "completion_tokens": 200,
+                  "total_tokens": 700},
+    }
+
+
+def _fake_vote_payload() -> dict:
+    quote = "The mill was built in 1850."
+    return {
+        "output": [_fake_message(json.dumps({
+            "verdict": "supported", "quote": quote, "url": _FAKE_URL,
+            "support": [{"url": _FAKE_URL, "supports": True,
+                         "quote": quote}]}))],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50,
+                  "total_tokens": 150},
+    }
+
+
+class _FakeResponses:
+    def __init__(self, spec):
+        self._spec = spec
+
+    def create(self, model=None, **kwargs):
+        import re as _re
+        import time as _time
+
+        _time.sleep(float(os.environ.get("WITNESS_FAKE_DELAY_S", "0")))
+        if model == "muse-image-1.0":
+            return _FakeSDKResponse({
+                "id": f"fake-{uuid.uuid4().hex[:8]}",
+                "output": [{"type": "image_generation_call",
+                            "result": FAKE_PNG_B64}],
+                "usage": {}})
+        if model == "sam-3.1":
+            return _FakeSDKResponse({"output": [_fake_message("no mask")]})
+        text = _fake_texts(kwargs.get("input", ""))
+        if "Which one does the photo show" in text:
+            first = _re.findall(r"^(\d+)\.\s+([^(\n]+)", text, _re.M)
+            pick = f"{first[0][0]} {first[0][1].strip()}" if first else "NONE"
+            return _FakeSDKResponse({
+                "output": [_fake_message(f"{pick}\nConfident.")],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 10,
+                          "total_tokens": 110}})
+        if "Second look" in text:
+            return _FakeSDKResponse({
+                "output": [_fake_message("YES\nIt shows the object.")]})
+        if "Did this change actually happen" in text:
+            return _FakeSDKResponse({
+                "output": [_fake_message('{"completed": true}')]})
+        if "Claim to check:" in text:
+            return _FakeSDKResponse(_fake_vote_payload())
+        if "MATCHES only if" in text:
+            return _FakeSDKResponse({
+                "output": [_fake_message("MATCHES whole.")]})
+        if "What happened to the" in text:
+            return _FakeSDKResponse(_fake_research_payload())
+        return _FakeSDKResponse({
+            "output": [_fake_message("I stood here through the years.")]})
+
+
+class _FakeChatCompletions:
+    def create(self, model=None, messages=(), **kwargs):
+        import time as _time
+
+        _time.sleep(float(os.environ.get("WITNESS_FAKE_DELAY_S", "0")))
+        return {"choices": [{"message": {
+            "content": json.dumps({
+                "verdict": "supported",
+                "quote": "The mill was built in 1850.", "url": _FAKE_URL,
+                "support": []}),
+            "reasoning_content": "fake reasoning"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50,
+                          "total_tokens": 150}}
+
+
+class _FakeChat:
+    completions = _FakeChatCompletions()
+
+
+class _FakeProviderClient:
+    """Scripted staging provider: deterministic answers, real metering.
+
+    Gated by WITNESS_FAKE_PROVIDER for the staging abuse tests. Spend,
+    reservations, quotas, cancellation and deadlines all run for real;
+    only the model answers are canned."""
+
+    def __init__(self, spec):
+        self.responses = _FakeResponses(spec)
+        self.chat = _FakeChat()
+
 
 def client_for(spec, environ=None):
     """One OpenAI-compatible client per spec and key, shared by every
@@ -158,6 +306,8 @@ def client_for(spec, environ=None):
     from openai import OpenAI
 
     env = environ if environ is not None else os.environ
+    if env.get("WITNESS_FAKE_PROVIDER"):
+        return _FakeProviderClient(spec)
     key = env.get(spec.key_name)
     if not key:
         raise ModelError(f"{spec.key_name} is not set (needed for {spec.provider}/{spec.model})")

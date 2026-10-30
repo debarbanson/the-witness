@@ -405,6 +405,71 @@ def test_respond_bounds_max_output_tokens():
     assert models.VERIFY.max_output_tokens > 0
 
 
+def test_fake_provider_needs_no_keys(monkeypatch):
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    client = models.client_for(models.VERIFY)
+    resp = client.responses.create(model=models.VERIFY.model,
+                                   input="Write one sentence.")
+    assert "years" in resp.model_dump_json()
+
+
+def test_fake_provider_answers_pick_and_second_look(monkeypatch):
+    import json
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    client = models.client_for(models.VISION)
+    prompt = ("Nearby known objects:\n1. Fake Mill (windmill)\n"
+              "Which one does the photo show?")
+    data = json.loads(client.responses.create(
+        model=models.VISION.model, input=prompt).model_dump_json())
+    assert data["output"][0]["content"][0]["text"].startswith("1 Fake Mill")
+    data = json.loads(client.responses.create(
+        model=models.VISION.model,
+        input="Second look at the same photo. Does it show X?").model_dump_json())
+    assert data["output"][0]["content"][0]["text"].startswith("YES")
+
+
+def test_fake_provider_research_returns_lifespan(monkeypatch):
+    import json
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    client = models.client_for(models.RESEARCH)
+    data = json.loads(client.responses.create(
+        model=models.RESEARCH.model, tools=[{"type": "web_search"}],
+        input="What happened to the mill itself over its lifetime?").model_dump_json())
+    message = [o for o in data["output"] if o["type"] == "message"][-1]
+    parsed = json.loads(message["content"][0]["text"])
+    assert {e["year"] for e in parsed["events"]} == {1850, 1900}
+    assert parsed["sources"]
+
+
+def test_fake_provider_votes_supported(monkeypatch):
+    import json
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    client = models.client_for(models.VERIFY)
+    data = json.loads(client.responses.create(
+        model=models.VERIFY.model,
+        input="Claim to check:\nBuilt in 1850.").model_dump_json())
+    parsed = json.loads(data["output"][0]["content"][0]["text"])
+    assert parsed["verdict"] == "supported"
+    assert parsed["quote"] and parsed["url"]
+
+
+def test_fake_provider_paints_a_png(monkeypatch):
+    import base64
+    import json
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    client = models.client_for(models.PAINT)
+    data = json.loads(client.responses.create(
+        model=models.PAINT.model, input="paint it").model_dump_json())
+    assert data["id"].startswith("fake-")
+    assert base64.b64decode(
+        data["output"][0]["result"])[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_every_paid_spec_carries_a_ceiling():
     for spec in (models.RESEARCH, models.VISION, models.VERIFY, models.PAINT,
                  models.SAM, models.VERIFY_OPEN):

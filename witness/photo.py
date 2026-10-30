@@ -78,6 +78,9 @@ def ingest_upload(src, job_dir):
             location = identify_module.read_location(src)
         except identify_module.NoGpsError:
             location = None
+        except Exception as exc:
+            raise PhotoError(
+                f"unreadable upload: {exc.__class__.__name__}")
         today = prepare_photo(src, job_dir)
     finally:
         src.unlink(missing_ok=True)

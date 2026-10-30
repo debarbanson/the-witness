@@ -16,7 +16,7 @@ from witness.verify import filmed, keywords_for_claim, select_paragraphs
 TARGET_CHARS = 80  # what the writer aims at; fits two caption lines
 MAX_CHARS = 110  # hard gate; beyond this the run fails, nothing is cut
 
-_FIRST_PERSON = re.compile(r"\bI\b|\b[Mm]y\b")
+_FIRST_PERSON = re.compile(r"\bI\b|\b[Mm]y\b|\b[Mm]e\b")
 _WRONG_VOICE = re.compile(r"\bI saw\b|\b[Ww]e\b|\b[Oo]ur\b|\b[Uu]s\b")
 _YEAR = re.compile(r"\b(\d{4})\b")
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July",
@@ -70,7 +70,7 @@ def sentence_prompt(detail, quote, year, stamp=None) -> str:
     return (
         "You are the object itself (the mill, the tree, the lighthouse). "
         "Write one first-person sentence for a museum film caption about "
-        f"the year {year}: I or my, never I saw, we or our. "
+        f"the year {year}: I, my or me, never I saw, we or our. "
         "For the object's parts or buildings, say my (my sails, my buildings). "
         "Cover the claim's main event only, in one short sentence; "
         "leave out secondary detail. Include an age only when the source "

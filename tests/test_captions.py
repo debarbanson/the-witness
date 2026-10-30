@@ -268,6 +268,7 @@ def test_write_sentence_rejects_borrowed_years_and_cutting():
 def test_sentence_ok_checks_person_year_and_length():
     assert captions.sentence_ok("I ground corn for the town.")
     assert captions.sentence_ok("My sails turned all day.")
+    assert captions.sentence_ok("They started to build me.")
     assert not captions.sentence_ok("The mill ground corn.")
     assert not captions.sentence_ok("I saw the mill burn.")
     assert not captions.sentence_ok("We put the first pole down.")

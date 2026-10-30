@@ -66,6 +66,29 @@ def test_claim_for_line_matches_year_and_url_first():
     assert children.claim_for_line(claims, 1900, "https://a.example/x") is None
 
 
+def test_child_caption_judges_against_rich_passages():
+    seen = {}
+    texts = {"https://a.example/mill":
+             "The old mill stood by the river for many years.\n\n"
+             "The mill was opened in 1779 after years of building work."}
+
+    def support(line, passages):
+        seen["passages"] = passages
+        return "supported"
+
+    out = children.child_caption(
+        rewrite_call=lambda adult, source, plain, gentle=False: "I opened long ago.",
+        support_call=support,
+        adult="opened in 1779",
+        source="The mill was opened in 1779.",
+        url="https://a.example/mill",
+        texts=texts)
+    assert out["verified"] is True
+    assert seen["passages"][0] == ("https://a.example/mill\n"
+                                   "The mill was opened in 1779.")
+    assert any("years of building work" in p for p in seen["passages"])
+
+
 def test_child_caption_judges_with_object_and_year_context():
     seen = {}
 

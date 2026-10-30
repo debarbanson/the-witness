@@ -107,6 +107,46 @@ def test_evidence_passages_carry_bound_quotes_with_urls():
                         "https://b.example/news\nOn the evening it burnt down."]
 
 
+def test_check_passages_add_year_paragraphs_to_the_bound_quote():
+    texts = {"https://a.example/mill":
+             "De Adriaan is a windmill in Haarlem with a long history.\n\n"
+             "De Adriaan was officially opened on May 19, 1779, grinding corn.\n\n"
+             "It ground daily for more than a century afterwards."}
+    passages = captions.check_passages(
+        claim(1779, url="https://a.example/mill",
+              quote="De Adriaan was officially opened on May 19, 1779."),
+        [], 1779, texts)
+    assert passages[0] == ("https://a.example/mill\n"
+                            "De Adriaan was officially opened on May 19, 1779.")
+    assert any("grinding corn" in p for p in passages)
+
+
+def test_check_passages_without_texts_is_the_bound_quote_only():
+    passages = captions.check_passages(
+        claim(1779, quote="The mill opened in 1779."), [], 1779, {})
+    assert passages == ["https://a.example/x\nThe mill opened in 1779."]
+
+
+def test_write_sentence_judges_against_rich_passages():
+    seen = {}
+    texts = {"https://a.example/x":
+             "The old mill stood by the river for many years.\n\n"
+             "The mill opened in 1779 after years of building work."}
+
+    def support(sentence, passages):
+        seen["passages"] = passages
+        return "supported"
+
+    out = captions.write_sentence(
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened.",
+        support_call=support,
+        claim=claim(1779, quote="The mill opened in 1779."), year=1779,
+        texts=texts)
+    assert out["verified"] is True
+    assert seen["passages"][0] == "https://a.example/x\nThe mill opened in 1779."
+    assert any("years of building work" in p for p in seen["passages"])
+
+
 def test_write_sentence_judges_with_object_and_year_context():
     seen = {}
 

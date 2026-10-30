@@ -85,7 +85,8 @@ def run_web_film(spec, store, authority, clock=None):
         outcome = result["result"].get("outcome")
         if outcome in ("full_film", "short_film"):
             progress("captions", {"slug": slug})
-            if cli.cmd_captions(slug, out_dir=spec["job_dir"]) == 2:
+            if cli.cmd_captions(slug, out_dir=spec["job_dir"],
+                                cache=knowledge) == 2:
                 return finish(
                     {"message": "Research is done but captions failed.",
                      "claims": result["kept"],
@@ -99,7 +100,8 @@ def run_web_film(spec, store, authority, clock=None):
                      "cost_usd": total_cost()}, "facts_only")
             audiences = "adult"
             progress("children", {"slug": slug})
-            if cli.cmd_children(slug, out_dir=spec["job_dir"]) == 0:
+            if cli.cmd_children(slug, out_dir=spec["job_dir"],
+                                cache=knowledge) == 0:
                 if cli.cmd_paint(slug, spec["photo"], mode="parallel",
                                  out_dir=spec["job_dir"],
                                  audience="child") == 0:

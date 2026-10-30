@@ -196,6 +196,41 @@ def test_cmd_children_judges_lines_with_object_context(tmp_path, monkeypatch):
     assert seen[0] == "In 1779, Mill: I opened long ago."
 
 
+def test_cmd_children_judges_against_cached_article_text(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+    from witness.cache import Cache
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    data = _caption_research()
+    data["scenes"][0]["caption_sentence"] = {
+        "text": "I opened my doors to the town.", "claim_year": 1779,
+        "claim_url": "https://rich-children.example/mill",
+        "evidence": {"claim": "opened in 1779",
+                     "url": "https://rich-children.example/mill",
+                     "quote": "The mill opened in 1779."}}
+    data["scenes"][0]["state"] = {"condition": "standing"}
+    (slug_dir / "research.json").write_text(json.dumps(data))
+    cache = Cache(tmp_path / "cache")
+    cache.put("https://rich-children.example/mill",
+              "The old mill stood by the river for many years.\n\n"
+              "The mill opened in 1779 after years of building work.")
+    seen = []
+
+    def support(line, passages):
+        seen.extend(passages)
+        return "supported"
+
+    code = cli_module.cmd_children(
+        "q1-test",
+        rewrite_call=lambda adult, source, plain, gentle=False: "I opened long ago.",
+        support_call=support, cache=cache)
+    assert code == 0
+    assert any("years of building work" in p for p in seen)
+
+
 def test_cmd_children_marks_heavy_scenes_gentle(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module
@@ -2765,6 +2800,35 @@ def test_cmd_captions_judges_sentences_with_object_context(tmp_path, monkeypatch
         support_call=support)
     assert code == 0
     assert seen == ["In 1779, Mill: I opened my doors."]
+
+
+def test_cmd_captions_judges_against_cached_article_text(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+    from witness.cache import Cache
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    data = _caption_research()
+    data["claims"][0]["url"] = "https://rich-captions.example/mill"
+    (slug_dir / "research.json").write_text(json.dumps(data))
+    cache = Cache(tmp_path / "cache")
+    cache.put("https://rich-captions.example/mill",
+              "The old mill stood by the river for many years.\n\n"
+              "The mill opened in 1779 after years of building work.")
+    seen = []
+
+    def support(sentence, passages):
+        seen.extend(passages)
+        return "supported"
+
+    code = cli_module.cmd_captions(
+        "q1-test",
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
+        support_call=support, cache=cache)
+    assert code == 0
+    assert any("years of building work" in p for p in seen)
 
 
 def test_cmd_captions_stops_cleanly_on_cap(tmp_path, monkeypatch, capsys):

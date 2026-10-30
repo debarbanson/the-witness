@@ -6,6 +6,8 @@ rewrite that fails is retried plainer once, else dropped. Model calls
 are injected, so tests run without live calls.
 """
 
+from witness.verify import keywords_for_claim, select_paragraphs
+
 
 GENTLE_CONDITIONS = frozenset({"damaged", "burnt", "ruin", "demolished"})
 
@@ -25,11 +27,20 @@ def rewrite_prompt(adult, source, gentle=False) -> str:
 
 
 def child_caption(rewrite_call, support_call, adult, source, url,
-                  gentle=False, year=0, object_name="") -> dict:
+                  gentle=False, year=0, object_name="", texts=None) -> dict:
     """Rewrite plus re-verification; plainer retry once, else drop.
     Every rewrite is checked again against the bound passage, judged
-    with its object and year like every other voice text."""
+    with its object and year like every other voice text. Fetched
+    article text adds the paragraphs research judged, when given."""
     passages = [f"{url}\n{source}"]
+    if texts:
+        keywords = keywords_for_claim(adult)
+        for para in select_paragraphs(texts.get(url) or "", year or None,
+                                      keywords, max_paras=3):
+            entry = f"{url}\n{para}"
+            if entry not in passages:
+                passages.append(entry)
+        passages = passages[:10]
     for attempt, plain in enumerate((False, True), 1):
         line = (rewrite_call(adult, source, plain, gentle) or "").strip()
         judged = (f"In {year}, {object_name}: {line}"

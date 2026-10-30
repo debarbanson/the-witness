@@ -1609,8 +1609,27 @@ def recheck_paintings(slug_dir, data, checker) -> list:
     return done
 
 
+def caption_texts(data, cache) -> dict:
+    """Fetched article text behind the claims and caption evidence,
+    cached and free: sentences are judged against the paragraphs
+    research judged, not bare quotes alone."""
+    urls = []
+    for claim in data.get("claims", []):
+        for url in [claim.get("url")] + list(claim.get("sources", []) or []):
+            if url and url not in urls:
+                urls.append(url)
+    for scene in data.get("scenes", []):
+        url = (scene.get("caption_sentence") or {}).get("evidence", {}).get("url")
+        if url and url not in urls:
+            urls.append(url)
+    texts, errors = verify.fetch_many(urls, cache=cache)
+    for url, error in errors.items():
+        print(f"fetch {url} failed ({error}); judging on bound quotes")
+    return texts
+
+
 def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
-                 out_dir="out"):
+                 out_dir="out", cache=None):
     """Line-2 sentences from each scene's own verified claim. Kept
     paintings older than their sentences are checked again, so every
     kept painting matches the caption it ships with."""
@@ -1622,6 +1641,7 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
     data = json.loads(path.read_text())
     rewrite = rewrite_call or caption_rewrite_respond
     support = support_call or caption_support_respond
+    texts = caption_texts(data, cache or Cache("out/cache"))
     assigned = captions.assign_claims(data.get("scenes", []),
                                       data.get("claims", []))
     failed = []
@@ -1639,7 +1659,8 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
             out = captions.write_sentence(
                 rewrite, support, claim, year, claims=data.get("claims", []),
                 stamp=scene.get("date_label", "") or "",
-                object_name=data.get("object", {}).get("name", ""))
+                object_name=data.get("object", {}).get("name", ""),
+                texts=texts)
         except models.SpendingCapExceeded as exc:
             path.write_text(json.dumps(data, indent=1))
             print(f"stopping: spending cap reached ({exc})")
@@ -1671,7 +1692,8 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
     return 0
 
 
-def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
+def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out",
+                 cache=None):
     """Children's captions next to the adult ones, re-verified or dropped."""
     out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
@@ -1681,6 +1703,7 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
     data = json.loads(path.read_text())
     rewrite = rewrite_call or child_rewrite_respond
     support = support_call or child_support_respond
+    texts = caption_texts(data, cache or Cache("out/cache"))
     verified = [c for c in data.get("claims", [])
                 if c.get("verdict") == "supported" and c.get("quote")]
     name = data.get("object", {}).get("name", "")
@@ -1694,7 +1717,8 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
                 out = children.child_caption(
                     rewrite, support, stored["text"], evidence["quote"],
                     evidence["url"], gentle=gentle,
-                    year=scene.get("from_year", 0), object_name=name)
+                    year=scene.get("from_year", 0), object_name=name,
+                    texts=texts)
             except models.SpendingCapExceeded as exc:
                 path.write_text(json.dumps(data, indent=1))
                 print(f"stopping: spending cap reached ({exc})")
@@ -1716,7 +1740,7 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
                 out = children.child_caption(rewrite, support, entry["line"], claim["quote"],
                                               claim.get("url", ""),
                                               year=entry.get("year", 0),
-                                              object_name=name)
+                                              object_name=name, texts=texts)
             except models.SpendingCapExceeded as exc:
                 path.write_text(json.dumps(data, indent=1))
                 print(f"stopping: spending cap reached ({exc})")
@@ -1731,7 +1755,7 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out"):
                                          state_claim["quote"],
                                          state_claim.get("url", ""),
                                          year=scene.get("from_year", 0),
-                                         object_name=name)
+                                         object_name=name, texts=texts)
             scene["child_state"] = out["line"]
             print(f"{scene['from_year']} state: {out['line'] or 'dropped'}"[:140])
         else:

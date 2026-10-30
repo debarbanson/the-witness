@@ -11,7 +11,7 @@ run without live calls.
 import re
 
 from witness import states
-from witness.verify import filmed
+from witness.verify import filmed, keywords_for_claim, select_paragraphs
 
 TARGET_CHARS = 80  # what the writer aims at; fits two caption lines
 MAX_CHARS = 110  # hard gate; beyond this the run fails, nothing is cut
@@ -145,8 +145,32 @@ def evidence_passages(assigned, claims, year) -> list:
     return passages
 
 
+def check_passages(claim, claims, year, texts, max_paras=3) -> list:
+    """Bound quotes plus the paragraphs that mention the claim's year
+    or key words, as research judged them: one sentence rarely holds
+    the object, the date and the event together."""
+    bound = evidence_passages(claim, claims, year)
+    if not texts:
+        return bound
+    keywords = keywords_for_claim(claim.get("claim", ""),
+                                  claim.get("event", ""))
+    urls = []
+    for passage in bound:
+        url = passage.split("\n", 1)[0]
+        if url not in urls:
+            urls.append(url)
+    rich = list(bound)
+    for url in urls:
+        for para in select_paragraphs(texts.get(url) or "", year, keywords,
+                                      max_paras=max_paras):
+            entry = f"{url}\n{para}"
+            if entry not in rich:
+                rich.append(entry)
+    return rich[:10]
+
+
 def write_sentence(rewrite_call, support_call, claim, year,
-                   claims=(), stamp="", object_name="") -> dict:
+                   claims=(), stamp="", object_name="", texts=None) -> dict:
     """Rewrite plus re-verification; shorter retry once, else failure.
 
     The writer sees the scene's other kept evidence with the main
@@ -161,7 +185,10 @@ def write_sentence(rewrite_call, support_call, claim, year,
               if text and text != main]
     source = main if not others else (
         f"{main}\n\nOther kept evidence:\n" + "\n".join(others))
-    passages = evidence_passages(claim, claims, year)
+    if texts is None:
+        passages = evidence_passages(claim, claims, year)
+    else:
+        passages = check_passages(claim, claims, year, texts)
     for attempt, plain in enumerate((False, True), 1):
         sentence = (rewrite_call(detail, source, year, plain, stamp)
                     or "").strip()

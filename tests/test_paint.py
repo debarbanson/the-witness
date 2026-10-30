@@ -207,6 +207,37 @@ def test_paint_scene_keeps_matching_painting():
     assert out["attempts"] == 1
 
 
+def test_child_prompt_keeps_state_in_picture_book_style():
+    made = scene(1850)
+    adult = paint.scene_prompt(made, "Mill", "Town")
+    child = paint.scene_prompt(made, "Mill", "Town", audience="child")
+    assert "picture-book" in child
+    assert "picture-book" not in adult
+    assert "The object then: The Mill stands standing" in child
+    assert "No text of any kind" in child
+
+
+def test_child_prompt_shows_no_frightening_scene():
+    burnt = scene(1932, condition="burnt", description="Only the base is left.")
+    prompt = paint.scene_prompt(burnt, "Mill", "Town", audience="child")
+    assert "no flames" in prompt and "no people in danger" in prompt
+    calm = paint.scene_prompt(scene(1850), "Mill", "Town", audience="child")
+    assert "no flames" not in calm
+    adult = paint.scene_prompt(burnt, "Mill", "Town")
+    assert "no flames" not in adult
+
+
+def test_scene_caption_reads_the_audience_sentence():
+    made = scene(1850)
+    made["caption_sentence"] = {"text": "I opened my doors.",
+                                "claim_year": 1850,
+                                "claim_url": "https://a.example/x",
+                                "child": {"text": "I opened long ago."}}
+    assert paint.scene_caption(made) == "I opened my doors."
+    assert paint.scene_caption(made, audience="child") == "I opened long ago."
+    assert paint.scene_caption(scene(1850), audience="child") == ""
+
+
 def test_paint_results_carry_the_checked_caption():
     def call(prompt, prev_id, photo_bytes=None):
         return {"image": b"img", "response_id": "r1"}

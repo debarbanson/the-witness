@@ -219,6 +219,97 @@ def test_child_rewrite_marks_gentle(monkeypatch):
     assert "gently" in seen["prompt"]
 
 
+def test_cmd_paint_child_writes_its_own_set(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
+    (slug_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "opened in 1850"}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x",
+                                 "child": {"text": "I opened long ago."}}},
+        ],
+    }))
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "grey").save(buf, "PNG")
+    png = buf.getvalue()
+    seen = {}
+
+    def call(prompt, prev_id, photo_bytes=None):
+        seen["prompt"] = prompt
+        return {"image": png, "response_id": "r1"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(tmp_path / "photo.jpg"), audience="child",
+        paint_call=call, check_call=lambda image, p: "MATCHES whole.",
+        photo_call=lambda photo_bytes, prompt: "summer")
+    assert code == 0
+    assert "picture-book" in seen["prompt"]
+    assert (slug_dir / "eras_parallel_child" / "1850.png").exists()
+    manifest = json.loads((slug_dir / "paint_parallel_child.json").read_text())
+    assert manifest["audience"] == "child"
+    assert manifest["eras"][0]["caption"] == "I opened long ago."
+
+
+def test_cmd_captions_rechecks_child_paintings_against_child_lines(
+        tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    era_dir = slug_dir / "eras_parallel_child"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "grey").save(buf, "PNG")
+    (era_dir / "1779.png").write_bytes(buf.getvalue())
+    data = _caption_research()
+    data["scenes"][0]["caption_sentence"] = {
+        "text": "I opened my doors.", "claim_year": 1779,
+        "claim_url": "https://a.example/x",
+        "evidence": {"claim": "opened in 1779",
+                     "url": "https://a.example/x",
+                     "quote": "The mill opened in 1779."},
+        "child": {"text": "I opened long ago."}}
+    (slug_dir / "research.json").write_text(json.dumps(data))
+    (slug_dir / "paint_parallel_child.json").write_text(json.dumps(
+        {"audience": "child",
+         "eras": [{"year": 1779, "verdict": "matches", "attempts": 1,
+                   "file": "eras_parallel_child/1779.png",
+                   "caption": "I opened my ancient doors."}]}))
+    checked = []
+
+    def check(image, prompt):
+        checked.append(prompt)
+        return "MATCHES whole mill."
+
+    code = cli_module.cmd_captions(
+        "q1-test",
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "I opened my doors.",
+        support_call=lambda sentence, passages: "supported",
+        check_call=check)
+    assert code == 0
+    assert len(checked) == 1
+    assert "I opened long ago." in checked[0]
+    manifest = json.loads((slug_dir / "paint_parallel_child.json").read_text())
+    assert manifest["eras"][0]["caption"] == "I opened long ago."
+
+
 def test_refresh_film_drops_partly_claims():
     from witness.cli import refresh_film
 

@@ -101,6 +101,7 @@ def main(argv=None):
     paint_cmd.add_argument("--mode", default="parallel", choices=("chain", "parallel"))
     paint_cmd.add_argument("--scenes", default=None)
     paint_cmd.add_argument("--tag", default=None)
+    paint_cmd.add_argument("--audience", default="adult", choices=("adult", "child"))
     args = parser.parse_args(argv)
     if args.command in ("identify", "research", "film"):
         if (args.lat is None) != (args.lon is None):
@@ -137,7 +138,7 @@ def main(argv=None):
     if args.command == "paint":
         return cmd_paint(args.slug, args.photo,
                          mode=args.mode, scenes=args.scenes, tag=args.tag,
-                         out_dir=args.out_dir)
+                         out_dir=args.out_dir, audience=args.audience)
     if args.command == "film":
         return cmd_film(args.photo, place=args.place, lang=args.lang,
                         yes=args.yes, no_cache=args.no_cache,
@@ -1276,7 +1277,7 @@ def check_respond(image_bytes, prompt):
 
 
 def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
-                       directives, prior_dirs, dropped):
+                       directives, prior_dirs, dropped, audience="adult"):
     """A dropped critical era first tries the newest kept painting of
     it from an earlier run; remains then get one calm aftermath try."""
     year = scene["from_year"]
@@ -1286,14 +1287,15 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
         if candidate.exists():
             prior.append((str(candidate), candidate.read_bytes()))
     try:
-        hit = paint.recover_scene(checker, scene, name, prior)
+        hit = paint.recover_scene(checker, scene, name, prior,
+                                  audience=audience)
     except Exception as exc:  # noqa: BLE001 - a dead check keeps the drop, not the crash
         return {**dropped,
                 "note": f"{dropped.get('note', '')} (recovery check failed: {exc})"}
     if hit is not None:
         print(f"{year}: recovered from {hit['source']}")
         return {"year": year, "image": hit["image"], "response_id": None,
-                "caption": paint.scene_caption(scene),
+                "caption": paint.scene_caption(scene, audience=audience),
                 "verdict": "recovered", "attempts": dropped["attempts"],
                 "note": f"recovered from {hit['source']}: {hit['note']}"}
     condition = (scene.get("state") or {}).get("condition")
@@ -1301,15 +1303,18 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
         print(f"{year}: trying the aftermath")
         return paint.paint_aftermath(
             call, checker, scene, name, municipality, photo_bytes,
-            season=directives["season"])
+            season=directives["season"], audience=audience)
     return dropped
 
 
 def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
-              paint_call=None, check_call=None, photo_call=None, out_dir="out"):
+              paint_call=None, check_call=None, photo_call=None, out_dir="out",
+              audience="adult"):
     """Paint an object's eras from its research, checked per era. The
     location in the prompts is the canonical municipality from the
-    research, never typed text."""
+    research, never typed text. The children run paints a second set
+    in picture-book style from the same anchor, checked against the
+    children's sentences."""
     out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
@@ -1340,11 +1345,12 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     if not eras:
         print("no paintable eras in research")
         return 2
+    hint = "run children first" if audience == "child" else "run captions first"
     for scene in eras:
-        if not paint.scene_caption(scene):
+        if not paint.scene_caption(scene, audience=audience):
             print(f"{scene['from_year']}: no caption sentence yet; "
                   f"the check cannot test caption agreement "
-                  f"(run captions first)")
+                  f"({hint})")
     call = paint_call or paint_respond
     checker = check_call or check_respond
     looker = photo_call or check_respond
@@ -1362,17 +1368,21 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         results = paint.paint_chain(call, photo_bytes, eras, name, municipality,
                                     check_call=checker, season=directives["season"],
                                     excluded=directives["excluded"],
-                                    claims=data.get("claims", []))
+                                    claims=data.get("claims", []),
+                                    audience=audience)
     else:
         results = paint.paint_parallel(call, photo_bytes, eras, name, municipality,
                                        check_call=checker, season=directives["season"],
                                        excluded=directives["excluded"],
-                                       claims=data.get("claims", []))
-    suffix = f"{mode}_{tag}" if tag else mode
+                                       claims=data.get("claims", []),
+                                       audience=audience)
+    base = f"{mode}_{tag}" if tag else mode
+    suffix = f"{base}_child" if audience == "child" else base
     era_dir = out_dir / f"eras_{suffix}"
     era_dir.mkdir(parents=True, exist_ok=True)
     prior_dirs = sorted(
-        (d for d in out_dir.glob("eras_*") if d != era_dir and d.is_dir()),
+        (d for d in out_dir.glob("eras_*") if d != era_dir and d.is_dir()
+         and (d.name.endswith("_child") == (audience == "child"))),
         key=lambda d: d.stat().st_mtime, reverse=True)
     manifest_path = out_dir / f"paint_{suffix}.json"
     entries = {}
@@ -1384,7 +1394,7 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         if result["image"] is None:
             result = recover_or_retry(call, checker, scene, name, municipality,
                                       photo_bytes, directives, prior_dirs,
-                                      result)
+                                      result, audience=audience)
         entry = {"year": year, "verdict": result["verdict"],
                  "attempts": result["attempts"],
                  "caption": result.get("caption", "")}
@@ -1406,6 +1416,7 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
                             str(era_dir / "contact.png"))
     manifest = {"slug": slug, "mode": mode, "object": name,
+                "audience": audience,
                 "paint_s": round(time.perf_counter() - started, 1),
                 "season": directives["season"],
                 "eras": [entries[y] for y in sorted(entries)]}
@@ -1502,22 +1513,27 @@ def recheck_paintings(slug_dir, data, checker) -> list:
     from witness import check as check_module
 
     name = data.get("object", {}).get("name", "")
-    sentences = {}
     state_of = {}
     for scene in data.get("scenes", []):
         year = scene.get("from_year")
         if not isinstance(year, int):
             continue
         state_of[year] = scene.get("state", {})
-        sentence = paint.scene_caption(scene)
-        if sentence:
-            sentences[year] = sentence
     done = []
     for manifest_path in sorted(Path(slug_dir).glob("paint_*.json")):
         try:
             manifest = json.loads(manifest_path.read_text())
         except (json.JSONDecodeError, OSError):
             continue
+        audience = manifest.get("audience", "adult")
+        sentences = {}
+        for scene in data.get("scenes", []):
+            year = scene.get("from_year")
+            if not isinstance(year, int):
+                continue
+            sentence = paint.scene_caption(scene, audience=audience)
+            if sentence:
+                sentences[year] = sentence
         changed = False
         for entry in manifest.get("eras", []):
             if entry.get("verdict") not in ("matches", "recovered"):

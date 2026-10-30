@@ -8,11 +8,19 @@ call is injected, so tests run without live calls.
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from witness import models
+from witness import children, models
 
 SIZE = "1024x1536"  # closest accepted portrait; returns 1280x1920, cropped later
 STYLE = (
     "Painterly historical illustration, soft daylight, muted period colours."
+)
+CHILD_STYLE = (
+    "Warm picture-book illustration for children, soft shapes, gentle "
+    "colours, same viewpoint and composition as the anchor photo."
+)
+GENTLE_SCENE = (
+    "Aftermath only: no flames, no smoke choking the sky, no people in "
+    "danger, no frightening details."
 )
 NO_TEXT = (
     "No text of any kind: no signs, dates, captions, signatures, "
@@ -88,7 +96,7 @@ def describe_state(object_name, state) -> str:
 
 
 def scene_prompt(scene, object_name, municipality, season=None, excluded=(),
-                 claims=()) -> str:
+                 claims=(), audience="adult") -> str:
     """One era prompt: verified state plus verified surroundings, no
     lettering, one season unless the state governs the canopy, anchor
     elements that postdate the era kept out."""
@@ -110,14 +118,17 @@ def scene_prompt(scene, object_name, municipality, season=None, excluded=(),
             f"everyday life around the {municipality} {object_name}."
             if municipality else f"everyday life around the {object_name}.")
     where = f"in {municipality} " if municipality else ""
+    style = CHILD_STYLE if audience == "child" else STYLE
     parts = [
         f"Repaint this exact view {where}in the year {year}, same "
         f"viewpoint, composition and painted style as the anchor photo. ",
         f"The object then: {state_text} ",
         f"Surroundings: {surroundings} ",
-        f"Style: {STYLE} ",
+        f"Style: {style} ",
         f"{NO_TEXT} ",
     ]
+    if audience == "child" and state.get("condition") in children.GENTLE_CONDITIONS:
+        parts.append(f"{GENTLE_SCENE} ")
     if season in SEASON_SENTENCES and not _governs_canopy(state):
         parts.append(f"{SEASON_SENTENCES[season]} ")
     if excluded:
@@ -214,12 +225,17 @@ def extract_image_b64(response) -> str | None:
     return None
 
 
-def scene_caption(scene) -> str:
-    """The scene's written caption, if it has one yet."""
-    return (scene.get("caption_sentence") or {}).get("text", "")
+def scene_caption(scene, audience="adult") -> str:
+    """The scene's written caption for this audience, if it has one
+    yet. No fallback: audiences never mix silently."""
+    stored = scene.get("caption_sentence") or {}
+    if audience == "child":
+        return (stored.get("child") or {}).get("text", "")
+    return stored.get("text", "")
 
 
-def aftermath_prompt(scene, object_name, municipality, season=None) -> str:
+def aftermath_prompt(scene, object_name, municipality, season=None,
+                     audience="adult") -> str:
     """Last resort for remains the filter keeps blocking: the verified
     state, neutral surroundings, explicit calm negatives."""
     year = scene.get("date_label", scene.get("from_year"))
@@ -227,12 +243,13 @@ def aftermath_prompt(scene, object_name, municipality, season=None) -> str:
     where = f"in {municipality} " if municipality else ""
     around = (f"everyday life around the {municipality} {object_name}. "
               if municipality else f"everyday life around the {object_name}. ")
+    style = CHILD_STYLE if audience == "child" else STYLE
     parts = [
         f"Repaint this exact view {where}in the year {year}, same "
         f"viewpoint, composition and painted style as the anchor photo. ",
         f"The object then: {state_text} ",
         f"Surroundings: {around}",
-        f"Style: {STYLE} ",
+        f"Style: {style} ",
         f"{NO_TEXT} ",
         "Show the morning after: quiet remains, no flames, no smoke, "
         "no people in distress. ",
@@ -244,13 +261,15 @@ def aftermath_prompt(scene, object_name, municipality, season=None) -> str:
 
 
 def paint_aftermath(call, check_call, scene, object_name, municipality,
-                    photo_bytes=None, season=None, max_tries=2) -> dict:
+                    photo_bytes=None, season=None, max_tries=2,
+                    audience="adult") -> dict:
     """One calm aftermath attempt, checked; the filter gets one retry."""
     from witness import check as check_module
 
     year = scene.get("from_year")
-    prompt = aftermath_prompt(scene, object_name, municipality, season)
-    caption = scene_caption(scene)
+    prompt = aftermath_prompt(scene, object_name, municipality, season,
+                              audience=audience)
+    caption = scene_caption(scene, audience=audience)
     prev_id = None
     note = "safety block persists; era skipped"
     for attempt in range(max_tries):
@@ -288,7 +307,8 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
             "verdict": "dropped", "attempts": max_tries, "note": note}
 
 
-def recover_scene(check_call, scene, object_name, prior) -> dict | None:
+def recover_scene(check_call, scene, object_name, prior,
+                  audience="adult") -> dict | None:
     """Newest kept painting of a dropped critical era that passes
     today's check; None when nothing earlier survives it."""
     from witness import check as check_module
@@ -297,7 +317,7 @@ def recover_scene(check_call, scene, object_name, prior) -> dict | None:
     if condition not in RECOVER_CONDITIONS:
         return None
     state_text = describe_state(object_name, scene.get("state", {}))
-    caption = scene_caption(scene)
+    caption = scene_caption(scene, audience=audience)
     for label, image in prior:
         verdict = check_module.check_painting(
             check_call, image, object_name, state_text,
@@ -309,7 +329,7 @@ def recover_scene(check_call, scene, object_name, prior) -> dict | None:
 
 def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
                max_repaints=MAX_REPAINTS, photo_bytes=None, season=None,
-               excluded=(), claims=()) -> dict:
+               excluded=(), claims=(), audience="adult") -> dict:
     """Paint one scene and check it: repaint at most twice, else drop.
 
     `photo_bytes` rides the first attempt only, so scene 1 needs no
@@ -318,8 +338,9 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
     from witness import check as check_module
 
     year = scene.get("from_year")
-    prompt = scene_prompt(scene, object_name, municipality, season, excluded, claims)
-    caption = scene_caption(scene)
+    prompt = scene_prompt(scene, object_name, municipality, season, excluded, claims,
+                          audience=audience)
+    caption = scene_caption(scene, audience=audience)
     blocks = 0
     model_retried = False
     for attempt in range(1 + max_repaints):
@@ -371,7 +392,7 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
 
 def paint_chain(call, photo_bytes, scenes, object_name, municipality,
                 check_call=None, season=None, excluded=None,
-                claims=()) -> list:
+                claims=(), audience="adult") -> list:
     """Eras one after another, each chained on the previous turn. The
     first scene carries the photo; a scene with no predecessor id
     does too."""
@@ -383,7 +404,8 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
             photo = photo_bytes if prev_id is None else None
             if check_call is None:
                 result = call(scene_prompt(scene, object_name, municipality, season,
-                                           year_excluded, claims), prev_id, photo)
+                                           year_excluded, claims,
+                                           audience=audience), prev_id, photo)
                 out.append({"year": scene.get("from_year"),
                             "image": result["image"],
                             "response_id": result["response_id"],
@@ -392,7 +414,7 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
                 out.append(paint_scene(call, check_call, scene, object_name,
                                        municipality, prev_id, season=season,
                                        excluded=year_excluded, claims=claims,
-                                       photo_bytes=photo))
+                                       photo_bytes=photo, audience=audience))
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             out.append({"year": scene.get("from_year"), "image": None,
                         "response_id": None, "verdict": "dropped", "attempts": 1,
@@ -404,7 +426,7 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
 
 def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
                    check_call=None, max_workers=6, season=None,
-                   excluded=None, claims=()) -> list:
+                   excluded=None, claims=(), audience="adult") -> list:
     """The first scene carries the photo; the rest branch from its
     turn, painted at once. No spare anchor turn: its image was always
     discarded."""
@@ -416,13 +438,15 @@ def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
             if check_call is None:
                 result = call(scene_prompt(scene, object_name, municipality, season,
-                                           year_excluded, claims), prev_id, photo)
+                                           year_excluded, claims,
+                                           audience=audience), prev_id, photo)
                 return {"year": scene.get("from_year"), "image": result["image"],
                         "response_id": result["response_id"],
                         "verdict": "unchecked", "attempts": 1, "note": ""}
             return paint_scene(call, check_call, scene, object_name, municipality,
                                prev_id, season=season, excluded=year_excluded,
-                               claims=claims, photo_bytes=photo)
+                               claims=claims, photo_bytes=photo,
+                               audience=audience)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {"year": scene.get("from_year"), "image": None,
                     "response_id": None, "verdict": "dropped", "attempts": 1,

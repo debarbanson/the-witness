@@ -953,6 +953,51 @@ def test_cmd_paint_records_per_era_seasons_from_photo_month(tmp_path, monkeypatc
     assert seasons == {1850: "winter", 1932: "spring"}
 
 
+def test_cmd_paint_counts_only_the_eras_it_painted(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, "PNG")
+    tiny = buf.getvalue()
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    out_dir.mkdir(parents=True)
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "stood"},
+                   {"year": 1932, "verdict": "supported", "claim": "burnt"}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Stands whole."},
+             "caption_lines": []},
+            {"from_year": 1932, "date_label": "1932",
+             "state": {"condition": "ruin", "degree": "total",
+                       "scope": "whole", "description": "Burnt down."},
+             "caption_lines": []},
+        ]}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(tiny)
+    (out_dir / "paint_parallel.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": ""}]}))
+
+    def fake_call(prompt, prev_id, photo_bytes=None):
+        return {"image": tiny, "response_id": f"r-{prev_id or 'none'}"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(photo), mode="parallel", scenes="1932",
+        paint_call=fake_call,
+        check_call=lambda image, prompt: "MATCHES whole.",
+        photo_call=lambda photo, prompt: "Season: winter\nNone")
+    assert code == 0
+    assert "painted 1 of 1 eras" in capsys.readouterr().out
+
+
 def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
     import io
     import json

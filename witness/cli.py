@@ -1474,7 +1474,9 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                 "season": directives["season"],
                 "eras": [entries[y] for y in sorted(entries)]}
     manifest_path.write_text(json.dumps(manifest, indent=1))
-    kept = sum(1 for e in manifest["eras"] if e["verdict"] == "matches")
+    painted = {s["from_year"] for s in eras}
+    kept = sum(1 for e in manifest["eras"]
+               if e["year"] in painted and e["verdict"] == "matches")
     print(f"painted {kept} of {len(eras)} eras in {manifest['paint_s']} s ({mode})")
     return 0
 

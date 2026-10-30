@@ -254,7 +254,7 @@ def test_chat_injects_model_and_temperature():
 
 
 def test_open_model_output_bound_covers_reasoning_plus_answer():
-    assert models.VERIFY_OPEN.max_output_tokens >= 8192
+    assert models.VERIFY_OPEN.max_output_tokens >= 16384
 
 
 def test_chat_answer_reports_a_reasoning_cutoff():

@@ -144,9 +144,10 @@ VERIFY_OPEN = ModelSpec(
     timeout=180,  # the open model always reasons, so votes run longer
     ceiling_usd=0.10,
     # The bound covers reasoning plus the answer: the model thinks for
-    # thousands of tokens before a short verdict, and a 2048 bound cut
-    # it off mid-thought with no answer at all (30 Oct probe).
-    max_output_tokens=8192,
+    # thousands of tokens before a short verdict, and 2048 then 8192
+    # both cut it off mid-thought with no answer at all (30 Oct).
+    # At most $0.02 a call, inside the ceiling.
+    max_output_tokens=16384,
 )
 
 

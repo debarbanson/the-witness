@@ -69,8 +69,12 @@ def run_web_film(spec, store, authority, clock=None):
             "not_identified")
     if not result.get("confirmed"):
         return finish({"message": "Not confirmed; nothing spent."}, "declined")
-    with models.job_ledger(), models.job_control(control=control):
+    with models.job_ledger() as ledger, models.job_control(control=control):
         slug = result["slug"]
+
+        def total_cost():
+            return result["cost_usd"] + ledger.cost_usd
+
         cli.report_and_save(
             result["found"], "en", result["order"], result["kept"],
             result["timeline"], result["chosen"], result["result"],
@@ -84,22 +88,36 @@ def run_web_film(spec, store, authority, clock=None):
             if cli.cmd_captions(slug, out_dir=spec["job_dir"]) == 2:
                 return finish(
                     {"message": "Research is done but captions failed.",
-                     "claims": result["kept"]}, "facts_only")
+                     "claims": result["kept"],
+                     "cost_usd": total_cost()}, "facts_only")
             progress("painting", {"slug": slug})
             if cli.cmd_paint(slug, spec["photo"], mode="parallel",
                              out_dir=spec["job_dir"]) != 0:
                 return finish(
                     {"message": "Research is done but painting failed.",
-                     "claims": result["kept"]}, "facts_only")
+                     "claims": result["kept"],
+                     "cost_usd": total_cost()}, "facts_only")
+            audiences = "adult"
+            progress("children", {"slug": slug})
+            if cli.cmd_children(slug, out_dir=spec["job_dir"]) == 0:
+                if cli.cmd_paint(slug, spec["photo"], mode="parallel",
+                                 out_dir=spec["job_dir"],
+                                 audience="child") == 0:
+                    audiences = "both"
+                    progress("spot", {"slug": slug})
+                    cli.cmd_spot(slug, spec["photo"],
+                                 out_dir=spec["job_dir"])
             progress("render", {"slug": slug})
             if cli.cmd_render(slug, spec["photo"], era_dir="eras_parallel",
                               out_dir=spec["job_dir"], cache=knowledge) != 0:
                 return finish(
                     {"message": "Research is done but the film failed.",
-                     "claims": result["kept"]}, "facts_only")
+                     "claims": result["kept"],
+                     "cost_usd": total_cost()}, "facts_only")
             return finish(
                 {"film_url": f"/film/{job_id}/{spec['token']}/film.html",
-                 "outcome": outcome, "cost_usd": result["cost_usd"]}, "film")
+                 "outcome": outcome, "cost_usd": total_cost(),
+                 "audiences": audiences}, "film")
         return finish(
             {"message": "Too little evidence for a film; the facts are below.",
              "claims": result["kept"]}, "facts_only")

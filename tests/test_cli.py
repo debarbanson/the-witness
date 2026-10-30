@@ -1413,6 +1413,68 @@ def test_cmd_spot_skips_when_vision_grounds_too_little(tmp_path, monkeypatch, ca
     assert not (out_dir / "spot.json").exists()
 
 
+def test_childrens_calls_are_counted_on_the_job_ledger(monkeypatch):
+    import io
+    import json
+    from types import SimpleNamespace
+    from PIL import Image
+    from witness import cli as cli_module
+    from witness import models
+
+    usage = {"prompt_tokens": 1000, "completion_tokens": 100,
+             "total_tokens": 1100}
+    calls = []
+
+    def canned_text(text):
+        return SimpleNamespace(
+            usage=dict(usage),
+            model_dump_json=lambda: json.dumps(
+                {"output": [{"content": [{"type": "output_text",
+                                          "text": text}]}]}))
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls.append(("responses", kwargs))
+            if kwargs.get("text", {}).get("format", {}).get("name") == "spot_differences":
+                return canned_text(json.dumps({"differences": []}))
+            return canned_text("Little mill words.")
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(("chat", kwargs))
+            return {"choices": [{"message": {
+                "content": json.dumps({
+                    "verdict": "supported",
+                    "quote": "The old mill stood whole in 1779.",
+                    "url": "https://a.example/x",
+                    "support": [{"url": "https://a.example/x",
+                                 "supports": True,
+                                 "quote": "The old mill stood whole in 1779."}]}),
+                "reasoning_content": ""}}],
+                "usage": dict(usage)}
+
+    fake = SimpleNamespace(responses=FakeResponses(),
+                           chat=SimpleNamespace(completions=FakeCompletions()))
+    monkeypatch.setattr(cli_module, "_respond_for", lambda spec: fake)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, "PNG")
+    models.reset_usage()
+    with models.job_ledger() as ledger:
+        line = cli_module.child_rewrite_respond(
+            "Adult words.", "https://a.example/x", plain=False)
+        verdict = cli_module.child_support_respond(
+            "The mill stood whole.",
+            ["https://a.example/x\nThe old mill stood whole in 1779."])
+        cli_module.spot_respond(buf.getvalue(), buf.getvalue(), "spot them")
+    assert line == "Little mill words."
+    assert verdict == "supported"
+    assert [kind for kind, _ in calls] == ["responses", "chat", "responses"]
+    assert ledger.calls == 3
+    assert ledger.cost_usd > 0
+    assert set(ledger.totals) == {"meta", "baseten"}
+    models.reset_usage()
+
+
 def test_cmd_spot_needs_childrens_paintings_first(tmp_path, monkeypatch, capsys):
     from witness import cli as cli_module
 

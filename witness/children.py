@@ -6,15 +6,17 @@ rewrite that fails is retried plainer once, else dropped. Model calls
 are injected, so tests run without live calls.
 """
 
+from witness.captions import sentence_ok
 from witness.verify import keywords_for_claim, select_paragraphs
 
 
 GENTLE_CONDITIONS = frozenset({"damaged", "burnt", "ruin", "demolished"})
 
 
-def rewrite_prompt(adult, source, gentle=False) -> str:
+def rewrite_prompt(adult, source, gentle=False, stamp="") -> str:
     """One idea, everyday words, nothing beyond the source. Heavy
-    moments are stated gently but truthfully."""
+    moments are stated gently but truthfully. A stamped sentence
+    leaves the date to the stamp, like the adult one."""
     prompt = (
         "Rewrite this museum caption for a child aged 8: first person, "
         "short sentences, everyday words, one idea. Say only what the "
@@ -23,15 +25,21 @@ def rewrite_prompt(adult, source, gentle=False) -> str:
     if gentle:
         prompt += (" State it gently but truthfully: no frightening "
                    "words, no one in danger.")
+    if stamp:
+        prompt += (f" Do not mention any year or date; the film already "
+                   f"shows the date {stamp}.")
     return prompt
 
 
 def child_caption(rewrite_call, support_call, adult, source, url,
-                  gentle=False, year=0, object_name="", texts=None) -> dict:
+                  gentle=False, year=0, object_name="", texts=None,
+                  stamp="") -> dict:
     """Rewrite plus re-verification; plainer retry once, else drop.
     Every rewrite is checked again against the bound passage, judged
     with its object and year like every other voice text. Fetched
-    article text adds the paragraphs research judged, when given."""
+    article text adds the paragraphs research judged, when given. A
+    stamped scene sentence keeps the adult shape: first person, no
+    year or date; unstamped lines keep their years."""
     passages = [f"{url}\n{source}"]
     if texts:
         keywords = keywords_for_claim(adult)
@@ -44,12 +52,14 @@ def child_caption(rewrite_call, support_call, adult, source, url,
     for attempt, plain in enumerate((False, True), 1):
         line = ""
         for _ in range(3):  # empty answers are retried, never judged
-            line = (rewrite_call(adult, source, plain, gentle) or "").strip()
+            line = (rewrite_call(adult, source, plain, gentle, stamp)
+                    or "").strip()
             if line:
                 break
         judged = (f"In {year}, {object_name}: {line}"
                   if object_name else line)
-        if line and support_call(judged, passages) == "supported":
+        if line and (not stamp or sentence_ok(line)) \
+                and support_call(judged, passages) == "supported":
             return {"line": line, "verified": True, "attempts": attempt}
     return {"line": None, "verified": False, "attempts": 2}
 

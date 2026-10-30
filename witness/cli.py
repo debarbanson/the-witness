@@ -1481,9 +1481,9 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     return 0
 
 
-def child_rewrite_respond(adult, source, plain, gentle=False):
+def child_rewrite_respond(adult, source, plain, gentle=False, stamp=""):
     """One children rewrite on Muse Spark, steady temperature."""
-    prompt = children.rewrite_prompt(adult, source, gentle=gentle)
+    prompt = children.rewrite_prompt(adult, source, gentle=gentle, stamp=stamp)
     if plain:
         prompt += " Use even plainer words."
     resp = models.respond(_respond_for(models.VERIFY), models.VERIFY, input=prompt)
@@ -1742,7 +1742,8 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out",
                     rewrite, support, stored["text"], evidence["quote"],
                     evidence["url"], gentle=gentle,
                     year=scene.get("from_year", 0), object_name=name,
-                    texts=texts)
+                    texts=texts,
+                    stamp=scene.get("date_label", "") or "")
             except models.SpendingCapExceeded as exc:
                 path.write_text(json.dumps(data, indent=1))
                 print(f"stopping: spending cap reached ({exc})")

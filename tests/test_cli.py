@@ -157,7 +157,7 @@ def test_cmd_children_writes_sentence_next_to_adult_one(tmp_path, monkeypatch):
 
     code = cli_module.cmd_children(
         "q1-test",
-        rewrite_call=lambda adult, source, plain, gentle=False: "I opened long ago.",
+        rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I opened long ago.",
         support_call=lambda line, passages: "supported")
     assert code == 0
     saved = json.loads((slug_dir / "research.json").read_text())
@@ -190,7 +190,7 @@ def test_cmd_children_judges_lines_with_object_context(tmp_path, monkeypatch):
 
     code = cli_module.cmd_children(
         "q1-test",
-        rewrite_call=lambda adult, source, plain, gentle=False: "I opened long ago.",
+        rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I opened long ago.",
         support_call=support)
     assert code == 0
     assert seen[0] == "In 1779, Mill: I opened long ago."
@@ -225,10 +225,38 @@ def test_cmd_children_judges_against_cached_article_text(tmp_path, monkeypatch):
 
     code = cli_module.cmd_children(
         "q1-test",
-        rewrite_call=lambda adult, source, plain, gentle=False: "I opened long ago.",
+        rewrite_call=lambda adult, source, plain, gentle=False, stamp="": "I opened long ago.",
         support_call=support, cache=cache)
     assert code == 0
     assert any("years of building work" in p for p in seen)
+
+
+def test_cmd_children_stamps_scene_sentences_not_lines(tmp_path, monkeypatch):
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    data = _caption_research()
+    data["scenes"][0]["caption_sentence"] = {
+        "text": "I opened my doors to the town.", "claim_year": 1779,
+        "claim_url": "https://a.example/x",
+        "evidence": {"claim": "opened in 1779",
+                     "url": "https://a.example/x",
+                     "quote": "The mill opened in 1779."}}
+    data["scenes"][0]["state"] = {"condition": "standing"}
+    (slug_dir / "research.json").write_text(json.dumps(data))
+    seen = []
+
+    def rewrite(adult, source, plain, gentle=False, stamp=""):
+        seen.append(stamp)
+        return "I opened long ago."
+
+    code = cli_module.cmd_children("q1-test", rewrite_call=rewrite,
+                                   support_call=lambda line, passages: "supported")
+    assert code == 0
+    assert seen == ["1779"]
 
 
 def test_cmd_children_marks_heavy_scenes_gentle(tmp_path, monkeypatch):
@@ -249,7 +277,7 @@ def test_cmd_children_marks_heavy_scenes_gentle(tmp_path, monkeypatch):
     (slug_dir / "research.json").write_text(json.dumps(data))
     seen = {}
 
-    def rewrite(adult, source, plain, gentle=False):
+    def rewrite(adult, source, plain, gentle=False, stamp=""):
         seen["gentle"] = gentle
         return "I caught fire."
 
@@ -1188,7 +1216,7 @@ def test_cmd_children_rewrites_lines_next_to_adult_ones(tmp_path, monkeypatch):
 
     code = cli_module.cmd_children(
         "q1-test",
-        rewrite_call=lambda adult, source, plain, gentle=False: f"Little: {adult}",
+        rewrite_call=lambda adult, source, plain, gentle=False, stamp="": f"Little: {adult}",
         support_call=lambda line, source: "supported")
     assert code == 0
     data = json.loads((out_dir / "research.json").read_text())

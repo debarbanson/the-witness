@@ -47,12 +47,25 @@ def test_pick_year_is_the_earliest_painted_change():
     assert spot.pick_year([scene(1900, "")], [claim(1900)], {"1900"}) is None
 
 
+def test_pick_year_prefers_the_era_that_looks_least_like_today():
+    scenes = [scene(1779, "The mill stands whole."),
+              scene(1932, "The mill burnt."),
+              scene(2002, "The mill rebuilt.")]
+    scenes[1]["state"]["condition"] = "ruin"
+    claims = [claim(1779), claim(1932), claim(2002)]
+    assert spot.pick_year(scenes, claims, {"1779", "1932", "2002"}) == 1932
+    scenes[1]["state"]["condition"] = "standing"
+    assert spot.pick_year(scenes, claims, {"1779", "1932", "2002"}) == 1779
+
+
 def test_prompt_lists_every_change_and_forbids_invention():
     prompt = spot.spot_prompt(CHANGES)
     for line in CHANGES:
         assert line in prompt
     assert "only" in prompt
     assert "3 to 5" in prompt
+    assert "look different" in prompt
+    assert "looks the same" in prompt
 
 
 def test_choose_keeps_grounded_differences():
@@ -71,7 +84,7 @@ def test_choose_drops_invented_empty_and_duplicate_differences():
         {"text": "The sails are gone.", "change": CHANGES[1]},
         {"text": "A dragon on the roof.", "change": "1932: A dragon landed."},
         {"text": "", "change": CHANGES[2]},
-        {"text": "The sails are gone again.", "change": CHANGES[1]},
+        {"text": "The sails are gone.", "change": CHANGES[1]},
         {"text": "Fresh paint.", "change": CHANGES[3]},
         {"text": "Whole mill.", "change": CHANGES[0]},
         {"text": "One too many.", "change": CHANGES[2]},
@@ -80,6 +93,17 @@ def test_choose_drops_invented_empty_and_duplicate_differences():
     assert [d["text"] for d in got] == [
         "The sails are gone.", "Fresh paint.", "Whole mill.",
         "One too many."]
+
+
+def test_choose_allows_two_observations_of_one_change():
+    visions = [
+        {"text": "The sails are gone.", "change": CHANGES[1]},
+        {"text": "The base is charred.", "change": CHANGES[1]},
+        {"text": "Fresh paint.", "change": CHANGES[3]},
+    ]
+    got = spot.choose(lambda era, photo, prompt: visions, b"e", b"p", CHANGES)
+    assert [d["text"] for d in got] == [
+        "The sails are gone.", "The base is charred.", "Fresh paint."]
 
 
 def test_choose_refuses_fewer_than_three_or_unparseable():

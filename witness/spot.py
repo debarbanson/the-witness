@@ -45,16 +45,23 @@ def verified_changes(scenes, claims) -> list:
     return lines
 
 
+CONTRAST = {"ruin": 0, "burnt": 1, "demolished": 2, "damaged": 3,
+              "moved": 4, "under_construction": 5, "standing": 6,
+              "rebuilt": 6}
+
+
 def pick_year(scenes, claims, painted) -> int | None:
-    """The earliest painted year with a verified change: the biggest
-    then-versus-now gap, and the most grounding to draw on."""
+    """The painted changed era that looks least like today (a ruin
+    before a whole mill), earliest on ties: the starkest game."""
     supported = {c.get("year") for c in claims if filmed(c)}
     years = sorted(
-        s.get("from_year") for s in scenes
+        ((CONTRAST.get((s.get("state") or {}).get("condition"), 6),
+          s.get("from_year")))
+        for s in scenes
         if str(s.get("from_year")) in painted
         and s.get("from_year") in supported
         and (s.get("state") or {}).get("description", "").strip())
-    return years[0] if years else None
+    return years[0][1] if years else None
 
 
 def spot_prompt(changes) -> str:
@@ -63,7 +70,9 @@ def spot_prompt(changes) -> str:
     return (
         "These two pictures show the same place: first a painting of "
         "how it looked in an earlier year, then a photo of today. "
-        "Name 3 to 5 differences a child could spot between them. "
+        "Name 3 to 5 things that look different between the two "
+        "pictures, as a child would spot them. Never name something "
+        "that looks the same in both. "
         "Each difference must show one of these verified changes, "
         "and only these; quote its line exactly in \"change\":\n"
         f"{numbered}\n"
@@ -91,9 +100,9 @@ def choose(vision_call, era_bytes, photo_bytes, changes):
             continue
         text = (entry.get("text") or "").strip()
         change = (entry.get("change") or "").strip()
-        if not text or change not in allowed or change in seen:
+        if not text or change not in allowed or text.lower() in seen:
             continue
-        seen.add(change)
+        seen.add(text.lower())
         kept.append({"text": text, "change": change})
         if len(kept) == MAX_DIFFERENCES:
             break

@@ -256,7 +256,8 @@ def final_paint_actions(chosen, painted_years, painted_states) -> dict:
     return actions
 
 
-def stream_scene_kwargs(report, claims, scene, photo_month=None) -> dict:
+def stream_scene_kwargs(report, claims, scene, photo_month=None,
+                        country_code=None) -> dict:
     """Prompt extras for a streamed paint: the era's season, the
     anchor elements no judged claim names yet, and the judged claims."""
     dated = [(claim.get("year"), captions.claim_detail(claim)) for claim in claims
@@ -267,7 +268,8 @@ def stream_scene_kwargs(report, claims, scene, photo_month=None) -> dict:
         excluded = tuple(report.get("elements", []))
     else:
         excluded = tuple(paint.excluded_elements(report.get("elements", []), dated, year))
-    return {"season": paint.expected_season(scene, photo_month, report.get("season")),
+    return {"season": paint.expected_season(scene, photo_month, report.get("season"),
+                                            country_code=country_code),
             "excluded": excluded, "claims": tuple(claims)}
 
 
@@ -628,7 +630,8 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         prev_id = _future_response_id(base_future) if not with_photo else None
         try:
             kwargs = stream_scene_kwargs(report_future.result(), stream_claims, scene,
-                                         photo_month=photo_month)
+                                         photo_month=photo_month,
+                                         country_code=found.country_code)
         except Exception:  # noqa: BLE001 - without the report the scene still paints
             kwargs = {}
         result = paint.paint_scene(paint_fn, check_fn, scene, found.name,
@@ -893,7 +896,8 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
         "saved_at": date.today().isoformat(),
         "object": {"name": found.name, "kind": found.kind, "qid": found.qid, "articles": found.articles,
                    "lang": lang,
-                   "municipality": getattr(found, "municipality", None)},
+                   "municipality": getattr(found, "municipality", None),
+                   "country_code": getattr(found, "country_code", None)},
         "claims": kept,
         "timeline": timeline,
         "scenes": chosen,
@@ -1314,11 +1318,12 @@ def check_respond(image_bytes, prompt):
 
 def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
                        directives, prior_dirs, dropped, audience="adult",
-                       photo_month=None):
+                       photo_month=None, country_code=None):
     """A dropped critical era first tries the newest kept painting of
     it from an earlier run; remains then get one calm aftermath try."""
     year = scene["from_year"]
-    season = paint.expected_season(scene, photo_month, directives["season"])
+    season = paint.expected_season(scene, photo_month, directives["season"],
+                                   country_code=country_code)
     prior = []
     for run_dir in prior_dirs[:2]:  # newest first; two checks are enough
         candidate = run_dir / f"{year}.png"
@@ -1402,10 +1407,12 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     if photo_month is not None and not 1 <= photo_month <= 12:
         print(f"bad photo month: {photo_month!r}")
         return 2
+    country_code = data.get("object", {}).get("country_code")
     print(f"anchor season: {directives['season']}")
     for scene in eras:
         season = paint.expected_season(scene, photo_month,
-                                       directives["season"])
+                                       directives["season"],
+                                       country_code=country_code)
         if season != directives["season"]:
             print(f"{scene['from_year']}: season {season} "
                   f"(label {scene.get('date_label')!r})")
@@ -1418,13 +1425,15 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                                     check_call=checker, season=directives["season"],
                                     excluded=directives["excluded"],
                                     claims=data.get("claims", []),
-                                    audience=audience, photo_month=photo_month)
+                                    audience=audience, photo_month=photo_month,
+                                    country_code=country_code)
     else:
         results = paint.paint_parallel(call, photo_bytes, eras, name, municipality,
                                        check_call=checker, season=directives["season"],
                                        excluded=directives["excluded"],
                                        claims=data.get("claims", []),
-                                       audience=audience, photo_month=photo_month)
+                                       audience=audience, photo_month=photo_month,
+                                       country_code=country_code)
     base = f"{mode}_{tag}" if tag else mode
     suffix = f"{base}_child" if audience == "child" else base
     era_dir = out_dir / f"eras_{suffix}"
@@ -1441,12 +1450,14 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     for scene, result in zip(eras, results):
         year = scene["from_year"]
         era_season = paint.expected_season(scene, photo_month,
-                                           directives["season"])
+                                           directives["season"],
+                                           country_code=country_code)
         if result["image"] is None:
             result = recover_or_retry(call, checker, scene, name, municipality,
                                       photo_bytes, directives, prior_dirs,
                                       result, audience=audience,
-                                      photo_month=photo_month)
+                                      photo_month=photo_month,
+                                      country_code=country_code)
         entry = {"year": year, "verdict": result["verdict"],
                  "attempts": result["attempts"],
                  "caption": result.get("caption", ""),

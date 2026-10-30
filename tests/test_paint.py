@@ -544,6 +544,28 @@ def test_relative_season_follows_either_hemisphere():
     assert paint.relative_season(12, "winter", 1) == "winter"
 
 
+def test_hemisphere_season_follows_country_code():
+    assert paint.hemisphere_season(10, "dk") == "autumn"
+    assert paint.hemisphere_season(4, "nl") == "spring"
+    assert paint.hemisphere_season(10, "br") == "spring"
+    assert paint.hemisphere_season(1, "au") == "summer"
+    assert paint.hemisphere_season(1, "xx") == "winter"
+    assert paint.hemisphere_season(6, "ec") is None
+    assert paint.hemisphere_season(None, "dk") is None
+
+
+def test_expected_season_prefers_country_over_unreliable_exif():
+    october = scene(2019)
+    october["date_label"] = "22 October 2019"
+    assert paint.expected_season(october, 6, "winter",
+                                 country_code="dk") == "autumn"
+    assert paint.expected_season(october, 6, "winter",
+                                 country_code="br") == "spring"
+    assert paint.expected_season(october, 6, "winter",
+                                 country_code="ec") == "winter"
+    assert paint.expected_season(october, None, "winter") == "winter"
+
+
 def test_expected_season_prefers_label_then_relative_then_anchor():
     april = scene(1932)
     april["date_label"] = "23 April 1932"

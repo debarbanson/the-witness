@@ -635,6 +635,24 @@ def test_report_and_save_writes_research_json(tmp_path, monkeypatch):
     assert '"outcome": "short_film"' in saved
 
 
+def test_report_and_save_stores_country_code(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from witness.cli import report_and_save
+
+    monkeypatch.chdir(tmp_path)
+    found = SimpleNamespace(name="Test Mill", kind="mill", qid="Q1",
+                            articles={"en": "Test_Mill"},
+                            country_code="dk")
+    result = {"outcome": "too_little", "reason": "test", "verified": 0,
+              "eras": 0, "good_sources": 0}
+    slug = report_and_save(found, "en", ["en"], [], [], [], result,
+                           {"total_s": 1.0}, "baseten", [], None)
+    saved = json.loads((tmp_path / "out" / slug / "research.json").read_text())
+    assert saved["object"]["country_code"] == "dk"
+
+
 def test_report_and_save_prints_cost(tmp_path, monkeypatch, capsys):
     from types import SimpleNamespace
 
@@ -1024,6 +1042,46 @@ def test_cmd_paint_counts_only_the_eras_it_painted(tmp_path, monkeypatch, capsys
         photo_call=lambda photo, prompt: "Season: winter\nNone")
     assert code == 0
     assert "painted 1 of 1 eras" in capsys.readouterr().out
+
+
+def test_cmd_paint_reads_country_code_for_era_seasons(tmp_path, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, "PNG")
+    tiny = buf.getvalue()
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    out_dir.mkdir(parents=True)
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Light", "qid": "Q1", "lang": "en",
+                   "municipality": "Test Town", "country_code": "dk"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 2019, "verdict": "supported", "claim": "moved"}],
+        "scenes": [
+            {"from_year": 2019, "date_label": "22 October 2019",
+             "state": {"condition": "moved", "degree": "total",
+                       "scope": "whole", "description": "Moved inland."},
+             "caption_lines": []},
+        ]}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(tiny)
+
+    def fake_call(prompt, prev_id, photo_bytes=None):
+        return {"image": tiny, "response_id": f"r-{prev_id or 'none'}"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(photo), mode="parallel",
+        paint_call=fake_call,
+        check_call=lambda image, prompt: "MATCHES whole.",
+        photo_call=lambda photo, prompt: "Season: winter\nNone",
+        photo_month=6)
+    assert code == 0
+    manifest = json.loads((out_dir / "paint_parallel.json").read_text())
+    assert manifest["eras"][0]["season"] == "autumn"
 
 
 def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):

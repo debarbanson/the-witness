@@ -16,7 +16,7 @@ from pathlib import Path
 
 from witness import captions, check, children, identify, layers, models, outcome, paint, research, scenes, states, stream, verify
 from witness.cache import Cache
-from witness.photo import photo_bytes_clean, prepare_photo
+from witness.photo import PhotoError, photo_bytes_clean, prepare_photo
 from witness.render import builder as render_builder
 
 
@@ -607,7 +607,11 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
     stream_claims = []
     paint_fn = paint_call or paint_respond
     check_fn = check_call or check_respond
-    photo_bytes = photo_bytes_clean(photo) if paint_eras else None
+    try:
+        photo_bytes = photo_bytes_clean(photo) if paint_eras else None
+    except PhotoError as exc:
+        print(f"bad photo: {exc}")
+        return 2
 
     def on_identified(ident, slug, order):
         nonlocal found, paint_pool, era_dir
@@ -1322,7 +1326,11 @@ def cmd_paint(slug, photo, place=None, mode="parallel", scenes=None, tag=None,
         return 2
     data = json.loads(path.read_text())
     name = data["object"]["name"]
-    photo_bytes = photo_bytes_clean(photo)
+    try:
+        photo_bytes = photo_bytes_clean(photo)
+    except PhotoError as exc:
+        print(f"bad photo: {exc}")
+        return 2
     wanted = {int(y) for y in scenes.split(",")} if scenes else None
     claims = data.get("claims", [])
     eras = [s for s in data.get("scenes", [])
@@ -1612,7 +1620,11 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         return 2
     data = json.loads(path.read_text())
     photo_year = identify.capture_year(photo)
-    photo = str(prepare_photo(photo, out_dir))
+    try:
+        photo = str(prepare_photo(photo, out_dir))
+    except PhotoError as exc:
+        print(f"bad photo: {exc}")
+        return 2
     manifest_path = out_dir / f"paint_{era_dir.removeprefix('eras_')}.json"
     if not manifest_path.exists():
         print(f"no paint manifest at {manifest_path}; run paint first")

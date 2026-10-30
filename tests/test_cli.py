@@ -1319,6 +1319,31 @@ def _render_fixture(tmp_path, slug="q1-test", root=None):
     return out_dir, photo
 
 
+def test_render_with_corrupt_photo_refuses(tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, _photo = _render_fixture(tmp_path)
+    bad = tmp_path / "bad.jpg"
+    bad.write_bytes(b"not an image" * 4)
+    code = cli_module.cmd_render("q1-test", str(bad),
+                                 era_dir="eras_parallel_b1")
+    assert code == 2
+    assert "bad photo" in capsys.readouterr().out
+
+
+def test_film_with_corrupt_photo_refuses(tmp_path, monkeypatch, capsys):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    bad = tmp_path / "bad.jpg"
+    bad.write_bytes(b"not an image" * 4)
+    code = cli_module.cmd_film(str(bad), yes=True, paint_eras=True,
+                               out_dir=str(tmp_path / "out"))
+    assert code == 2
+    assert "bad photo" in capsys.readouterr().out
+
+
 def test_render_without_manifest_refuses(tmp_path, monkeypatch):
     from witness import cli as cli_module
 

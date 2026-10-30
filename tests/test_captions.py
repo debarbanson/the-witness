@@ -286,7 +286,7 @@ def test_sentence_prompt_forbids_years_and_cutting():
     assert "first-person" in prompt
     assert "You are the object itself" in prompt
     assert "the claim's main event" in prompt
-    assert "if the source gives an age, include it" in prompt
+    assert "only when the source states it" in prompt
     assert "my sails, my buildings" in prompt
     assert "1865" in prompt
     assert "only what the source" in prompt

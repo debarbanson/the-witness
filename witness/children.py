@@ -42,7 +42,11 @@ def child_caption(rewrite_call, support_call, adult, source, url,
                 passages.append(entry)
         passages = passages[:10]
     for attempt, plain in enumerate((False, True), 1):
-        line = (rewrite_call(adult, source, plain, gentle) or "").strip()
+        line = ""
+        for _ in range(3):  # empty answers are retried, never judged
+            line = (rewrite_call(adult, source, plain, gentle) or "").strip()
+            if line:
+                break
         judged = (f"In {year}, {object_name}: {line}"
                   if object_name else line)
         if line and support_call(judged, passages) == "supported":

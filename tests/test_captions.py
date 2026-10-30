@@ -147,6 +147,36 @@ def test_write_sentence_judges_against_rich_passages():
     assert any("years of building work" in p for p in seen["passages"])
 
 
+def test_write_sentence_retries_empty_answers_without_consuming_attempts():
+    seen = []
+
+    def rewrite(detail, quote, year, plain, stamp=""):
+        seen.append(plain)
+        if len(seen) < 3:
+            return ""
+        return "I opened."
+
+    out = captions.write_sentence(
+        rewrite_call=rewrite,
+        support_call=lambda sentence, passages: "supported",
+        claim=claim(1779, quote="The mill opened in 1779."), year=1779)
+    assert out == {"sentence": "I opened.", "verified": True, "attempts": 1}
+    assert seen == [False, False, False]
+
+
+def test_write_sentence_gives_up_after_repeated_empty_answers():
+    out = captions.write_sentence(
+        rewrite_call=lambda detail, quote, year, plain, stamp="": "",
+        support_call=lambda sentence, passages: "supported",
+        claim=claim(1779, quote="The mill opened in 1779."), year=1779)
+    assert out == {"sentence": None, "verified": False, "attempts": 2}
+
+
+def test_sentence_prompt_forbids_computed_numbers():
+    prompt = captions.sentence_prompt("d", "q", 2019)
+    assert "only numbers the source states" in prompt
+
+
 def test_write_sentence_judges_with_object_and_year_context():
     seen = {}
 

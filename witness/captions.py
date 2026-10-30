@@ -74,7 +74,8 @@ def sentence_prompt(detail, quote, year, stamp=None) -> str:
         "For the object's parts or buildings, say my (my sails, my buildings). "
         "Cover the claim's main event only, in one short sentence; "
         "leave out secondary detail; if the source gives an age, include it. "
-        "Fold numbers into the sentence naturally; never list them. "
+        "Fold numbers into the sentence naturally; never list them; use "
+        "only numbers the source states, never compute one yourself. "
         "Say only what the source sentences say, no more. "
         "Say only what the sources agree on: if they disagree on a detail, "
         "leave that detail out. "
@@ -190,8 +191,12 @@ def write_sentence(rewrite_call, support_call, claim, year,
     else:
         passages = check_passages(claim, claims, year, texts)
     for attempt, plain in enumerate((False, True), 1):
-        sentence = (rewrite_call(detail, source, year, plain, stamp)
-                    or "").strip()
+        sentence = ""
+        for _ in range(3):  # empty answers are retried, never judged
+            sentence = (rewrite_call(detail, source, year, plain, stamp)
+                        or "").strip()
+            if sentence:
+                break
         judged = (f"In {year}, {object_name}: {sentence}"
                   if object_name else sentence)
         if (sentence and sentence_ok(sentence)

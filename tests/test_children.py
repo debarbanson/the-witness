@@ -89,6 +89,26 @@ def test_child_caption_judges_against_rich_passages():
     assert any("years of building work" in p for p in seen["passages"])
 
 
+def test_child_caption_retries_empty_answers_without_consuming_attempts():
+    seen = []
+
+    def rewrite(adult, source, plain, gentle=False):
+        seen.append(plain)
+        if len(seen) < 3:
+            return ""
+        return "I opened long ago."
+
+    out = children.child_caption(
+        rewrite_call=rewrite,
+        support_call=lambda line, passages: "supported",
+        adult="opened in 1779",
+        source="The mill was opened in 1779.",
+        url="https://a.example/mill")
+    assert out == {"line": "I opened long ago.", "verified": True,
+                   "attempts": 1}
+    assert seen == [False, False, False]
+
+
 def test_child_caption_judges_with_object_and_year_context():
     seen = {}
 

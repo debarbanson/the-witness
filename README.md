@@ -65,7 +65,7 @@ Measured 30 Oct from the saved token counts (research) plus the shipped painting
 - Major Oak: $0.23 research + 4 paintings = about $0.28.
 - Rubjerg Knude: $0.28 research + 6 paintings = about $0.35.
 
-Caption and check text tokens and web-search counts are tallied in process but not saved, so they are missing from these totals. The support vote was evaluated on a 53-case set from fetched pages: both the open-weights path and Meta accept nothing wrong (precision 1.0, recall 0.95), at $0.004 and 9.4 s a vote for Baseten against $0.006 and 7.1 s for Meta. A 24-case hard set scores 24 of 24 on both arms with zero false accepts. End-to-end upload-to-film time will be measured on staging after the deploy; see [docs/04_demo.md](docs/04_demo.md) and [docs/07_test_set.md](docs/07_test_set.md).
+Caption and check text tokens and web-search counts are tallied in process but not saved, so they are missing from these totals. The support vote was evaluated on two developer-written sets from the 3 demo films, mostly from Wikipedia: 53 cases (52 of 53 on each arm) plus 28 harder cases with prompt injections (28 of 28 on each arm). Both arms agree on every case, so the sets bound the risk but do not separate the models; the open model matches Meta at lower cost and higher latency. End-to-end upload-to-film time will be measured on staging after the deploy; see [docs/04_demo.md](docs/04_demo.md) and [docs/07_test_set.md](docs/07_test_set.md).
 
 ## Planned, not built
 

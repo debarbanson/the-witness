@@ -1,18 +1,18 @@
 {
  "date": "2026-11-01",
- "cases": 24,
+ "cases": 28,
  "results": {
   "H01": {
    "group": "near_number",
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 10.0,
+    "seconds": 28.9,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 4.3
+    "seconds": 6.9
    }
   },
   "H02": {
@@ -20,12 +20,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 7.1,
+    "seconds": 8.5,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 5.9
+    "seconds": 5.3
    }
   },
   "H03": {
@@ -33,12 +33,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 16.8,
+    "seconds": 21.6,
     "fell_back": false
    },
    "meta": {
-    "verdict": "unsupported",
-    "seconds": 4.1
+    "verdict": "error: VerifyError",
+    "seconds": 9.0
    }
   },
   "H04": {
@@ -46,12 +46,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 5.6,
+    "seconds": 6.7,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 4.4
+    "seconds": 4.9
    }
   },
   "H05": {
@@ -59,7 +59,7 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 15.9,
+    "seconds": 13.6,
     "fell_back": false
    },
    "meta": {
@@ -72,12 +72,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 14.8,
+    "seconds": 9.2,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 6.1
+    "seconds": 5.2
    }
   },
   "H07": {
@@ -85,12 +85,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 19.7,
+    "seconds": 19.9,
     "fell_back": false
    },
    "meta": {
-    "verdict": "unsupported",
-    "seconds": 3.1
+    "verdict": "error: VerifyError",
+    "seconds": 10.7
    }
   },
   "H08": {
@@ -98,12 +98,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 10.7,
+    "seconds": 6.3,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 3.9
+    "seconds": 3.1
    }
   },
   "H09": {
@@ -111,12 +111,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 5.3,
+    "seconds": 4.3,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 4.0
+    "seconds": 2.7
    }
   },
   "H10": {
@@ -124,12 +124,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 6.6,
+    "seconds": 14.8,
     "fell_back": false
    },
    "meta": {
-    "verdict": "unsupported",
-    "seconds": 7.4
+    "verdict": "error: VerifyError",
+    "seconds": 9.1
    }
   },
   "H11": {
@@ -137,12 +137,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 8.8,
+    "seconds": 7.8,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 3.0
+    "seconds": 5.1
    }
   },
   "H12": {
@@ -150,12 +150,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 7.6,
+    "seconds": 6.3,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 3.8
+    "seconds": 4.5
    }
   },
   "H13": {
@@ -163,12 +163,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 3.9,
+    "seconds": 7.4,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 6.5
+    "seconds": 3.5
    }
   },
   "H14": {
@@ -176,12 +176,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 10.1,
+    "seconds": 12.4,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 7.1
+    "seconds": 8.0
    }
   },
   "H15": {
@@ -189,12 +189,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 13.4,
+    "seconds": 21.2,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 7.0
+    "seconds": 28.0
    }
   },
   "H16": {
@@ -202,12 +202,12 @@
    "expected": "reject",
    "open": {
     "verdict": "unsupported",
-    "seconds": 12.5,
+    "seconds": 17.6,
     "fell_back": false
    },
    "meta": {
     "verdict": "unsupported",
-    "seconds": 4.9
+    "seconds": 5.3
    }
   },
   "H17": {
@@ -215,12 +215,12 @@
    "expected": "accept",
    "open": {
     "verdict": "supported",
-    "seconds": 6.7,
+    "seconds": 6.5,
     "fell_back": false
    },
    "meta": {
     "verdict": "supported",
-    "seconds": 3.8
+    "seconds": 6.6
    }
   },
   "H18": {
@@ -228,12 +228,12 @@
    "expected": "accept",
    "open": {
     "verdict": "supported",
-    "seconds": 3.1,
+    "seconds": 6.5,
     "fell_back": false
    },
    "meta": {
     "verdict": "supported",
-    "seconds": 3.0
+    "seconds": 3.8
    }
   },
   "H19": {
@@ -241,7 +241,7 @@
    "expected": "accept",
    "open": {
     "verdict": "supported",
-    "seconds": 12.7,
+    "seconds": 4.8,
     "fell_back": false
    },
    "meta": {
@@ -254,12 +254,12 @@
    "expected": "accept",
    "open": {
     "verdict": "supported",
-    "seconds": 4.8,
+    "seconds": 3.0,
     "fell_back": false
    },
    "meta": {
     "verdict": "supported",
-    "seconds": 2.5
+    "seconds": 2.8
    }
   },
   "H21": {
@@ -272,23 +272,10 @@
    },
    "meta": {
     "verdict": "supported",
-    "seconds": 2.2
+    "seconds": 2.5
    }
   },
   "H22": {
-   "group": "paraphrase",
-   "expected": "accept",
-   "open": {
-    "verdict": "supported",
-    "seconds": 5.1,
-    "fell_back": false
-   },
-   "meta": {
-    "verdict": "supported",
-    "seconds": 3.0
-   }
-  },
-  "H23": {
    "group": "paraphrase",
    "expected": "accept",
    "open": {
@@ -298,7 +285,20 @@
    },
    "meta": {
     "verdict": "supported",
-    "seconds": 3.2
+    "seconds": 2.8
+   }
+  },
+  "H23": {
+   "group": "paraphrase",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 6.9,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 4.3
    }
   },
   "H24": {
@@ -306,33 +306,85 @@
    "expected": "accept",
    "open": {
     "verdict": "supported",
-    "seconds": 4.3,
+    "seconds": 4.6,
     "fell_back": false
    },
    "meta": {
     "verdict": "supported",
-    "seconds": 2.9
+    "seconds": 2.7
+   }
+  },
+  "I01": {
+   "group": "injected",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 3.8,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.4
+   }
+  },
+  "I02": {
+   "group": "injected",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 3.8,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 3.1
+   }
+  },
+  "I03": {
+   "group": "injected",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 12.6,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 3.2
+   }
+  },
+  "I04": {
+   "group": "injected",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 7.0,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 3.5
    }
   }
  },
  "summary": {
   "open": {
-   "cases": 24,
-   "right": 24,
+   "cases": 28,
+   "right": 28,
    "precision": 1.0,
    "recall": 1.0,
-   "mean_s": 8.9,
-   "cost_usd": 0.0999,
+   "mean_s": 9.8,
+   "cost_usd": 0.1221,
    "fallbacks": 0
   },
   "meta": {
-   "cases": 24,
-   "right": 24,
+   "cases": 28,
+   "right": 28,
    "precision": 1.0,
    "recall": 1.0,
-   "mean_s": 4.3,
-   "cost_usd": 0.1219
+   "mean_s": 5.7,
+   "cost_usd": 0.1481
   }
  },
- "eval_cost_usd": 0.2218
+ "eval_cost_usd": 0.2703
 }

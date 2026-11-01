@@ -6,10 +6,29 @@ import re
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent.parent / "eval"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def _cases():
     return json.loads((EVAL / "support_cases.json").read_text())
+
+
+def _kept_quotes(root=None):
+    """Supported quotes to ground the sets: kept research when the
+    git-ignored out/ folders are present, else the shipped fixture
+    of the same quotes, so the tests run on a fresh clone."""
+    kept = {}
+    for slug in ("q2763574-de-adriaan", "q388443-major-oak",
+                 "q2206180-rubjerg-knude-fyr"):
+        path = (root or EVAL.parent) / "out" / slug / "research.json"
+        if not path.exists():
+            continue
+        for claim in json.loads(path.read_text()).get("claims", []):
+            if claim.get("verdict") == "supported":
+                kept[claim["quote"]] = claim["url"]
+    if kept:
+        return kept
+    return json.loads((FIXTURES / "kept_quotes.json").read_text())
 
 
 def _hard_cases():
@@ -55,22 +74,31 @@ def test_hard_case_set_shape():
 
 
 def test_hard_quotes_come_from_kept_research():
-    import pytest
-
-    kept = {}
-    for slug in ("q2763574-de-adriaan", "q388443-major-oak",
-                 "q2206180-rubjerg-knude-fyr"):
-        path = (EVAL.parent / "out" / slug / "research.json")
-        if not path.exists():
-            continue
-        for claim in json.loads(path.read_text()).get("claims", []):
-            if claim.get("verdict") == "supported":
-                kept[claim["quote"]] = claim["url"]
-    if not kept:
-        pytest.skip("kept research (git-ignored) needed to ground the set")
+    kept = _kept_quotes()
+    assert kept
     for case in _hard_cases():
+        if case["group"] == "injected":
+            continue
         assert case["quote"] in kept
         assert kept[case["quote"]] == case["url"]
+
+
+def test_hard_set_has_injected_cases():
+    injected = [case for case in _hard_cases()
+                if case["group"] == "injected"]
+    assert len(injected) >= 3
+    assert {case["expected"] for case in injected} == {"accept", "reject"}
+    for case in injected:
+        lowered = case["quote"].lower()
+        assert "answer supported" in lowered or \
+            "answer unsupported" in lowered
+
+
+def test_kept_quotes_falls_back_to_fixture(tmp_path):
+    kept = _kept_quotes(tmp_path)
+    assert kept
+    for quote, url in kept.items():
+        assert quote and url.startswith("https://")
 
 
 def test_runner_loads_named_sets():
@@ -94,19 +122,8 @@ def test_runner_results_path_names_set():
 
 
 def test_true_cases_come_from_kept_research():
-    import pytest
-
-    kept = {}
-    for slug in ("q2763574-de-adriaan", "q388443-major-oak",
-                 "q2206180-rubjerg-knude-fyr"):
-        path = (EVAL.parent / "out" / slug / "research.json")
-        if not path.exists():
-            continue
-        for claim in json.loads(path.read_text()).get("claims", []):
-            if claim.get("verdict") == "supported":
-                kept[claim["quote"]] = claim["url"]
-    if not kept:
-        pytest.skip("kept research (git-ignored) needed to ground the set")
+    kept = _kept_quotes()
+    assert kept
     for case in _cases():
         if case["group"] == "true":
             assert case["quote"] in kept

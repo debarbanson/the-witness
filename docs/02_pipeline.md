@@ -147,7 +147,7 @@ The period-figure layers are cut from this version. The object cut-out from step
 - One HTML page per film: background, caption and citation, each a pure function of time `t`.
 - The closing shot is the user's own photo as "today": the last painted era dissolves into it, using the SAM cut-out from step 1 to bring the object in first.
 - **The finished film plays in the browser.** The page is the film: every frame is a pure function of `t`, with a visible clock, pause and replay. No live streaming.
-- **MP4 only for download or sharing**, made in the background when asked: Playwright steps `t` frame by frame at 30 fps and captures 1080x1920 frames; ffmpeg encodes H.264 MP4.
+- **MP4 from the command line only** (`render --mp4`), not from the web page: Playwright steps `t` frame by frame at 30 fps and captures 1080x1920 frames; ffmpeg encodes H.264 MP4. A download button on the page is planned.
 - Structure: title card (object, place) → anchor year → one era per 6 to 8 seconds with slow push-in and crossfade → today (the user's original photo) → end card with all sources and the AI-imagery label.
 - Captions are first person from the object, written from verified claims only, max 2 lines each.
 
@@ -165,7 +165,7 @@ How the budget is met:
 
 - **Verify in parallel:** the first two votes run together, a third only on disagreement; claims verify in film order (steps 3 and 3a).
 - **Paint in parallel:** all eras branch from the anchor at once (step 4), checks run together (step 5).
-- **No rendering wait:** the film plays in the browser; MP4 only on request (step 7).
+- **No rendering wait:** the film plays in the browser; MP4 from the command line only (step 7).
 - **Cache per object:** reviewed research and paintings are kept by Wikidata id, so a known object opens at once.
 
 Measured 30 Oct: one Baseten support vote takes 15 s on average (12-case eval, votes=1). At about 2 votes per claim over a dozen claims, verification alone is a few minutes; staging measures the whole.
@@ -206,6 +206,7 @@ out/<slug>/
 - Captions in languages other than English. The web page and all captions are English only.
 - Automatic reference images from Commons or Europeana.
 - Films of 5 to 7 scenes.
+- An MP4 download button on the web page (export today runs from the command line).
 
 ## Streaming (cut 29 Oct)
 

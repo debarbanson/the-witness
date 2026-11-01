@@ -2,7 +2,7 @@
 
 ## The problem
 
-Every town has objects that have stood through centuries: a windmill, a church tree, a lighthouse, a bridge-keeper's house. People walk past them daily and know nothing of what they have seen. The history exists, scattered across archives, municipal pages and heritage registers, but nobody turns it into something a passer-by would watch.
+Every town has objects that have stood through centuries: a windmill, a church tree, a lighthouse, a bridge-keeper's house. People walk past them daily and know nothing of what they have seen. The history exists, scattered across archives, municipal pages and heritage registers, but nothing turns it into a sourced film of painted changes that returns to your own photo. Similar products exist (Talking Statues, Monumoir); the sourced, painted changes are the difference.
 
 Heritage societies and local historians have the knowledge but no time or budget for film. A short, sourced, beautiful film per object, made from one photo, changes that.
 
@@ -22,7 +22,7 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 2. **The object's own history is shown truthfully:** built, extended, burnt, rebuilt, each state is a sourced claim, and every painted era is checked against it.
 3. **A consistent series:** every era branches in parallel from one anchor turn on the user's photo, so the film feels like one place through time, ending on the real photo as "today". Parallel beat the serial chain on De Adriaan (6 of 6 eras in 79 s against 5 of 6 in 195 s, 0.3% framing drift against 3.6%).
 4. **Open knowledge, worldwide and free:** the object is found through OpenStreetMap and Wikidata, and its dated facts come from Wikidata and Wikipedia in any language. Sources may be in any language; captions are English only. (Automatic reference photos from Commons or Europeana are planned, not built.)
-5. **A finished film:** first-person captions and citations in a browser player with pause and replay, plus an MP4 for download, ready to share.
+5. **A finished film:** first-person captions and citations in a browser player with pause and replay, ready to share. (MP4 export runs from the command line; a download button on the page is planned, not built.)
 
 ## Two audiences
 

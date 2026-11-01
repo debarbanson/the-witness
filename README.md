@@ -1,6 +1,6 @@
 # The Witness
 
-One photo of something old. A short film of everything it has seen.
+One photo of something old. A short film of the decisive eras it lived through.
 
 Point The Witness at a windmill, an old tree or a lighthouse. It works out which object the photo shows, researches its history on the web, checks every claim against the fetched sources, then paints the decisive eras it lived through: the world around it, and the object itself as it was then, built, damaged, rebuilt, as the sources say. Your own photo closes the film as "today". The result is a vertical film of about 30 to 37 seconds, told in the first person by the object, where every caption carries its source.
 
@@ -18,7 +18,7 @@ Built for the Meta Global AI Developer Hackathon (kicked off 26 October 2026, 17
 | 3. Verify | Each claim is checked against the fetched source text; only fully supported claims reach the film, "partly" means no | Muse Spark Open on Baseten, Meta fallback |
 | 4. Paint eras | Up to 4 decisive eras are painted with the object in its verified state, branching in parallel from one anchor so it stays recognisably the same place | Muse Image |
 | 5. Check the painting | Each painted era is looked at and compared with the object's verified state and final caption; a mismatch is repainted, at most twice | Muse Spark (vision) |
-| 6. Film | Captions and citations are rendered to a 1080x1920 page and MP4, ending on your photo | (our renderer) |
+| 6. Film | Captions and citations are rendered to a 1080x1920 page, ending on your photo (MP4 export runs from the command line only) | (our renderer) |
 
 Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/03_accuracy.md](docs/03_accuracy.md).
 
@@ -69,7 +69,7 @@ Caption and check text tokens and web-search counts are tallied in process but n
 
 ## Planned, not built
 
-Period-figure layers, live streaming playback, captions in languages other than English, automatic reference images from Commons or Europeana, films of 5 to 7 scenes, "add a source" and "tell what you know" fallbacks, voice narration, accounts and payments.
+Period-figure layers, live streaming playback, captions in languages other than English, automatic reference images from Commons or Europeana, films of 5 to 7 scenes, "add a source" and "tell what you know" fallbacks, an MP4 download button on the web page, voice narration, accounts and payments.
 
 ## Built during the hackathon
 

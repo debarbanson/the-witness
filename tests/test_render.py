@@ -77,6 +77,21 @@ def age_scene():
     return made
 
 
+def test_filmable_refuses_a_caption_from_another_year():
+    kept = scene(1900, sentence="I stood.")
+    moved = scene(2000, sentence="I stood.")
+    moved["caption_sentence"]["claim_year"] = 1900
+    moved["caption_sentence"]["evidence"] = dict(
+        kept["caption_sentence"]["evidence"])
+    assert builder.filmable(moved, claims_for([kept])) is False
+    assert builder.filmable(kept, claims_for([kept])) is True
+
+
+def test_timeline_is_empty_without_filmable_eras():
+    scenes = [scene(1779, sentence="I opened.")]
+    assert builder.build_timeline(scenes, {}, claims_for(scenes)) == []
+
+
 def test_timeline_never_films_an_age_range():
     scenes = [age_scene(), scene(1790, sentence="I was renamed.")]
     plan = builder.build_timeline(
@@ -92,6 +107,31 @@ def test_anchor_card_for_age_range_and_for_year():
         "label": "about 800 to 1,200 years"}
     assert builder.anchor_card(scene(1899)) == {
         "line": "I have stood here since", "label": "1899"}
+
+
+def test_anchor_card_never_shows_a_computed_sort_year():
+    made = scene(1026)
+    made["date_label"] = "around a thousand years ago"
+    card = builder.anchor_card(made)
+    assert card["label"] != "1026"
+    assert "thousand years ago" in card["label"]
+
+
+def test_write_film_anchors_on_the_first_filmed_scene(tmp_path):
+    dropped = scene(1779, sentence="I opened.")
+    kept = scene(1932, sentence="I burnt down.")
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": claims_for([kept]),
+        "scenes": [dropped, kept],
+        "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research,
+                             {"1779": "e/1779.png", "1932": "e/1932.png"},
+                             photo="today.jpg", photo_credit="me")
+    film = json.loads((out / "film.json").read_text())
+    assert film["anchor"] == {"line": "I have stood here since",
+                             "label": "1932"}
 
 
 def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
@@ -465,11 +505,12 @@ def test_film_json_carries_attribution(tmp_path):
 
 
 def test_film_carries_verified_kind_never_typed_place(tmp_path):
+    scenes = [scene(1779, sentence="I opened my doors to the town.")]
     research = {
         "object": {"name": "Mill", "kind": "stellingmolen", "qid": "Q1",
                   "lang": "en"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1779, sentence="I opened my doors to the town.")],
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},
@@ -709,11 +750,13 @@ def test_rerender_leaves_no_stale_cutout(tmp_path):
 
     cutout = tmp_path / "synthetic.png"
     Image.new("RGBA", (8, 8)).save(cutout)
-    research = {"object": {"name": "Tower"}, "scenes": []}
-    builder.write_film(tmp_path / "job", research, {}, "today.jpg", "", {},
-                       cutout_file=cutout)
-    film = builder.write_film(tmp_path / "job", research, {}, "today.jpg",
-                              "", {}, cutout_file=None)
+    scenes = [scene(1779, sentence="I stood.")]
+    research = {"object": {"name": "Tower"}, "claims": claims_for(scenes),
+                "scenes": scenes}
+    builder.write_film(tmp_path / "job", research, {"1779": "e/1779.png"},
+                       "today.jpg", "", {}, cutout_file=cutout)
+    film = builder.write_film(tmp_path / "job", research, {"1779": "e/1779.png"},
+                              "today.jpg", "", {}, cutout_file=None)
     assert json.loads((film / "film.json").read_text())["cutout"] is None
     assert not (film / "cutout.png").exists()
     assert list((tmp_path / "job").glob("film.staging-*")) == []
@@ -884,19 +927,22 @@ def test_film_drops_sentences_without_a_claim(tmp_path):
         "outcome": {"outcome": "full_film"}, "claims": [],
         "scenes": [made], "timeline": [], "timings": {},
     }
-    out = builder.write_film(tmp_path, research, {"1970": "e/1970.png"},
-                             photo="today.jpg", photo_credit="me")
-    film = json.loads((out / "film.json").read_text())
-    assert film["scenes"] == []
+    import pytest
+
+    with pytest.raises(ValueError, match="no filmable eras"):
+        builder.write_film(tmp_path, research, {"1970": "e/1970.png"},
+                           photo="today.jpg", photo_credit="me")
 
 
 def test_film_html_plays_without_fetch(tmp_path):
     """film.json fetch is blocked on file:// pages, so the data is
     embedded in film.html and the page prefers it over fetch."""
+    scenes = [scene(1779, "standing", "opened in 1779",
+                    sentence="I opened.")]
     research = {
         "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
-        "outcome": {"outcome": "full_film"}, "claims": [],
-        "scenes": [scene(1779, "standing", "opened in 1779")],
+        "outcome": {"outcome": "full_film"}, "claims": claims_for(scenes),
+        "scenes": scenes,
         "timeline": [], "timings": {},
     }
     out = builder.write_film(tmp_path, research, {"1779": "e/1779.png"},

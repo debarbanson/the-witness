@@ -72,6 +72,8 @@ class ModelSpec:
     timeout: float = 120  # per-call seconds; research and painting run longer
     ceiling_usd: float = 0.25  # conservative max reserved before each call
     max_output_tokens: int | None = None  # bound injected into the call
+    max_input_tokens: int | None = None  # larger estimated inputs are refused
+    web_search: bool = False  # True reserves the whole job search budget
 
 
 RESEARCH = ModelSpec(
@@ -82,6 +84,8 @@ RESEARCH = ModelSpec(
     timeout=300,  # web research with reasoning runs for minutes
     ceiling_usd=2.00,
     max_output_tokens=16384,
+    max_input_tokens=16384,
+    web_search=True,
 )
 
 VISION = ModelSpec(
@@ -92,6 +96,7 @@ VISION = ModelSpec(
     effort="low",
     ceiling_usd=0.25,
     max_output_tokens=2048,
+    max_input_tokens=16384,
 )
 
 VERIFY = ModelSpec(
@@ -103,6 +108,7 @@ VERIFY = ModelSpec(
     temperature=0,  # probed 27 Oct: accepted; seed is not in the SDK surface
     ceiling_usd=0.10,
     max_output_tokens=2048,
+    max_input_tokens=16384,
 )
 
 # Step 5 shares the verify setting until it needs its own.
@@ -148,6 +154,7 @@ VERIFY_OPEN = ModelSpec(
     # both cut it off mid-thought with no answer at all (30 Oct).
     # At most $0.02 a call, inside the ceiling.
     max_output_tokens=16384,
+    max_input_tokens=16384,
 )
 
 
@@ -359,6 +366,65 @@ def _admit_call() -> None:
             f"job web-search budget spent ({SEARCH_BUDGET_PER_JOB}); stopping")
 
 
+IMAGE_INPUT_TOKENS = 2000  # conservative per-image estimate
+
+
+def estimate_input_tokens(payload) -> int:
+    """Conservative input size: text at 4 chars a token, each image
+    at IMAGE_INPUT_TOKENS. Data URIs are image bytes, not text, and
+    never count as characters."""
+    chars, images = 0, 0
+
+    def walk(value):
+        nonlocal chars, images
+        if isinstance(value, str):
+            if value.startswith("data:"):
+                images += 1
+            else:
+                chars += len(value)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key == "image_url" and isinstance(item, str):
+                    images += 1
+                else:
+                    walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+
+    walk(payload)
+    return (chars + 3) // 4 + images * IMAGE_INPUT_TOKENS
+
+
+def call_ceiling(spec, input_tokens: int) -> float:
+    """A true upper bound for one call: estimated input plus the
+    bounded output at list prices, the whole search budget for
+    search specs, and any per-call price. Never below the spec's
+    conservative floor."""
+    in_price, out_price = PRICE_PER_M.get((spec.provider, spec.model),
+                                          (0.0, 0.0))
+    out_tokens = spec.max_output_tokens or 0
+    searches = SEARCH_BUDGET_PER_JOB if spec.web_search else 0
+    per_call = PER_CALL_USD.get((spec.provider, spec.model), 0.0)
+    computed = (input_tokens * in_price / 1e6
+                + out_tokens * out_price / 1e6
+                + searches * WEB_SEARCH_USD + per_call)
+    return max(spec.ceiling_usd, computed)
+
+
+def _reserve_call(spec, payload) -> object:
+    """Reserve this call's ceiling, refusing oversized inputs first.
+    A refused call holds nothing."""
+    tokens_in = estimate_input_tokens(payload)
+    if (spec.max_input_tokens is not None
+            and tokens_in > spec.max_input_tokens):
+        raise SpendingCapExceeded(
+            f"input too large ({tokens_in} estimated tokens); refusing")
+    if _DAILY is None:
+        return None
+    return _DAILY.reserve(call_ceiling(spec, tokens_in))
+
+
 class JobControl:
     """One job's cancel token plus deadline, shared by every thread."""
 
@@ -460,7 +526,7 @@ def respond(client, spec, **kwargs):
     _bound_output("max_output_tokens", spec, kwargs)
     _check_control()
     _admit_call()
-    ticket = _DAILY.reserve(spec.ceiling_usd) if _DAILY is not None else None
+    ticket = _reserve_call(spec, kwargs)
     try:
         response = client.responses.create(model=spec.model, **kwargs)
     except Exception:
@@ -481,7 +547,7 @@ def chat(client, spec, messages, **kwargs):
     _bound_output("max_tokens", spec, kwargs)
     _check_control()
     _admit_call()
-    ticket = _DAILY.reserve(spec.ceiling_usd) if _DAILY is not None else None
+    ticket = _reserve_call(spec, [messages, kwargs])
     try:
         response = client.chat.completions.create(
             model=spec.model, messages=messages, **kwargs)
@@ -612,10 +678,16 @@ def current_cost_usd() -> float:
 
 
 class BudgetTicket:
-    """One held reservation: the ceiling committed before a call."""
+    """One held reservation: a unique id, the billing account that
+    issued it, and the ceiling committed before a call. A ticket
+    reconciles once, against its own account."""
 
-    def __init__(self, ceiling_usd: float):
+    def __init__(self, ceiling_usd: float, ticket_id=None, account=None):
+        import uuid as _uuid
+
         self.ceiling_usd = ceiling_usd
+        self.ticket_id = ticket_id or _uuid.uuid4().hex
+        self.account = account
 
 
 class BudgetAuthority:
@@ -639,16 +711,21 @@ class BudgetAuthority:
         self.daily_films = daily_films
         self.visitor_films = visitor_films
         self._mutex = threading.Lock()
+        self._open = set()
 
     def _file(self):
         return self.dir / f"spending-{date.today().isoformat()}.json"
 
     @contextlib.contextmanager
-    def _account(self):
-        """The day's locked account for one atomic read-modify-write."""
+    def _account(self, path=None):
+        """One locked account for an atomic read-modify-write: the
+        given billing account, else today's. A missing file starts
+        empty; an existing but empty one fails closed."""
+        target = path if path is not None else self._file()
         with self._mutex:
+            existed = target.exists()
             try:
-                handle = open(self._file(), "a+")
+                handle = open(target, "a+")
             except OSError as exc:
                 raise AccountingError(
                     f"spending accounting unavailable: {exc}")
@@ -656,12 +733,18 @@ class BudgetAuthority:
                 if fcntl is not None:
                     fcntl.flock(handle, fcntl.LOCK_EX)
                 handle.seek(0)
-                try:
-                    raw = handle.read()
-                    data = json.loads(raw) if raw.strip() else {}
-                except (json.JSONDecodeError, ValueError):
-                    raise AccountingError(
-                        "spending accounting is corrupt; refusing to spend")
+                raw = handle.read()
+                if not raw.strip():
+                    if existed:
+                        raise AccountingError(
+                            "spending accounting is empty; refusing to spend")
+                    data = {}
+                else:
+                    try:
+                        data = json.loads(raw)
+                    except (json.JSONDecodeError, ValueError):
+                        raise AccountingError(
+                            "spending accounting is corrupt; refusing to spend")
                 if not isinstance(data, dict):
                     raise AccountingError(
                         "spending accounting is corrupt; refusing to spend")
@@ -688,8 +771,11 @@ class BudgetAuthority:
             except OSError as exc:
                 raise AccountingError(
                     f"spending accounting unavailable: {exc}")
+        if not raw.strip():
+            raise AccountingError(
+                "spending accounting is empty; refusing to spend")
         try:
-            data = json.loads(raw) if raw.strip() else {}
+            data = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
             raise AccountingError(
                 "spending accounting is corrupt; refusing to spend")
@@ -709,8 +795,10 @@ class BudgetAuthority:
         return float(self._read().get("reserved_usd", 0.0))
 
     def reserve(self, ceiling_usd: float) -> BudgetTicket:
-        """Hold ceiling_usd of today's budget, or raise."""
-        with self._account() as data:
+        """Hold ceiling_usd of today's budget, or raise. The ticket
+        carries its id and billing account for a single reconcile."""
+        path = self._file()
+        with self._account(path) as data:
             spent = float(data.get("total_usd", 0.0))
             held = float(data.get("reserved_usd", 0.0))
             if (self.cap_usd is not None
@@ -719,13 +807,23 @@ class BudgetAuthority:
                     f"daily spending cap reached (${self.cap_usd:.2f}); "
                     f"try again tomorrow")
             data["reserved_usd"] = held + ceiling_usd
-            return BudgetTicket(ceiling_usd)
+            ticket = BudgetTicket(ceiling_usd, account=path.name)
+            self._open.add(ticket.ticket_id)
+            return ticket
 
     def reconcile(self, ticket: BudgetTicket, actual_usd: float) -> None:
-        """Release a reservation and record what the call cost. Callers
-        pass the ceiling when the call failed, since a failure cannot
-        prove the server did not bill."""
-        with self._account() as data:
+        """Release a reservation and record what the call cost, once,
+        against the ticket's own billing account. Callers pass the
+        ceiling when the call failed, since a failure cannot prove
+        the server did not bill."""
+        with self._mutex:
+            if ticket.ticket_id not in self._open:
+                raise AccountingError(
+                    "unknown or already reconciled budget ticket")
+            self._open.discard(ticket.ticket_id)
+        path = (self.dir / ticket.account
+                if ticket.account else self._file())
+        with self._account(path) as data:
             held = float(data.get("reserved_usd", 0.0))
             data["reserved_usd"] = max(0.0, held - ticket.ceiling_usd)
             data["total_usd"] = float(data.get("total_usd", 0.0)) + actual_usd

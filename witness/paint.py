@@ -312,33 +312,56 @@ NORTH_MONTHS = {12: "winter", 1: "winter", 2: "winter", 3: "spring",
                 8: "summer", 9: "autumn", 10: "autumn", 11: "autumn"}
 
 
-def hemisphere_season(month, country_code):
-    """The season of a month in the object's country: southern order
-    below the equator, nothing year-round in the tropics, northern
-    order anywhere else. None when there is no month to read."""
+def season_zone(country_code):
+    """The season zone for a country code: north, south or tropical.
+    Stored instead of the code, so seasons stay right without
+    keeping any location."""
+    code = (country_code or "").lower()
+    if not code:
+        return None
+    if code in TROPICAL_CODES:
+        return "tropical"
+    if code in SOUTHERN_CODES:
+        return "south"
+    return "north"
+
+
+def zone_season(month, zone):
+    """The season of a month in a stored zone: southern order below
+    the equator, nothing year-round in the tropics, northern order
+    anywhere else. None when there is no month to read."""
     if month is None:
         return None
-    code = (country_code or "").lower()
-    if code in TROPICAL_CODES:
+    if zone == "tropical":
         return None
     season = NORTH_MONTHS[month]
-    if code in SOUTHERN_CODES:
+    if zone == "south":
         order = ["winter", "spring", "summer", "autumn"]
         return order[(order.index(season) + 2) % 4]
     return season
 
 
-def expected_season(scene, photo_month, photo_season, country_code=None):
+def hemisphere_season(month, country_code):
+    """The season of a month in the object's country: southern order
+    below the equator, nothing year-round in the tropics, northern
+    order anywhere else. None when there is no month to read."""
+    return zone_season(month, season_zone(country_code))
+
+
+def expected_season(scene, photo_month, photo_season, country_code=None,
+                    zone=None):
     """An era's season: a named season in its label first, then the
-    season its month implies in the object's country, then the photo
-    fallback, else the anchor's season for series consistency."""
+    season its month implies in the object's zone, then the photo
+    fallback, else the anchor's season for series consistency. The
+    stored zone wins; a country code is resolved the same way."""
     label = scene.get("date_label", "") or ""
     named = named_season(label)
     if named is not None:
         return named
     month = era_month(label)
-    if country_code:
-        return hemisphere_season(month, country_code) or photo_season
+    resolved = zone or (country_code and season_zone(country_code))
+    if resolved:
+        return zone_season(month, resolved) or photo_season
     if month is not None and photo_month is not None and photo_season in SEASONS:
         return relative_season(photo_month, photo_season, month)
     return photo_season
@@ -543,7 +566,7 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
 def paint_chain(call, photo_bytes, scenes, object_name, municipality,
                 check_call=None, season=None, excluded=None,
                 claims=(), audience="adult", photo_month=None,
-                country_code=None) -> list:
+                country_code=None, zone=None) -> list:
     """Eras one after another, each chained on the previous turn. The
     first scene carries the photo; a scene with no predecessor id
     does too. A dated era takes its own season from its month in the
@@ -555,7 +578,8 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
             photo = photo_bytes if prev_id is None else None
             era_season = expected_season(scene, photo_month, season,
-                                            country_code=country_code)
+                                            country_code=country_code,
+                                            zone=zone)
             if check_call is None:
                 result = call(scene_prompt(scene, object_name, municipality, era_season,
                                            year_excluded, claims,
@@ -581,7 +605,7 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
 def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
                    check_call=None, max_workers=6, season=None,
                    excluded=None, claims=(), audience="adult",
-                   photo_month=None, country_code=None) -> list:
+                   photo_month=None, country_code=None, zone=None) -> list:
     """The first scene carries the photo; the rest branch from its
     turn, painted at once. No spare anchor turn: its image was always
     discarded. A dated era takes its own season from its month in the
@@ -593,7 +617,8 @@ def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
         try:
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
             era_season = expected_season(scene, photo_month, season,
-                                            country_code=country_code)
+                                            country_code=country_code,
+                                            zone=zone)
             if check_call is None:
                 result = call(scene_prompt(scene, object_name, municipality, era_season,
                                            year_excluded, claims,

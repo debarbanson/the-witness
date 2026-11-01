@@ -32,8 +32,9 @@ def test_fixed_conditions():
     assert states.SCOPES == ("whole", "part")
 
 
-def classify(event, detail="", visible_change="", previous=None):
-    found = states.classify(event, detail, visible_change, previous)
+def classify(event, detail="", visible_change="", previous=None, checked=False):
+    found = states.classify(event, detail, visible_change, previous,
+                            checked=checked)
     assert found is not None
     assert found["condition"] in states.CONDITIONS
     assert found["degree"] in states.DEGREES
@@ -175,21 +176,27 @@ def test_surviving_frame_downgrades_destroyed_to_burnt():
 
 
 def test_visible_alterations_keep_standing_with_description():
-    assert classify("extended", "Widened to three lanes.", "widened to three lanes") == {
+    assert classify("extended", "Widened to three lanes.", "widened to three lanes",
+                    checked=True) == {
         "condition": "standing", "degree": "total", "scope": "whole",
         "description": "widened to three lanes",
     }
-    assert classify("repainted", "Repainted white.", "repainted white")["description"] == "repainted white"
+    assert classify("repainted", "Repainted white.", "repainted white",
+                    checked=True)["description"] == "repainted white"
 
 
 def test_unseen_cases_sails_pollard_raised_statue():
-    sails = classify("restored", "The sails were replaced with new ones.", "sails replaced")
+    sails = classify("restored", "The sails were replaced with new ones.", "sails replaced",
+                       checked=True)
     assert (sails["condition"], sails["description"]) == ("standing", "sails replaced")
-    pollard = classify("restored", "The tree was pollarded back to the trunk.", "pollarded")
+    pollard = classify("restored", "The tree was pollarded back to the trunk.", "pollarded",
+                       checked=True)
     assert (pollard["condition"], pollard["description"]) == ("standing", "pollarded")
-    raised = classify("extended", "A new storey raised the tower by 6 m.", "height raised")
+    raised = classify("extended", "A new storey raised the tower by 6 m.", "height raised",
+                      checked=True)
     assert (raised["condition"], raised["description"]) == ("standing", "height raised")
-    statue = classify("moved", "The statue was moved to the museum square.", "moved to museum square")
+    statue = classify("moved", "The statue was moved to the museum square.", "moved to museum square",
+                      checked=True)
     assert (statue["condition"], statue["scope"]) == ("moved", "whole")
 
 
@@ -349,3 +356,9 @@ def test_checked_blank_visible_change_leaves_no_description():
 def test_unchecked_claims_keep_the_detail_fallback():
     state = states.classify("rebuilt", "rebuilt with a golden roof", "")
     assert state["description"] == "rebuilt with a golden roof"
+
+
+def test_unchecked_visible_change_never_becomes_the_description():
+    state = states.classify("built", "The tower was built.",
+                            "A golden roof and six purple spires.")
+    assert state["description"] == "The tower was built."

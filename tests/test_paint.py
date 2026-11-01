@@ -575,6 +575,24 @@ def test_hemisphere_season_follows_country_code():
     assert paint.hemisphere_season(None, "dk") is None
 
 
+def test_season_zone_maps_countries_without_storing_them():
+    assert paint.season_zone("dk") == "north"
+    assert paint.season_zone("br") == "south"
+    assert paint.season_zone("ec") == "tropical"
+    assert paint.season_zone(None) is None
+
+
+def test_expected_season_takes_a_stored_zone():
+    october = scene(2019)
+    october["date_label"] = "22 October 2019"
+    assert paint.expected_season(october, 6, "winter",
+                                 zone="north") == "autumn"
+    assert paint.expected_season(october, 6, "winter",
+                                 zone="south") == "spring"
+    assert paint.expected_season(october, 6, "winter",
+                                 zone="tropical") == "winter"
+
+
 def test_expected_season_prefers_country_over_unreliable_exif():
     october = scene(2019)
     october["date_label"] = "22 October 2019"

@@ -294,7 +294,8 @@ def classify(event: str, detail: str = "", visible_change: str = "",
     if checked:
         description = visible_change.strip()
     else:
-        description = visible_change.strip() or " ".join(detail.split())[:140]
+        # Unchecked free text never paints: only the verified detail may.
+        description = " ".join(detail.split())[:140]
 
     def state(condition, degree="total", scope="whole"):
         return {"condition": condition, "degree": degree,

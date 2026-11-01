@@ -158,7 +158,8 @@ def cond(seg):
 def test_build_timeline_states():
     events = [
         {"year": 1932, "event": "built", "detail": "Built."},
-        {"year": 1986, "event": "restored", "detail": "Decorated.", "visible_change": "repainted"},
+        {"year": 1986, "event": "restored", "detail": "Decorated.", "visible_change": "repainted",
+         "visible_change_checked": True},
         {"year": 1987, "event": "repurposed", "detail": "Out of use."},
         {"year": 1999, "event": "rebuilt", "detail": "Rebuild started."},
         {"year": 2002, "event": "rebuilt", "detail": "Reopened."},
@@ -178,7 +179,8 @@ def test_build_timeline_records_description_provenance():
     events = [
         {"year": 1899, "event": "built", "detail": "Construction began."},
         {"year": 2016, "event": "restored", "detail": "Restored.",
-         "visible_change": "new staircase fitted"},
+         "visible_change": "new staircase fitted",
+         "visible_change_checked": True},
     ]
     first, second = research.build_timeline(events)
     assert first["description_from"] == "detail"
@@ -207,7 +209,8 @@ def test_build_timeline_same_year_last_state_wins():
 def test_build_timeline_decorated_with_tulips_is_visible():
     (seg,) = research.build_timeline(
         [{"year": 1986, "event": "decorated", "detail": "Decorated with tulips.",
-          "visible_change": "decorated with tulips"}]
+          "visible_change": "decorated with tulips",
+          "visible_change_checked": True}]
     )
     assert cond(seg) == "standing"
     assert seg["state"]["description"] == "decorated with tulips"

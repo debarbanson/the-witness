@@ -647,3 +647,75 @@ def test_admit_checks_both_visitor_keys_counts_once(tmp_path):
 def test_research_ceiling_covers_worst_case_searches():
     worst = models.SEARCH_BUDGET_PER_JOB * models.WEB_SEARCH_USD
     assert models.RESEARCH.ceiling_usd >= worst
+
+
+def test_ticket_reconciles_only_once(tmp_path):
+    auth = models.BudgetAuthority(tmp_path, daily_cap_usd=0.20)
+    first = auth.reserve(0.10)
+    auth.reserve(0.10)
+    auth.reconcile(first, 0.01)
+    with pytest.raises(models.AccountingError):
+        auth.reconcile(first, 0.01)
+    assert auth.reserved_usd() == pytest.approx(0.10)
+
+
+def test_ticket_reconciles_against_its_own_day(tmp_path, monkeypatch):
+    auth = models.BudgetAuthority(tmp_path, daily_cap_usd=0.10)
+    current = [tmp_path / "day-one.json"]
+    monkeypatch.setattr(auth, "_file", lambda: current[0])
+    old = auth.reserve(0.10)
+    current[0] = tmp_path / "day-two.json"
+    auth.reserve(0.10)
+    auth.reconcile(old, 0.0)
+    assert auth.reserved_usd() == pytest.approx(0.10)
+
+
+def test_empty_account_file_fails_closed(tmp_path):
+    auth = models.BudgetAuthority(tmp_path, daily_cap_usd=0.10)
+    auth._file().write_text("")
+    with pytest.raises(models.AccountingError):
+        auth.reserve(0.10)
+    with pytest.raises(models.AccountingError):
+        auth.total_usd()
+
+
+def test_oversized_input_is_refused_before_any_reserve(tmp_path):
+    class FakeClient:
+        class responses:
+            @staticmethod
+            def create(**kw):
+                raise AssertionError("refused calls never run")
+
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        with pytest.raises(models.SpendingCapExceeded):
+            models.respond(FakeClient(), models.VERIFY, input="A " * 100000)
+        assert models._DAILY.total_usd() == pytest.approx(0.0)
+        assert models._DAILY.reserved_usd() == pytest.approx(0.0)
+    finally:
+        models.configure_spending(None)
+
+
+def test_input_estimate_skips_data_uris_and_charges_images():
+    assert models.estimate_input_tokens({"input": "abcd"}) == 1
+    # the 100k data URI chars count for nothing; the tag text counts 3
+    assert models.estimate_input_tokens(
+        {"input": [{"type": "input_image",
+                    "image_url": "data:image/png;base64," + "A" * 100000}]}
+    ) == models.IMAGE_INPUT_TOKENS + 3
+
+
+def test_spec_floors_cover_worst_case_inputs():
+    for spec in (models.RESEARCH, models.VISION, models.VERIFY,
+                 models.PAINT, models.SAM, models.VERIFY_OPEN):
+        worst = models.call_ceiling(spec, spec.max_input_tokens or 0)
+        assert worst <= spec.ceiling_usd, spec.model
+
+
+def test_every_priced_spec_covers_a_real_call_shape(tmp_path):
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        assert models._DAILY.reserve(
+            models.call_ceiling(models.VERIFY, 100)).ceiling_usd >= 0.0
+    finally:
+        models.configure_spending(None)

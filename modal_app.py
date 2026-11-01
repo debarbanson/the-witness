@@ -76,6 +76,7 @@ def _apply_ledger_op(data, op):
     data.setdefault("calls", 0)
     data.setdefault("films", 0)
     data.setdefault("visitors", {})
+    data.setdefault("open", {})
     kind = op.get("kind")
     if kind == "reserve":
         ceiling = float(op["ceiling_usd"])
@@ -84,9 +85,12 @@ def _apply_ledger_op(data, op):
                 + ceiling > cap):
             return data, {"ok": False, "error": "cap"}
         data["reserved_usd"] += ceiling
+        data["open"][op["ticket_id"]] = ceiling
     elif kind == "reconcile":
-        data["reserved_usd"] = max(
-            0.0, data["reserved_usd"] - float(op["ceiling_usd"]))
+        held = data["open"].pop(op.get("ticket_id"), None)
+        if held is None:
+            return data, {"ok": False, "error": "unknown ticket"}
+        data["reserved_usd"] = max(0.0, data["reserved_usd"] - held)
         data["total_usd"] += float(op["actual_usd"])
         data["calls"] += 1
     elif kind == "admit":
@@ -119,13 +123,21 @@ def ledger_op(op):
     import json
     from datetime import date
 
-    name = f"spending-{date.today().isoformat()}"
+    name = f"spending-{op.get('day') or date.today().isoformat()}"
     with _LEDGER_LOCK:
         try:
-            raw = ledger_dict.get(name, "")
-            data = json.loads(raw) if raw.strip() else {}
-        except (ValueError, OSError):
+            raw = ledger_dict.get(name)
+        except OSError:
+            return {"ok": False, "error": "accounting unavailable"}
+        if raw is None:
+            data = {}
+        elif not raw.strip():
             return {"ok": False, "error": "accounting corrupt"}
+        else:
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                return {"ok": False, "error": "accounting corrupt"}
         if not isinstance(data, dict):
             return {"ok": False, "error": "accounting corrupt"}
         data, answer = _apply_ledger_op(data, op)
@@ -163,14 +175,20 @@ class ModalAuthority:
         return answer
 
     def reserve(self, ceiling_usd):
-        self._call({"kind": "reserve", "ceiling_usd": ceiling_usd,
-                    "cap_usd": self.cap_usd})
-        return self._models.BudgetTicket(ceiling_usd)
+        from datetime import date as _date
+
+        ticket = self._models.BudgetTicket(
+            ceiling_usd, account=f"spending-{_date.today().isoformat()}")
+        self._call({"kind": "reserve", "ticket_id": ticket.ticket_id,
+                    "ceiling_usd": ceiling_usd, "cap_usd": self.cap_usd,
+                    "day": ticket.account.removeprefix("spending-")})
+        return ticket
 
     def reconcile(self, ticket, actual_usd):
-        self._call({"kind": "reconcile",
-                    "ceiling_usd": ticket.ceiling_usd,
-                    "actual_usd": actual_usd})
+        day = ((ticket.account or "").removeprefix("spending-")
+               or None)
+        self._call({"kind": "reconcile", "ticket_id": ticket.ticket_id,
+                    "actual_usd": actual_usd, "day": day})
 
     def admit(self, visitor, extra=None):
         self._call({"kind": "admit", "visitor": visitor, "extra": extra,

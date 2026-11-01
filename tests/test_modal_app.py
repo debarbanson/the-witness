@@ -125,6 +125,38 @@ def test_ledger_apply_rejects_unknown_schema_and_ops():
     assert answer == {"ok": False, "error": "unknown op"}
 
 
+def test_ledger_ticket_reconciles_once():
+    from modal_app import _apply_ledger_op
+
+    data, answer = _apply_ledger_op(
+        {}, {"kind": "reserve", "ticket_id": "t1", "ceiling_usd": 0.10,
+             "cap_usd": 1.0})
+    assert answer["ok"] is True
+    data, answer = _apply_ledger_op(
+        data, {"kind": "reconcile", "ticket_id": "t1",
+               "ceiling_usd": 0.10, "actual_usd": 0.01})
+    assert answer["ok"] is True
+    assert answer["reserved_usd"] == 0.0
+    _, answer = _apply_ledger_op(
+        data, {"kind": "reconcile", "ticket_id": "t1",
+               "ceiling_usd": 0.10, "actual_usd": 0.01})
+    assert answer == {"ok": False, "error": "unknown ticket"}
+
+
+def test_modal_authority_tags_tickets_with_id_and_day(monkeypatch):
+    import modal_app
+
+    ops = []
+    auth = modal_app.ModalAuthority(cap_usd=1.0)
+    monkeypatch.setattr(
+        auth, "_call", lambda op: ops.append(op) or {"ok": True})
+    ticket = auth.reserve(0.10)
+    auth.reconcile(ticket, 0.01)
+    assert ops[0]["kind"] == "reserve"
+    assert ops[0]["ticket_id"] == ticket.ticket_id == ops[1]["ticket_id"]
+    assert ops[0]["day"] == ops[1]["day"]
+
+
 def test_contact_is_required(monkeypatch):
     monkeypatch.delenv("WITNESS_CONTACT", raising=False)
     with pytest.raises(RuntimeError) as excinfo:

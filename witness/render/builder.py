@@ -31,6 +31,8 @@ def refusal_reason(scene, claims, audience="adult") -> str | None:
     stored = scene.get("caption_sentence") or {}
     if not stored.get("text") or stored.get("claim_year") is None:
         return "no written sentence from its own claim"
+    if stored.get("claim_year") != scene.get("from_year"):
+        return "its caption cites another year's claim"
     evidence = stored.get("evidence") or {}
     if not evidence.get("claim") or not evidence.get("url") or not evidence.get("quote"):
         return "no evidence reference"
@@ -166,13 +168,17 @@ def scene_site(scene, claims=()) -> str:
 
 
 def anchor_card(first_scene) -> dict:
-    """The opening card: one year, or "for" plus the age range."""
+    """The opening card: one year, or "for" plus the age range. A
+    from_year the scene's own label does not carry is a computed
+    sort key, never shown; the human label speaks instead."""
     label = first_scene.get("date_label", "") or ""
     if states.is_age_range(label):
         words = label[:-4] if label.endswith(" old") else label
         return {"line": "I have stood here for", "label": words}
-    return {"line": "I have stood here since",
-            "label": str(first_scene.get("from_year"))}
+    year = first_scene.get("from_year")
+    if isinstance(year, int) and str(year) in label:
+        return {"line": "I have stood here since", "label": str(year)}
+    return {"line": "I have stood here", "label": label or "longer than memory"}
 
 
 def dated(scenes) -> list:
@@ -182,11 +188,15 @@ def dated(scenes) -> list:
 
 
 def build_timeline(scenes, images, claims, audience="adult") -> list:
-    """Contiguous segments: title, anchor, one era per painting, today, end."""
-    plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
-    plan.append({"kind": "anchor", "start": TITLE_S, "end": TITLE_S + ANCHOR_S})
+    """Contiguous segments: title, anchor, one era per painting, today,
+    end. Empty when no era is filmable: that is a facts-only result,
+    never a title-and-today film."""
     eras = [s for s in dated(scenes)
             if str(s["from_year"]) in images and filmable(s, claims, audience)]
+    if not eras:
+        return []
+    plan = [{"kind": "title", "start": 0, "end": TITLE_S}]
+    plan.append({"kind": "anchor", "start": TITLE_S, "end": TITLE_S + ANCHOR_S})
     t = TITLE_S + ANCHOR_S
     for position, scene in enumerate(eras):
         year = scene["from_year"]
@@ -279,6 +289,8 @@ def _build_film(film_dir, research, images, photo, photo_credit,
     scenes = dated(research.get("scenes", []))
     plan = build_timeline(research.get("scenes", []), images, claims,
                           audience=audience)
+    if not plan:
+        raise ValueError("no filmable eras; facts only")
     film_scenes = []
     for scene in scenes:
         key = str(scene["from_year"])
@@ -305,6 +317,8 @@ def _build_film(film_dir, research, images, photo, photo_credit,
     last = painted[-1] if painted else {"from_year": "today", "state": {}}
     today_line, today_sub = today_card(photo_year, own_photo, last, claims)
     first = (research.get("scenes", []) or [{}])[0]
+    if painted and not states.is_age_range(first.get("date_label", "")):
+        first = painted[0]
     film = {"object": name, "kind": research["object"].get("kind", ""),
             "photo": photo, "photo_credit": photo_credit,
             "photo_source": photo_source,

@@ -566,7 +566,8 @@ def test_timeline_events_keep_event_for_supported_claims():
          "quote_span": "Built in 1932.", "completed": True, "visible_change": ""},
         {"year": 1986, "event": "restored", "verdict": "supported",
          "quote_span": "Since 1986 the tower has been decorated with tulips.",
-         "completed": True, "visible_change": "tulips added"},
+         "completed": True, "visible_change": "tulips added",
+         "visible_change_checked": True},
         {"year": 1920, "event": "built", "verdict": "supported",
          "quote_span": "The project was proposed in 1920.",
          "completed": False, "visible_change": ""},
@@ -804,7 +805,7 @@ def test_report_and_save_writes_research_json(tmp_path, monkeypatch):
     assert '"outcome": "short_film"' in saved
 
 
-def test_report_and_save_stores_country_code(tmp_path, monkeypatch):
+def test_report_and_save_stores_season_zone_not_locale(tmp_path, monkeypatch):
     import json
     from types import SimpleNamespace
 
@@ -813,13 +814,16 @@ def test_report_and_save_stores_country_code(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     found = SimpleNamespace(name="Test Mill", kind="mill", qid="Q1",
                             articles={"en": "Test_Mill"},
-                            country_code="dk")
+                            municipality="SYNTHETIC_TOWN",
+                            country_code="br")
     result = {"outcome": "too_little", "reason": "test", "verified": 0,
               "eras": 0, "good_sources": 0}
     slug = report_and_save(found, "en", ["en"], [], [], [], result,
                            {"total_s": 1.0}, "baseten", [], None)
     saved = json.loads((tmp_path / "out" / slug / "research.json").read_text())
-    assert saved["object"]["country_code"] == "dk"
+    assert "municipality" not in saved["object"]
+    assert "country_code" not in saved["object"]
+    assert saved["object"]["season_zone"] == "south"
 
 
 def test_report_and_save_prints_cost(tmp_path, monkeypatch, capsys):
@@ -973,6 +977,24 @@ def test_build_jobs_runs_in_film_order():
     assert [(j["year"], j.get("anchor")) for j in jobs] == [
         (1779, "build"), (1850, None), (1930, None)]
     assert [j["claim_index"] for j in jobs] == [1, 2, 0]
+
+
+def test_build_jobs_keeps_snippets_out_of_passages():
+    """Snippets are not evidence: only fetched paragraphs reach the
+    judge, however many snippets the search returned."""
+    from witness import verify as verify_module
+    from witness.cli import build_jobs
+
+    url = "https://a.example/tower"
+    quote = "The old tower was built in 1900 with a stone roof."
+    claim = {"year": 1900, "claim": "The tower was built in 1900.",
+             "event": "stood", "sources": [url], "quote_span": quote}
+    jobs = build_jobs([claim], {url: quote},
+                      ["https://example.org/: snippet"] * 13, 1900)
+    assert jobs and jobs[0]["passages"]
+    assert all(verify_module._fetched_para(p) is not None
+               for p in jobs[0]["passages"])
+    assert not any("snippet" in p for p in jobs[0]["passages"])
 
 
 def test_build_jobs_carries_date_and_backstops_yearless_text():
@@ -1268,7 +1290,7 @@ def test_cmd_paint_counts_only_the_eras_it_painted(tmp_path, monkeypatch, capsys
     assert "painted 1 of 1 eras" in capsys.readouterr().out
 
 
-def test_cmd_paint_reads_country_code_for_era_seasons(tmp_path, monkeypatch):
+def test_cmd_paint_reads_season_zone_for_era_seasons(tmp_path, monkeypatch):
     import io
     import json
     from PIL import Image
@@ -1282,7 +1304,7 @@ def test_cmd_paint_reads_country_code_for_era_seasons(tmp_path, monkeypatch):
     out_dir.mkdir(parents=True)
     (out_dir / "research.json").write_text(json.dumps({
         "object": {"name": "Test Light", "qid": "Q1", "lang": "en",
-                   "municipality": "Test Town", "country_code": "dk"},
+                   "season_zone": "north"},
         "outcome": {"outcome": "full_film"},
         "claims": [{"year": 2019, "verdict": "supported", "claim": "moved"}],
         "scenes": [
@@ -1721,6 +1743,51 @@ def render_both_setup(tmp_path):
     return out_dir, str(photo), child
 
 
+def test_cmd_render_prints_facts_without_filmable_eras(tmp_path, monkeypatch,
+                                                        capsys):
+    """No filmable era is a facts-only result, never a title-and-today
+    film: the filmed claims print and no film folder is written."""
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel_b1"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "red").save(buf, "PNG")
+    (era_dir / "1850.png").write_bytes(buf.getvalue())
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
+                   "caption": "I opened my doors."}]}))
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1850, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "opened in 1850",
+                    "quote": "The mill opened in 1850."}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": []},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(buf.getvalue())
+
+    code = cli_module.cmd_render("q1-test", str(photo),
+                                 era_dir="eras_parallel_b1")
+    assert code == 2
+    assert not (out_dir / "film").exists()
+    out = capsys.readouterr().out
+    assert "facts-only" in out
+    assert "opened in 1850" in out
+    assert "https://a.example/x" in out
+
+
 def test_cmd_render_builds_both_audiences_when_child_set_matches(tmp_path, monkeypatch):
     import json
     from witness import cli as cli_module
@@ -2093,11 +2160,139 @@ def test_cmd_render_reports_refused_scenes(tmp_path, monkeypatch, capsys):
         "q1-test", str(photo), subject="mill",
         era_dir="eras_parallel", photo_credit="me",
         segment_call=lambda call_sam, path, subject: cutout)
-    assert code == 0
+    assert code == 2
     out, _ = capsys.readouterr()
     assert "1850" in out and "refused" in out
-    film = json.loads((out_dir / "film" / "film.json").read_text())
-    assert film["scenes"] == []
+    assert "facts-only" in out
+    assert "opened in 1850" in out
+    assert not (out_dir / "film").exists()
+
+
+def _paint_verify_setup(tmp_path, description, evidence=True):
+    import json
+    from witness import cli as cli_module
+    from witness import identify as identify_module
+    from witness import paint as paint_module
+
+    root = tmp_path / "out" / "q1-test"
+    root.mkdir(parents=True)
+    scene = {"from_year": 1900, "date_label": "1900",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": description},
+             "caption_lines": []}
+    if evidence:
+        scene["caption_sentence"] = {
+            "text": "I stood.", "claim_year": 1900,
+            "claim_url": "https://a.example/x",
+            "evidence": {"claim": "The tower was built in 1900.",
+                         "url": "https://a.example/x",
+                         "quote": "The old tower was built in 1900."}}
+    (root / "research.json").write_text(json.dumps({
+        "object": {"name": "Tower", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 1900, "url": "https://a.example/x",
+                    "verdict": "supported",
+                    "claim": "The tower was built in 1900.",
+                    "quote": "The old tower was built in 1900."}],
+        "scenes": [scene], "timeline": [], "timings": {}}))
+    return root
+
+
+def _voter(verdict, quote="The old tower was built in 1900."):
+    import json as _json
+
+    def vote(prompt):
+        supports = verdict == "supported"
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text",
+             "text": _json.dumps(
+                 {"verdict": verdict, "quote": quote if supports else "",
+                  "url": "https://a.example/x",
+                  "support": [{"url": "https://a.example/x",
+                               "supports": supports,
+                               "quote": quote if supports else ""}]}),
+             "annotations": []}]}]}
+
+    return vote
+
+
+def _stub_paint_run(monkeypatch, seen, support):
+    from witness import cli as cli_module
+    from witness import identify as identify_module
+    from witness import paint as paint_module
+
+    monkeypatch.setattr(cli_module, "photo_bytes_clean",
+                        lambda _: b"synthetic")
+    monkeypatch.setattr(identify_module, "capture_month", lambda _: None)
+    monkeypatch.setattr(paint_module, "paint_directives",
+                        lambda *a: {"season": "summer", "excluded": {}})
+
+    def parallel(*args, **kwargs):
+        seen.append((args[2][0]["state"]["description"],
+                     kwargs["audience"]))
+        return [{"image": None, "verdict": "dropped", "attempts": 1,
+                 "note": "synthetic"}]
+
+    monkeypatch.setattr(paint_module, "paint_parallel", parallel)
+    monkeypatch.setattr(cli_module, "recover_or_retry",
+                        lambda *a, **k: a[8])
+    return support
+
+
+def test_cmd_paint_blanks_state_unverified_by_its_evidence(tmp_path,
+                                                           monkeypatch):
+    """Reloaded state descriptions are verified against their cited
+    quote before either painter sees them."""
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    _paint_verify_setup(tmp_path, "UNVERIFIED purple spires")
+    seen = []
+    support = _stub_paint_run(monkeypatch, seen, _voter("unsupported"))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(b"synthetic")
+    for audience in ("adult", "child"):
+        code = cli_module.cmd_paint(
+            "q1-test", str(photo), out_dir=tmp_path / "out",
+            audience=audience, photo_month=1, support_call=support)
+        assert code == 0
+    assert seen == [("", "adult"), ("", "child")]
+
+
+def test_cmd_paint_keeps_state_its_evidence_states(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    _paint_verify_setup(tmp_path, "tower built")
+    seen = []
+    support = _stub_paint_run(monkeypatch, seen, _voter("supported"))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(b"synthetic")
+    code = cli_module.cmd_paint(
+        "q1-test", str(photo), out_dir=tmp_path / "out",
+        audience="adult", photo_month=1, support_call=support)
+    assert code == 0
+    assert seen == [("tower built", "adult")]
+
+
+def test_cmd_paint_blanks_state_without_checkable_evidence(tmp_path,
+                                                           monkeypatch):
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    _paint_verify_setup(tmp_path, "UNVERIFIED purple spires", evidence=False)
+    seen = []
+    called = []
+    support = _stub_paint_run(
+        monkeypatch, seen, lambda *a: called.append(1) or "supported")
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(b"synthetic")
+    code = cli_module.cmd_paint(
+        "q1-test", str(photo), out_dir=tmp_path / "out",
+        audience="adult", photo_month=1, support_call=support)
+    assert code == 0
+    assert seen == [("", "adult")]
+    assert called == []
 
 
 def test_cmd_paint_records_caption_and_warns_when_missing(tmp_path, monkeypatch, capsys):

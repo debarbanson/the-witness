@@ -922,8 +922,8 @@ def report_and_save(found, lang, order, kept, timeline, chosen, result, timings,
         "saved_at": date.today().isoformat(),
         "object": {"name": found.name, "kind": found.kind, "qid": found.qid, "articles": found.articles,
                    "lang": lang,
-                   "municipality": getattr(found, "municipality", None),
-                   "country_code": getattr(found, "country_code", None)},
+                   "season_zone": paint.season_zone(
+                       getattr(found, "country_code", None))},
         "claims": kept,
         "timeline": timeline,
         "scenes": chosen,
@@ -1077,14 +1077,17 @@ def spare_needs(chosen, pool) -> int:
 
 
 def build_jobs(claims, texts, snippets, anchor_year) -> list:
-    """Verify jobs: claim plus the paragraphs that mention its year or
-    key words, best of three for the claims that matter. Jobs run in
-    film order: the build anchor first, then earliest year first, so
-    the first scene is ready first."""
+    """Verify jobs: claim plus the fetched paragraphs that mention
+    its year or key words, best of three for the claims that matter.
+    Jobs run in film order: the build anchor first, then earliest
+    year first, so the first scene is ready first. Search snippets
+    are not evidence and never enter the passage pool; the snippets
+    argument stays for API stability and is ignored."""
+    _ = snippets
     jobs = []
     for index, claim in enumerate(claims):
         keywords = verify.keywords_for_claim(claim["claim"], claim.get("event", ""))
-        evidence = list(snippets)
+        evidence = []
         for url, text in texts.items():
             for para in verify.select_paragraphs(text, claim["year"], keywords, max_paras=3):
                 evidence.append(f"{url}\n{para}")
@@ -1376,12 +1379,12 @@ def check_respond(image_bytes, prompt):
 
 def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
                        directives, prior_dirs, dropped, audience="adult",
-                       photo_month=None, country_code=None):
+                       photo_month=None, country_code=None, zone=None):
     """A dropped critical era first tries the newest kept painting of
     it from an earlier run; remains then get one calm aftermath try."""
     year = scene["from_year"]
     season = paint.expected_season(scene, photo_month, directives["season"],
-                                   country_code=country_code)
+                                   country_code=country_code, zone=zone)
     prior = []
     for run_dir in prior_dirs[:2]:  # newest first; two checks are enough
         candidate = run_dir / f"{year}.webp"
@@ -1410,9 +1413,39 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
     return dropped
 
 
+def verify_scene_states(eras, name, support_respond) -> list:
+    """Blank era descriptions the cited quote does not state, so a
+    reloaded research file cannot smuggle unverified visuals to
+    either painter. Returns the years blanked. Uncheckable details
+    are not painted either."""
+    blanked = []
+    for scene in eras:
+        state = scene.get("state") or {}
+        if not (state.get("description") or "").strip():
+            continue
+        stored = scene.get("caption_sentence") or {}
+        evidence = stored.get("evidence") or {}
+        if not evidence.get("quote") or not evidence.get("url"):
+            state["description"] = ""
+            blanked.append(scene["from_year"])
+            continue
+        pseudo = {"year": scene["from_year"], "verdict": "supported",
+                  "visible_change": state["description"],
+                  "quote": evidence["quote"], "url": evidence["url"]}
+        try:
+            verdict = description_support_respond(
+                support_respond, pseudo, name)
+        except Exception:  # noqa: BLE001 - uncheckable is not painted
+            verdict = "unverified"
+        if verdict != "supported":
+            state["description"] = ""
+            blanked.append(scene["from_year"])
+    return blanked
+
+
 def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               paint_call=None, check_call=None, photo_call=None, out_dir="out",
-              audience="adult", photo_month=None):
+              audience="adult", photo_month=None, support_call=None):
     """Paint an object's eras from its research, checked per era. The
     location in the prompts is the canonical municipality from the
     research, never typed text. The children run paints a second set
@@ -1425,7 +1458,10 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         return 2
     data = json.loads(path.read_text())
     name = data["object"]["name"]
-    municipality = data["object"].get("municipality", "")
+    # Stored research keeps no locale: prompts name the object, and only
+    # the season zone (north, south, tropical) survives from the country.
+    municipality = ""
+    season_zone = data.get("object", {}).get("season_zone")
     try:
         photo_bytes = photo_bytes_clean(photo)
     except PhotoError as exc:
@@ -1448,6 +1484,10 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     if not eras:
         print("no paintable eras in research")
         return 2
+    support = support_call or baseten_support_respond
+    for year in verify_scene_states(eras, name, support):
+        print(f"{year}: state description not in its cited quote; "
+              f"painting without it")
     hint = "run children first" if audience == "child" else "run captions first"
     for scene in eras:
         if not paint.scene_caption(scene, audience=audience):
@@ -1467,12 +1507,11 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     if photo_month is not None and not 1 <= photo_month <= 12:
         print(f"bad photo month: {photo_month!r}")
         return 2
-    country_code = data.get("object", {}).get("country_code")
     print(f"anchor season: {directives['season']}")
     for scene in eras:
         season = paint.expected_season(scene, photo_month,
                                        directives["season"],
-                                       country_code=country_code)
+                                       zone=season_zone)
         if season != directives["season"]:
             print(f"{scene['from_year']}: season {season} "
                   f"(label {scene.get('date_label')!r})")
@@ -1486,14 +1525,14 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                                     excluded=directives["excluded"],
                                     claims=data.get("claims", []),
                                     audience=audience, photo_month=photo_month,
-                                    country_code=country_code)
+                                    zone=season_zone)
     else:
         results = paint.paint_parallel(call, photo_bytes, eras, name, municipality,
                                        check_call=checker, season=directives["season"],
                                        excluded=directives["excluded"],
                                        claims=data.get("claims", []),
                                        audience=audience, photo_month=photo_month,
-                                       country_code=country_code)
+                                       zone=season_zone)
     base = f"{mode}_{tag}" if tag else mode
     suffix = f"{base}_child" if audience == "child" else base
     era_dir = out_dir / f"eras_{suffix}"
@@ -1511,13 +1550,14 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         year = scene["from_year"]
         era_season = paint.expected_season(scene, photo_month,
                                            directives["season"],
-                                           country_code=country_code)
+                                           zone=season_zone)
         if result["image"] is None:
             result = recover_or_retry(call, checker, scene, name, municipality,
                                       photo_bytes, directives, prior_dirs,
                                       result, audience=audience,
                                       photo_month=photo_month,
-                                      country_code=country_code)
+                                      country_code=None,
+                                      zone=season_zone)
         entry = {"year": year, "verdict": result["verdict"],
                  "attempts": result["attempts"],
                  "caption": result.get("caption", ""),
@@ -2040,14 +2080,15 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         return 2
     manifest = stored.get("eras", [])
     era_path = out_dir / era_dir
+    claims = data.get("claims", [])
     era_files = collect_era_files(out_dir, manifest, data.get("scenes", []),
                                   era_dir, audience="adult")
     if not era_files:
         print(f"no kept paintings in {manifest_path}")
+        print_render_facts(claims)
         return 2
     images = {key: render_builder.served_era_name(key, src)
               for key, src in era_files.items()}
-    claims = data.get("claims", [])
     for scene in render_builder.dated(data.get("scenes", [])):
         if str(scene["from_year"]) not in images:
             continue
@@ -2058,8 +2099,18 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
                    for scene in render_builder.dated(data.get("scenes", []))
                    if str(scene["from_year"]) in images
                    and render_builder.filmable(scene, claims)}
+    if not adult_years:
+        print("no filmable eras.")
+        print_render_facts(claims)
+        return 2
     child_files = child_era_files(out_dir, era_dir, data.get("scenes", []),
                                   claims, adult_years)
+    if child_files is not None and not any(
+            render_builder.filmable(scene, claims, "child")
+            for scene in render_builder.dated(data.get("scenes", []))
+            if str(scene["from_year"]) in child_files):
+        print("children's set has no filmable scene; adult film only")
+        child_files = None
     cutout_path = None
     if subject:
         seg = segment_call if segment_call is not None else segment_module.segment
@@ -2097,6 +2148,16 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
     print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, "
           f"{total} s, {audiences})")
     return 0
+
+
+def print_render_facts(claims) -> None:
+    """The facts-only result: filmed claims with their evidence, when
+    no era can reach the film."""
+    print("facts-only result:")
+    for claim in claims:
+        if verify.filmed(claim):
+            print(f"- {claim.get('claim')} [{claim.get('url')}]")
+            print(f"  \"{claim.get('quote')}\"")
 
 
 def _era_fallback(out_dir, era_dir, year) -> str:

@@ -1,0 +1,715 @@
+{
+ "date": "2026-10-30",
+ "cases": 53,
+ "results": {
+  "T01": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 4.4,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 5.5
+   }
+  },
+  "T02": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 12.9,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 6.8
+   }
+  },
+  "T03": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 8.7,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 7.7
+   }
+  },
+  "T04": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 6.6,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 6.3
+   }
+  },
+  "T05": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 7.7,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 5.9
+   }
+  },
+  "T06": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 6.1,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 5.2
+   }
+  },
+  "T07": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 3.7,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 4.1
+   }
+  },
+  "T08": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 5.5,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 7.8
+   }
+  },
+  "T09": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 6.5,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 4.5
+   }
+  },
+  "T10": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 7.4,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 7.6
+   }
+  },
+  "T11": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 4.9,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 4.0
+   }
+  },
+  "T12": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 5.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 6.3
+   }
+  },
+  "T13": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 3.7,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 3.9
+   }
+  },
+  "T14": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 5.4,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 7.2
+   }
+  },
+  "T15": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 39.7,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 10.8
+   }
+  },
+  "T16": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 4.2,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 5.5
+   }
+  },
+  "T17": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 2.6,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 3.5
+   }
+  },
+  "T18": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 12.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 4.6
+   }
+  },
+  "T19": {
+   "group": "true",
+   "expected": "accept",
+   "open": {
+    "verdict": "supported",
+    "seconds": 5.6,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "supported",
+    "seconds": 6.3
+   }
+  },
+  "N01": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 4.8,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.8
+   }
+  },
+  "N02": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 5.2,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 5.0
+   }
+  },
+  "N03": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 5.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.6
+   }
+  },
+  "N04": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 4.9,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.9
+   }
+  },
+  "N05": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 6.7,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 3.7
+   }
+  },
+  "N06": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 7.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.7
+   }
+  },
+  "N07": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 3.2,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.5
+   }
+  },
+  "N08": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 4.5,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 5.6
+   }
+  },
+  "N09": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 6.9,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.5
+   }
+  },
+  "N10": {
+   "group": "negation",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 5.8,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 5.3
+   }
+  },
+  "W01": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 6.4,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 5.1
+   }
+  },
+  "W02": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 5.8,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 12.0
+   }
+  },
+  "W03": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 9.4,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 9.4
+   }
+  },
+  "W04": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 6.6,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 3.9
+   }
+  },
+  "W05": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 7.5,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 4.3
+   }
+  },
+  "W06": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 16.1,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "error: VerifyError",
+    "seconds": 13.0
+   }
+  },
+  "W07": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 7.5,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "error: VerifyError",
+    "seconds": 12.1
+   }
+  },
+  "W08": {
+   "group": "wrong_object",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 4.9,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 9.4
+   }
+  },
+  "D01": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 9.2,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 6.5
+   }
+  },
+  "D02": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 14.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 7.3
+   }
+  },
+  "D03": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 17.8,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 5.6
+   }
+  },
+  "D04": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 17.2,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 7.8
+   }
+  },
+  "D05": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 9.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 6.3
+   }
+  },
+  "D06": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 29.4,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 5.4
+   }
+  },
+  "D07": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 18.4,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 9.0
+   }
+  },
+  "D08": {
+   "group": "date_shift",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 6.8,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 10.7
+   }
+  },
+  "P01": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 20.1,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 9.6
+   }
+  },
+  "P02": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 17.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 9.8
+   }
+  },
+  "P03": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 6.5,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "error: VerifyError",
+    "seconds": 13.7
+   }
+  },
+  "P04": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 17.7,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 9.0
+   }
+  },
+  "P05": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 12.3,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 6.8
+   }
+  },
+  "P06": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 14.6,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "unsupported",
+    "seconds": 10.9
+   }
+  },
+  "P07": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 9.5,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "error: VerifyError",
+    "seconds": 13.0
+   }
+  },
+  "P08": {
+   "group": "partial",
+   "expected": "reject",
+   "open": {
+    "verdict": "unsupported",
+    "seconds": 4.0,
+    "fell_back": false
+   },
+   "meta": {
+    "verdict": "error: VerifyError",
+    "seconds": 13.5
+   }
+  }
+ },
+ "summary": {
+  "open": {
+   "cases": 53,
+   "right": 52,
+   "precision": 1.0,
+   "recall": 0.947,
+   "mean_s": 9.4,
+   "cost_usd": 0.2232,
+   "fallbacks": 0
+  },
+  "meta": {
+   "cases": 53,
+   "right": 52,
+   "precision": 1.0,
+   "recall": 0.947,
+   "mean_s": 7.1,
+   "cost_usd": 0.294
+  }
+ },
+ "eval_cost_usd": 0.5172
+}

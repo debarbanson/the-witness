@@ -834,3 +834,55 @@ def test_paint_parallel_forwards_claims_to_scenes():
         call, lambda image, p: "MATCHES.", [scene(2002)], "Fyr", "Knude",
         claims=[vclaim(2002, "abandoned due to shifting sands")])
     assert any("shifting sands" in prompt for prompt in seen)
+
+
+def test_check_sees_the_scene_caption_context():
+    seen = []
+
+    def call(prompt, prev, image):
+        return {"image": b"fake", "response_id": "r1"}
+
+    def check_call(image, prompt):
+        seen.append(prompt)
+        return "MATCHES whole lighthouse."
+
+    out = paint.paint_scene(
+        call, check_call,
+        scene(2016, "standing", "Tower with a new staircase.",
+              ["2002 abandoned: closed in 2002 due to continually shifting sands."]),
+        "Rubjerg Knude Fyr", "Hjørring", "r0")
+    assert out["verdict"] == "matches"
+    assert "shifting sands" in seen[0]
+
+
+def test_recover_check_sees_the_scene_caption_context():
+    seen = []
+
+    def check_call(image, prompt):
+        seen.append(prompt)
+        return "MATCHES whole lighthouse."
+
+    out = paint.recover_scene(
+        check_call,
+        scene(2016, "damaged", "Tower with a new staircase.",
+              ["2002 abandoned: closed in 2002 due to continually shifting sands."]),
+        "Rubjerg Knude Fyr", [("old", b"fake")])
+    assert out is not None
+    assert "shifting sands" in seen[0]
+
+
+def test_save_era_normalises_to_webp(tmp_path):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), "red").save(buf, "PNG")
+    path = paint.save_era(tmp_path, 2016, buf.getvalue())
+    assert path.name == "2016.webp"
+    assert path.read_bytes()[:4] == b"RIFF"
+    web = io.BytesIO()
+    Image.new("RGB", (32, 32), "blue").save(web, "WEBP")
+    path = paint.save_era(tmp_path, 2019, web.getvalue())
+    assert path.name == "2019.webp"
+    assert path.read_bytes() == web.getvalue()

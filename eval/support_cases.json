@@ -1,0 +1,426 @@
+[
+ {
+  "claim": "De Adriaan opened in 1779.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T01",
+  "quote": "De Adriaan was officially opened on May 19, 1779.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "opened in 1779",
+  "expected": "accept",
+  "group": "true",
+  "id": "T02",
+  "quote": "De Adriaan was officially opened on May 19, 1779.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "brand in 1932",
+  "expected": "accept",
+  "group": "true",
+  "id": "T03",
+  "quote": "On the evening of April 23, 1932 the windmill burnt down.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "The windmill was sold for 1650 guilders, and Kraan converted it into a tobacco mill to produce tobacco snuff.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T04",
+  "quote": "The windmill was sold for 1650 guilders, and Kraan converted the mill into a tobacco mill, to produce tobacco snuff.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "In 1865 a steam engine was placed in the windmill.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T05",
+  "quote": "In 1865 a steam engine was placed in the windmill by the then owner, J. van Berloo, but this was not a commercial success.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "repurposed power source: Steam engine replaced by electricity; mill then had 5 millstones: 3 operated by wind and 2 by electricity.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T06",
+  "quote": "In 1920, the steam engine was replaced and the mill was driven by electricity. De Adriaan then had 5 (!) millstones: 3 operated by wind and 2 by electricity.",
+  "url": "https://www.molenadriaan.nl/en/tours-services/"
+ },
+ {
+  "claim": "In 1925 the windmill was bought for 12,100 guilders by Vereniging De Hollandsche Molen to prevent demolition.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T07",
+  "quote": "In 1925 the windmill was bought for 12,100 guilders by the Dutch windmill society Vereniging De Hollandsche Molen to prevent demolition.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "The mill completely burnt down, the fire brigade could not prevent it, and the cause of the fire was never established.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T08",
+  "quote": "The fire brigade arrived quickly but could not prevent the complete burning down of the mill. This event was a shock for many citizens of the city; the cause of the fire has never been established.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "De Adriaan was reopened on April 23, 2002, exactly 70 years after the fire.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T09",
+  "quote": "Windmill De Adriaan was reopened on April 23, 2002, exactly 70 years after the fire.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "repurposed as museum: Museum established in Molen De Adriaan; visitors learn about technique, mills in general and De Adriaan in particular, seeing working mill when weather permits.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T10",
+  "quote": "Vanaf 2003 is er in Molen De Adriaan een molenmuseum gevestigd. Bezoekers kunnen kennisnemen van de techniek, molens in het algemeen en De Adriaan in het bijzonder. Als het weer het toelaat draait de molen, zodat bezoekers de molen ook in werking kunnen zien.",
+  "url": "https://nl.wikipedia.org/wiki/De_Adriaan_(Haarlem)"
+ },
+ {
+  "claim": "De Adriaan is an official wedding location of the Municipality of Haarlem (since 2004).",
+  "expected": "accept",
+  "group": "true",
+  "id": "T11",
+  "quote": "Vanaf 2004 geldt molen De Adriaan ook als officiële trouwlocatie van de Gemeente Haarlem.",
+  "url": "https://nl.wikipedia.org/wiki/De_Adriaan_(Haarlem)"
+ },
+ {
+  "claim": "The tree was originally known as the Cockpen Tree; it was later named the Major Oak after Major Hayman Rooke, who described it in his 1790 book.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T12",
+  "quote": "The tree was originally known as the Cockpen Tree, after the cockfighting that once took place beneath it. It was later named the Major Oak after Major Hayman Rooke, a British Army soldier and antiquarian who described the tree in his 1790 book Description and Sketches of Some Remarkable Oaks, writing: \"I think no one can behold this majestic ruin without pronouncing it to be of very remote antiquity; and might venture to say, that it cannot be much less than a thousand years old.\"",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "restored: In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil; To protect the tree from soil compaction due to visitors, fences were installed around it in 1974",
+  "expected": "accept",
+  "group": "true",
+  "id": "T13",
+  "quote": "In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil.",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "built in 1899",
+  "expected": "accept",
+  "group": "true",
+  "id": "T14",
+  "quote": "Fyret blev bygget i 1899, men på grund af enorm sandflugt gennem årene blev man nødt til at slukke fyret i 1968, da man ikke længere kunne se lyset fra vandet.",
+  "url": "https://da.wikipedia.org/wiki/Rubjerg_Knude_Fyr"
+ },
+ {
+  "claim": "structure relocation in 2019",
+  "expected": "accept",
+  "group": "true",
+  "id": "T15",
+  "quote": "Flytningen blev påbegyndt d. 22. oktober 2019 kl. 9.15 og afsluttet samme dag kl. 14.35.",
+  "url": "https://da.wikipedia.org/wiki/Rubjerg_Knude_Fyr"
+ },
+ {
+  "claim": "built: Construction began / built in 1899; first lit on 27 December 1900",
+  "expected": "accept",
+  "group": "true",
+  "id": "T16",
+  "quote": "It was first lit on 27 December 1900. Construction of the lighthouse began in 1899.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "abandoned: Museum and café abandoned in 2002; buildings used as museum and coffee shop abandoned in 2002 due to continually shifting sands",
+  "expected": "accept",
+  "group": "true",
+  "id": "T17",
+  "quote": "For a number of years, the buildings were used as a museum and coffee shop, but continually shifting sands caused them to be abandoned in 2002.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "In spring 2016 the tower was opened to the public with a new staircase and a kaleidoscope at the top.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T18",
+  "quote": "I foråret 2016 blev fyrtårnet åbnet for publikum. Der blev etableret en ny trappe og et kalejdoskop i toppen af tårnet.",
+  "url": "https://da.wikipedia.org/wiki/Rubjerg_Knude_Fyr"
+ },
+ {
+  "claim": "On 22 October 2019 the 23-metre, 720-tonne lighthouse was moved 70 m inland on specially built rails.",
+  "expected": "accept",
+  "group": "true",
+  "id": "T19",
+  "quote": "It was expected that the tower would fall into the sea by 2023; however, works to relocate the lighthouse started on 14 August 2019, and on 22 October 2019 the 23 metres (75 ft) high lighthouse, weighing 720 tonnes, was moved 70 m (230 ft) inland on specially built rails.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "De Adriaan was never sold and never became a tobacco mill.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N01",
+  "quote": "The windmill was sold for 1650 guilders, and Kraan converted the mill into a tobacco mill, to produce tobacco snuff.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "In 1920 the steam engine was kept and the mill was never driven by electricity.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N02",
+  "quote": "In 1920, the steam engine was replaced and the mill was driven by electricity. De Adriaan then had 5 (!) millstones: 3 operated by wind and 2 by electricity.",
+  "url": "https://www.molenadriaan.nl/en/tours-services/"
+ },
+ {
+  "claim": "The fire brigade saved the mill in 1932; it did not burn down.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N03",
+  "quote": "The fire brigade arrived quickly but could not prevent the complete burning down of the mill. This event was a shock for many citizens of the city; the cause of the fire has never been established.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "De Adriaan was never rebuilt after the fire.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N04",
+  "quote": "Windmill De Adriaan was reopened on April 23, 2002, exactly 70 years after the fire.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "No fences were installed around the Major Oak in 1974.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N05",
+  "quote": "In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil.",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "Construction of the lighthouse did not begin in 1899.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N06",
+  "quote": "It was first lit on 27 December 1900. Construction of the lighthouse began in 1899.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "The museum and coffee shop were never abandoned.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N07",
+  "quote": "For a number of years, the buildings were used as a museum and coffee shop, but continually shifting sands caused them to be abandoned in 2002.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "The lighthouse was never moved; it still stands in its original position.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N08",
+  "quote": "It was expected that the tower would fall into the sea by 2023; however, works to relocate the lighthouse started on 14 August 2019, and on 22 October 2019 the 23 metres (75 ft) high lighthouse, weighing 720 tonnes, was moved 70 m (230 ft) inland on specially built rails.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "In 1925 the windmill was demolished.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N09",
+  "quote": "In 1925 the windmill was bought for 12,100 guilders by the Dutch windmill society Vereniging De Hollandsche Molen to prevent demolition.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "The tree was never called the Cockpen Tree.",
+  "expected": "reject",
+  "group": "negation",
+  "id": "N10",
+  "quote": "The tree was originally known as the Cockpen Tree, after the cockfighting that once took place beneath it. It was later named the Major Oak after Major Hayman Rooke, a British Army soldier and antiquarian who described the tree in his 1790 book Description and Sketches of Some Remarkable Oaks, writing: \"I think no one can behold this majestic ruin without pronouncing it to be of very remote antiquity; and might venture to say, that it cannot be much less than a thousand years old.\"",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "De Gooyer was officially opened on May 19, 1779.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W01",
+  "quote": "De Adriaan was officially opened on May 19, 1779.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "In 1865 a steam engine was placed in the Olieslag windmill by its owner.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W02",
+  "quote": "In 1865 a steam engine was placed in the windmill by the then owner, J. van Berloo, but this was not a commercial success.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "Windmill De Gooyer was reopened on April 23, 2002, exactly 70 years after the fire.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W03",
+  "quote": "Windmill De Adriaan was reopened on April 23, 2002, exactly 70 years after the fire.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "In 1974, fences were installed around the Birnam Oak to protect its root system.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W04",
+  "quote": "In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil.",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "Construction of the Lindesnes lighthouse began in 1899.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W05",
+  "quote": "It was first lit on 27 December 1900. Construction of the lighthouse began in 1899.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "On 22 October 2019 the 23-metre, 720-tonne church was moved 70 m inland on specially built rails.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W06",
+  "quote": "It was expected that the tower would fall into the sea by 2023; however, works to relocate the lighthouse started on 14 August 2019, and on 22 October 2019 the 23 metres (75 ft) high lighthouse, weighing 720 tonnes, was moved 70 m (230 ft) inland on specially built rails.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "The windmill was sold for 1650 guilders, and Kraan converted De Gooyer into a tobacco mill.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W07",
+  "quote": "The windmill was sold for 1650 guilders, and Kraan converted the mill into a tobacco mill, to produce tobacco snuff.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "I foråret 2016 blev Kronborg åbnet for publikum.",
+  "expected": "reject",
+  "group": "wrong_object",
+  "id": "W08",
+  "quote": "I foråret 2016 blev fyrtårnet åbnet for publikum. Der blev etableret en ny trappe og et kalejdoskop i toppen af tårnet.",
+  "url": "https://da.wikipedia.org/wiki/Rubjerg_Knude_Fyr"
+ },
+ {
+  "claim": "built in 1789",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D01",
+  "quote": "De Adriaan was officially opened on May 19, 1779.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "brand in 1933",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D02",
+  "quote": "On the evening of April 23, 1932 the windmill burnt down.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "In 1875 a steam engine was placed in the windmill by the then owner.",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D03",
+  "quote": "In 1865 a steam engine was placed in the windmill by the then owner, J. van Berloo, but this was not a commercial success.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "In 1935 the windmill was bought for 12,100 guilders by the Dutch windmill society to prevent demolition.",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D04",
+  "quote": "In 1925 the windmill was bought for 12,100 guilders by the Dutch windmill society Vereniging De Hollandsche Molen to prevent demolition.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "In 1984, fences were installed around the tree to protect its root system.",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D05",
+  "quote": "In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil.",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "Construction of the lighthouse began in 1909.",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D06",
+  "quote": "It was first lit on 27 December 1900. Construction of the lighthouse began in 1899.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "On 22 October 2009 the 23-metre, 720-tonne lighthouse was moved 70 m inland on specially built rails.",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D07",
+  "quote": "It was expected that the tower would fall into the sea by 2023; however, works to relocate the lighthouse started on 14 August 2019, and on 22 October 2019 the 23 metres (75 ft) high lighthouse, weighing 720 tonnes, was moved 70 m (230 ft) inland on specially built rails.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "Vanaf 2013 is er in Molen De Adriaan een molenmuseum gevestigd.",
+  "expected": "reject",
+  "group": "date_shift",
+  "id": "D08",
+  "quote": "Vanaf 2003 is er in Molen De Adriaan een molenmuseum gevestigd. Bezoekers kunnen kennisnemen van de techniek, molens in het algemeen en De Adriaan in het bijzonder. Als het weer het toelaat draait de molen, zodat bezoekers de molen ook in werking kunnen zien.",
+  "url": "https://nl.wikipedia.org/wiki/De_Adriaan_(Haarlem)"
+ },
+ {
+  "claim": "In 1920, the steam engine was replaced and the mill was driven by electricity, and the mill then had 12 millstones.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P01",
+  "quote": "In 1920, the steam engine was replaced and the mill was driven by electricity. De Adriaan then had 5 (!) millstones: 3 operated by wind and 2 by electricity.",
+  "url": "https://www.molenadriaan.nl/en/tours-services/"
+ },
+ {
+  "claim": "Windmill De Adriaan was reopened on April 23, 2002, rebuilt entirely of concrete.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P02",
+  "quote": "Windmill De Adriaan was reopened on April 23, 2002, exactly 70 years after the fire.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "The tree was originally known as the Cockpen Tree, and Rooke measured it at 200 feet tall.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P03",
+  "quote": "The tree was originally known as the Cockpen Tree, after the cockfighting that once took place beneath it. It was later named the Major Oak after Major Hayman Rooke, a British Army soldier and antiquarian who described the tree in his 1790 book Description and Sketches of Some Remarkable Oaks, writing: \"I think no one can behold this majestic ruin without pronouncing it to be of very remote antiquity; and might venture to say, that it cannot be much less than a thousand years old.\"",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "Construction of the lighthouse began in 1899, and it was first lit on 27 December 1900 by the king himself.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P04",
+  "quote": "It was first lit on 27 December 1900. Construction of the lighthouse began in 1899.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "The windmill was sold for 1650 guilders, the highest price ever paid for a Dutch mill.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P05",
+  "quote": "The windmill was sold for 1650 guilders, and Kraan converted the mill into a tobacco mill, to produce tobacco snuff.",
+  "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem"
+ },
+ {
+  "claim": "On 22 October 2019 the lighthouse was moved 70 m inland in a single night.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P06",
+  "quote": "It was expected that the tower would fall into the sea by 2023; however, works to relocate the lighthouse started on 14 August 2019, and on 22 October 2019 the 23 metres (75 ft) high lighthouse, weighing 720 tonnes, was moved 70 m (230 ft) inland on specially built rails.",
+  "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse"
+ },
+ {
+  "claim": "In 1974, fences were installed around the tree to protect its root system, and they were removed again in 1975.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P07",
+  "quote": "In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil.",
+  "url": "https://en.wikipedia.org/wiki/Major_Oak"
+ },
+ {
+  "claim": "I foråret 2016 blev fyrtårnet åbnet for publikum, og tårnet blev malet rødt.",
+  "expected": "reject",
+  "group": "partial",
+  "id": "P08",
+  "quote": "I foråret 2016 blev fyrtårnet åbnet for publikum. Der blev etableret en ny trappe og et kalejdoskop i toppen af tårnet.",
+  "url": "https://da.wikipedia.org/wiki/Rubjerg_Knude_Fyr"
+ }
+]

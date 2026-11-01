@@ -18,12 +18,12 @@ QUALIFIERS = frozenset({
 
 
 def check_prompt(object_name, state_text, year, caption="",
-                   season=None) -> str:
+                   season=None, surroundings="") -> str:
     """The whole scene, one verdict: the object in its state, no
     lettering, nothing the year could not hold, nothing contradicting
-    its own caption, every object detail from the verified state, and
-    the expected season without snow. Winter expects nothing: snow
-    may or may not lie."""
+    its own caption, every object detail from the verified state, the
+    named surroundings visible, and the expected season without snow.
+    Winter expects nothing: snow may or may not lie."""
     base = (
         f"Verified state of {object_name} in this painting: {state_text} "
         f"The painting is dated {year}. Look at the whole painting. Answer "
@@ -39,6 +39,12 @@ def check_prompt(object_name, state_text, year, caption="",
         base += (f"; ({number}) the scene agrees with its caption: {caption}. "
                  f"A painting that contradicts its own caption DIFFERS")
         number += 1
+    if surroundings:
+        base += (f"; ({number}) the surroundings show what the verified "
+                 f"context states: {surroundings}. A defining visible "
+                 f"element named there but missing from the view DIFFERS; "
+                 f"dates and numbers are context, never shown as text")
+        number += 1
     if season in ("spring", "summer", "autumn"):
         base += (f"; ({number}) the season is {season}: no snow or ice "
                  f"on the ground")
@@ -47,11 +53,12 @@ def check_prompt(object_name, state_text, year, caption="",
 
 
 def check_painting(check_call, image_bytes, object_name, state_text, year,
-                   caption="", season=None) -> dict:
+                   caption="", season=None, surroundings="") -> dict:
     """One vision check. Anything but MATCHES first counts as differs:
     nothing reaches the film unverified."""
-    answer = (check_call(image_bytes, check_prompt(object_name, state_text, year, caption, season))
-              or "").strip()
+    answer = (check_call(image_bytes, check_prompt(
+        object_name, state_text, year, caption, season, surroundings))
+        or "").strip()
     first, _, rest = answer.partition(" ")
     if first.strip(" :.,").upper() == "MATCHES":
         lowered = f" {answer.lower()} "

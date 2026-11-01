@@ -139,9 +139,7 @@ def scene_prompt(scene, object_name, municipality, season=None, excluded=(),
     year = scene.get("date_label", scene.get("from_year"))
     state = scene.get("state", {})
     state_text = describe_state(object_name, state)
-    surroundings = " ".join(
-        line.get("line", "") for line in scene.get("caption_lines", [])
-        if not _describes_harm(line.get("line", "")))
+    surroundings = scene_context(scene)
     if not surroundings.strip():
         own = [captions.claim_detail(claim) for claim in claims
                if captions.claim_matches(claim, scene.get("from_year"))
@@ -176,6 +174,34 @@ def _describes_harm(line) -> bool:
         if token in HARM_WORDS or token.startswith(HARM_STARTS):
             return True
     return False
+
+
+def scene_context(scene) -> str:
+    """The scene's verified era context for paint and check prompts:
+    its caption lines, harm-filtered, as one text. Empty when none."""
+    return " ".join(
+        line.get("line", "") for line in scene.get("caption_lines", [])
+        if not _describes_harm(line.get("line", ""))).strip()
+
+
+def save_era(era_dir, year, image_bytes):
+    """One painting on disk, always WebP: the image API answers in
+    mixed formats, and the film ships one. WebP bytes pass through;
+    anything else is converted (quality 90). Returns the path."""
+    import io as _io
+    from pathlib import Path as _Path
+
+    from PIL import Image as _Image
+
+    raw = bytes(image_bytes)
+    if not (raw.startswith(b"RIFF") and raw[8:12] == b"WEBP"):
+        canvas = _Image.open(_io.BytesIO(raw)).convert("RGB")
+        buf = _io.BytesIO()
+        canvas.save(buf, "WEBP", quality=90)
+        raw = buf.getvalue()
+    path = _Path(era_dir) / f"{year}.webp"
+    path.write_bytes(raw)
+    return path
 
 
 def _governs_canopy(state) -> bool:
@@ -408,7 +434,8 @@ def paint_aftermath(call, check_call, scene, object_name, municipality,
             verdict = check_module.check_painting(
                 check_call, result["image"], object_name,
                 describe_state(object_name, scene.get("state", {})), year,
-                caption=caption, season=season)
+                caption=caption, season=season,
+                surroundings=scene_context(scene))
         except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
             return {"year": year, "image": None, "response_id": None,
                 "caption": caption,
@@ -442,7 +469,8 @@ def recover_scene(check_call, scene, object_name, prior,
     for label, image in prior:
         verdict = check_module.check_painting(
             check_call, image, object_name, state_text,
-            scene.get("from_year"), caption=caption, season=season)
+            scene.get("from_year"), caption=caption, season=season,
+            surroundings=scene_context(scene))
         if verdict["verdict"] == "matches":
             return {"image": image, "source": label, "note": verdict["note"]}
     return None
@@ -491,7 +519,8 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
             verdict = check_module.check_painting(
                 check_call, result["image"], object_name,
                 describe_state(object_name, scene.get("state", {})), year,
-                caption=caption, season=season)
+                caption=caption, season=season,
+                surroundings=scene_context(scene))
         except Exception as exc:  # noqa: BLE001 - a dead check drops the era, not the film
             return {"year": year, "image": None, "response_id": None,
                 "caption": caption,

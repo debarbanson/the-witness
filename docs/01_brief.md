@@ -4,7 +4,7 @@
 
 Every town has objects that have stood through centuries: a windmill, a church tree, a lighthouse, a bridge-keeper's house. People walk past them daily and know nothing of what they have seen. The history exists, scattered across archives, municipal pages and heritage registers, but nobody turns it into something a passer-by would watch.
 
-Heritage societies and local historians have the knowledge but no time or budget for film. A one-minute, sourced, beautiful film per object, made from one photo, changes that.
+Heritage societies and local historians have the knowledge but no time or budget for film. A short, sourced, beautiful film per object, made from one photo, changes that.
 
 ## Who it is for
 
@@ -37,7 +37,7 @@ Every film comes in a version for adults and one for children aged 8 and up: the
 
 ## Success for the demo
 
-- Three films from three real photos (a windmill, an old tree, a lighthouse), each 40 to 60 seconds.
+- Three films from three real photos (a windmill, an old tree, a lighthouse), each about 30 to 37 seconds.
 - Every caption has a working source link, shown on screen and in an end card.
 - In every era the object matches its verified state for that year (for example De Adriaan: built 1779, burnt 1932, rebuilt 2002).
 - Generated in a few minutes per film, for under $1 in API cost. Modelled 30 Oct from measured call counts: about $0.30 to $0.50 per painted adult film, the children's set roughly doubling the painting and caption checks. End-to-end time is measured on staging.

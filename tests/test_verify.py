@@ -1531,3 +1531,16 @@ def test_anchor_rejects_negated_planned_and_other_object():
         assert verify.anchor_hit([f"{url}\n{sentence}"], 1900) is None, sentence
     good = "The tower was built in 1900 by the town architect."
     assert verify.anchor_hit([f"{url}\n{good}"], 1900) == (url, good)
+
+
+def test_age_range_never_carries_a_built_year():
+    from witness import verify
+
+    quote = ("Thought to be between 800 and 1,200 years old, the tree "
+             "was estimated to weigh 23 long tons.")
+    assert verify.quote_carries_year(
+        quote, 1026, "between 800 and 1,200 years old") is False
+    assert verify.quote_carries_year(
+        "The mill was built in 1779 of brick.", 1779, "") is True
+    assert verify.quote_carries_year(
+        "The mill burnt down in April 1932.", 1932, "April 1932") is True

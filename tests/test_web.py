@@ -311,14 +311,14 @@ def test_pinned_send_connects_to_the_validated_ip(monkeypatch):
 
 def test_web_error_strips_query_strings():
     err = ConnectionError(
-        "failed for url: /w/api.php?ggscoord=52.15965|4.35321&format=json")
+        "failed for url: /w/api.php?ggscoord=0.00000|0.00000&format=json")
     get = FakeTransport([err, err, err])
     with pytest.raises(WebError) as excinfo:
         mediawiki_get(get, "https://nl.wikipedia.org/w/api.php",
-                      {"ggscoord": "52.15965|4.35321"}, sleep=lambda s: None)
+                      {"ggscoord": "0.00000|0.00000"}, sleep=lambda s: None)
     assert "nl.wikipedia.org" in str(excinfo.value)
     assert "ggscoord" not in str(excinfo.value)
-    assert "52.15965" not in str(excinfo.value)
+    assert "0.00000" not in str(excinfo.value)
 
 
 def test_body_read_honours_the_total_deadline(monkeypatch):

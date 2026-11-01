@@ -889,3 +889,36 @@ def test_film_scenes_carry_no_layers(tmp_path):
 
 
 
+
+
+def _sourced_research():
+    scenes = [scene(1779, "standing", "opened in 1779",
+                    sentence="I opened my doors to the town.")]
+    return {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"},
+        "claims": claims_for(scenes),
+        "scenes": scenes,
+        "timeline": [],
+        "timings": {},
+    }
+
+
+def test_film_carries_photo_source_links(tmp_path):
+    source = {"author": "A. Uthor", "licence": "CC BY 4.0",
+              "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+              "file_url": "https://commons.wikimedia.org/wiki/File:X.JPG"}
+    out = builder.write_film(tmp_path, _sourced_research(),
+                             {"1779": "e/1779.png"}, photo="today.jpg",
+                             photo_credit="Today photo: A. Uthor, CC BY 4.0",
+                             photo_source=source)
+    film = json.loads((out / "film.json").read_text())
+    assert film["photo_source"] == source
+    assert film["photo_credit"] == "Today photo: A. Uthor, CC BY 4.0"
+
+
+def test_end_card_links_photo_source():
+    template = (Path(builder.__file__).parent / "film.html").read_text()
+    assert "photo_source" in template
+    assert "licence_url" in template
+    assert "file_url" in template

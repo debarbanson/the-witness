@@ -33,6 +33,7 @@ const sandbox = {
       return byId[id] || (byId[id] = makeEl());
     },
     createElement: () => makeEl(),
+    createTextNode: (text) => ({ text, node: "text" }),
   },
   matchMedia: () => ({ matches: false }),
   addEventListener: () => {},
@@ -149,6 +150,20 @@ const link = items[0].children[0];
 assert.strictEqual(link.textContent, "Wikipedia: Mill");
 assert.strictEqual(link.href, "https://en.wikipedia.org/wiki/Mill");
 assert.strictEqual(link.target, "_blank");
+
+// The end card links the photo source: author, licence and file page.
+vm.runInContext(`FILM.photo_source = { author: "A. Uthor",
+  licence: "CC BY 4.0", licence_url: "https://creativecommons.org/x",
+  file_url: "https://commons.wikimedia.org/y" };`, sandbox);
+render(26.0);
+const credit = sandbox.document.getElementById("credit").children;
+const hrefs = credit.filter((c) => c.href).map((c) => c.href);
+assert.deepStrictEqual(hrefs,
+  ["https://creativecommons.org/x", "https://commons.wikimedia.org/y"],
+  "licence and file page linked");
+assert.ok(credit.some((c) => (c.text || "").includes("A. Uthor")),
+  "author named");
+vm.runInContext("FILM.photo_source = null;", sandbox);
 
 // The finished film plays every era straight through: no check interlude,
 // even for a scene whose paint landed late.

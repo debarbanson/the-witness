@@ -45,6 +45,7 @@
                     background: rgba(0,0,0,.55); color: #fff;
                     border: 1px solid #ffd98a; border-radius: 8px; }
   .label { font-size: 34px; color: #ffd98a; margin-top: 30px; }
+  #credit a { color: #fff; }
   /* Initial state only; the player toggles visibility inline. */
   .hidden { display: none; }
 </style>
@@ -164,8 +165,31 @@ function render(t) {
       ul.appendChild(li);
     });
     document.getElementById("ailabel").textContent = FILM.ai_label;
-    document.getElementById("credit").textContent =
-      [FILM.photo_credit].concat(FILM.attribution).filter(Boolean).join(" · ");
+    const credit = document.getElementById("credit");
+    credit.innerHTML = "";
+    const link = (href, text) => {
+      const a = document.createElement("a");
+      a.href = href; a.textContent = text;
+      a.target = "_blank"; a.rel = "noopener";
+      return a;
+    };
+    if (FILM.photo_source) {
+      const src = FILM.photo_source;
+      credit.appendChild(document.createTextNode(
+        "Today photo: " + src.author + ", "));
+      credit.appendChild(link(src.licence_url, src.licence));
+      credit.appendChild(document.createTextNode(" ("));
+      credit.appendChild(link(src.file_url, "file page"));
+      credit.appendChild(document.createTextNode(")"));
+    } else if (FILM.photo_credit) {
+      credit.appendChild(document.createTextNode(FILM.photo_credit));
+    }
+    FILM.attribution.forEach(bit => {
+      if (credit.textContent) {
+        credit.appendChild(document.createTextNode(" · "));
+      }
+      credit.appendChild(document.createTextNode(bit));
+    });
     showClock(); return;
   }
   if (seg.kind === "today") {

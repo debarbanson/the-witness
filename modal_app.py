@@ -46,8 +46,7 @@ app = modal.App("the-witness")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install(["fastapi", "python-multipart", "pillow", "openai",
-                  "meta-sam-parser"])
+    .pip_install_from_requirements("requirements-lock.txt")
     .add_local_dir("witness", remote_path="/app/witness")
     .add_local_dir("out/q2763574-de-adriaan/film",
                    remote_path="/app/examples/de-adriaan")

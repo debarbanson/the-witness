@@ -118,3 +118,16 @@ def test_check_prompt_rejects_unsupported_painted_detail():
     prompt = check.check_prompt("Mill", "The mill stands whole.", 1932)
     assert "every visible detail of the object" in prompt
     assert "the sources never state" in prompt
+
+
+def test_check_prompt_requires_named_surroundings():
+    prompt = check.check_prompt(
+        "Rubjerg Knude Fyr", "standing, whole", 2016,
+        caption="I opened with my new stair.",
+        surroundings="abandoned in 2002 due to continually shifting sands")
+    assert "shifting sands" in prompt
+    assert "surroundings" in prompt
+    assert "DIFFERS" in prompt
+    plain = check.check_prompt("Rubjerg Knude Fyr", "standing, whole", 2016,
+                               caption="I opened with my new stair.")
+    assert "surroundings show" not in plain

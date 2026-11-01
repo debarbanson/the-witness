@@ -25,8 +25,10 @@ Instructions for any coding agent working in this repository.
 
 ```
 witness/          the package (one module per pipeline step)
-  identify.py  segment.py  research.py  verify.py  paint.py  check.py  layers.py  render/
-web/              FastAPI app and the static page (docs/06_web.md)
+  identify.py  segment.py  research.py  verify.py  paint.py  check.py
+  captions.py  children.py  spot.py  webapp.py  webfilm.py  render/
+modal_app.py      the FastAPI page on Modal (docs/06_web.md)
+eval/             the open-weights support eval (cases, runner, raw output)
 tests/            pytest, with recorded API responses in tests/fixtures
 out/              generated films (ignored by git)
 ```

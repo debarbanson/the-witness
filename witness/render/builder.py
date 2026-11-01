@@ -225,7 +225,8 @@ def served_era_name(key, src) -> str:
 def write_film(out_dir, research, images, photo, photo_credit,
                era_files=None, photo_file=None,
                cutout_file=None, photo_year=None, own_photo=False, cache=None,
-               folder="film", audience="adult", sibling=None, spot=None):
+               folder="film", audience="adult", sibling=None, spot=None,
+               photo_source=None):
     """film.json plus film.html plus copied assets under out_dir/film/.
 
     Paintings ship byte-identical in their original format, so the
@@ -244,7 +245,8 @@ def write_film(out_dir, research, images, photo, photo_credit,
                     era_files=era_files,
                     photo_file=photo_file, cutout_file=cutout_file,
                     photo_year=photo_year, own_photo=own_photo, cache=cache,
-                    audience=audience, sibling=sibling, spot=spot)
+                    audience=audience, sibling=sibling, spot=spot,
+                    photo_source=photo_source)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -269,7 +271,8 @@ def write_film(out_dir, research, images, photo, photo_credit,
 def _build_film(film_dir, research, images, photo, photo_credit,
                 era_files=None, photo_file=None,
                 cutout_file=None, photo_year=None, own_photo=False,
-                cache=None, audience="adult", sibling=None, spot=None):
+                cache=None, audience="adult", sibling=None, spot=None,
+                photo_source=None):
     """Write one complete film folder; write_film publishes it."""
     name = research["object"]["name"]
     claims = research.get("claims", [])
@@ -304,6 +307,7 @@ def _build_film(film_dir, research, images, photo, photo_credit,
     first = (research.get("scenes", []) or [{}])[0]
     film = {"object": name, "kind": research["object"].get("kind", ""),
             "photo": photo, "photo_credit": photo_credit,
+            "photo_source": photo_source,
             "cutout": ("cutout.png" if cutout_file is not None else None),
             "today_line": today_line, "today_sub": today_sub,
             "anchor": anchor_card(first),

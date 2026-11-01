@@ -246,3 +246,25 @@ def _control():
     control = models.JobControl()
     control.cancelled = control._cancelled.is_set
     return control
+
+
+def test_modal_image_builds_from_the_lockfile():
+    from pathlib import Path
+
+    root = Path(modal_app.__file__).parent
+    src = (root / "modal_app.py").read_text()
+    assert 'pip_install_from_requirements("requirements-lock.txt")' in src
+    assert ".pip_install([" not in src
+    lock = (root / "requirements-lock.txt").read_text()
+    for package in ("fastapi==", "pillow==", "openai==", "meta-sam-parser==",
+                    "python-multipart==", "modal=="):
+        assert package in lock, package
+
+
+def test_install_instructions_name_the_lockfile():
+    from pathlib import Path
+
+    readme = (Path(modal_app.__file__).parent / "README.md").read_text()
+    assert "requirements-lock.txt" in readme
+    assert "playwright install chromium" in readme
+    assert "ffmpeg" in readme

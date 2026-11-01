@@ -464,7 +464,7 @@ def test_cmd_paint_child_writes_its_own_set(tmp_path, monkeypatch, capsys):
         photo_call=lambda photo_bytes, prompt: "summer")
     assert code == 0
     assert "picture-book" in seen["prompt"]
-    assert (slug_dir / "eras_parallel_child" / "1850.png").exists()
+    assert (slug_dir / "eras_parallel_child" / "1850.webp").exists()
     manifest = json.loads((slug_dir / "paint_parallel_child.json").read_text())
     assert manifest["audience"] == "child"
     assert manifest["eras"][0]["caption"] == "I opened long ago."
@@ -1346,14 +1346,14 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
         check_call=lambda image, prompt: "MATCHES whole.",
         photo_call=lambda photo, prompt: "Season: summer\nNone")
     assert code == 0
-    assert (out_dir / "eras_parallel" / "1850.png").exists()
-    assert not (out_dir / "eras_parallel" / "today.png").exists()
+    assert (out_dir / "eras_parallel" / "1850.webp").exists()
+    assert not (out_dir / "eras_parallel" / "today.webp").exists()
     assert (out_dir / "eras_parallel" / "contact.png").exists()
     manifest = json.loads((out_dir / "paint_parallel.json").read_text())
     assert manifest["eras"] == [
         {"year": 1850, "verdict": "matches", "attempts": 1,
          "caption": "", "season": "summer",
-         "file": "eras_parallel/1850.png"}]
+         "file": "eras_parallel/1850.webp"}]
     assert manifest["mode"] == "parallel"
 
 
@@ -1401,8 +1401,8 @@ def test_cmd_paint_filters_scenes(tmp_path, monkeypatch):
         check_call=lambda image, prompt: "MATCHES whole.",
         photo_call=lambda photo, prompt: "Season: summer\nNone")
     assert code == 0
-    assert (out_dir / "eras_chain" / "1950.png").exists()
-    assert not (out_dir / "eras_chain" / "1850.png").exists()
+    assert (out_dir / "eras_chain" / "1950.webp").exists()
+    assert not (out_dir / "eras_chain" / "1850.webp").exists()
     assert len(seen) == 1  # the one era carries the photo, no spare turn
 
 
@@ -1548,9 +1548,63 @@ def test_cmd_paint_tag_saves_beside_earlier_runs(tmp_path, monkeypatch):
         check_call=lambda image, prompt: "MATCHES whole.",
         photo_call=lambda photo, prompt: "Season: summer\nNone")
     assert code == 0
-    assert (out_dir / "eras_parallel_b1" / "1850.png").exists()
+    assert (out_dir / "eras_parallel_b1" / "1850.webp").exists()
     assert (out_dir / "paint_parallel_b1.json").exists()
     assert not (out_dir / "paint_parallel.json").exists()
+
+
+def test_cmd_render_photo_year_overrides_exif(tmp_path, monkeypatch):
+    """A documented photo year (e.g. from the file page) beats a
+    file-write EXIF date: the Rubjerg photo was taken in December
+    2009, while its EXIF tag 306 says 2019."""
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+    from witness import segment as segment_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    era_dir = out_dir / "eras_parallel_b1"
+    era_dir.mkdir(parents=True)
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 24), "red").save(buf, "PNG")
+    (era_dir / "2019.png").write_bytes(buf.getvalue())
+    (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
+        {"eras": [{"year": 2019, "verdict": "matches", "attempts": 1,
+                   "caption": "I moved."}]}))
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "outcome": {"outcome": "full_film"},
+        "claims": [{"year": 2019, "url": "https://a.example/x",
+                    "verdict": "supported", "claim": "moved in 2019",
+                    "quote": "The mill moved in 2019."}],
+        "scenes": [
+            {"from_year": 2019, "date_label": "2019",
+             "state": {"condition": "moved", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I moved.",
+                                 "claim_year": 2019,
+                                 "claim_url": "https://a.example/x",
+                                 "evidence": {"claim": "moved in 2019",
+                                              "url": "https://a.example/x",
+                                              "quote": "The mill moved in 2019."}}},
+        ],
+        "timeline": [], "timings": {}}))
+    photo = tmp_path / "photo.jpg"
+    Image.new("RGB", (16, 24), "blue").save(photo)
+    cutout = segment_module.Cutout(
+        (0, 0, 8, 8), 0.5, Image.new("L", (16, 24)),
+        Image.new("RGBA", (16, 24), (1, 2, 3, 255)))
+
+    code = cli_module.cmd_render(
+        "q1-test", str(photo), subject="mill",
+        era_dir="eras_parallel_b1", photo_year=2009,
+        segment_call=lambda call_sam, path, subject: cutout)
+    assert code == 0
+    film = json.loads((out_dir / "film" / "film.json").read_text())
+    assert film["today_sub"] == "Photographed in 2009."
 
 
 def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
@@ -1866,6 +1920,25 @@ def test_cmd_spot_writes_a_grounded_game(tmp_path, monkeypatch):
         f"1932: {texts[1932]}", f"1865: {texts[1865]}",
         f"2002: {texts[2002]}"]
     assert all(set(d) == {"change"} for d in game["differences"])
+
+
+def test_cmd_spot_falls_back_to_an_era_that_grounds_a_game(tmp_path, monkeypatch):
+    """The starkest era may ground too little (Rubjerg 2019, moved,
+    yields one change): the game falls back to the starkest era with
+    enough verified changes, not to no game."""
+    import json
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    out_dir, photo, texts = spot_setup(tmp_path)
+    data = json.loads((out_dir / "research.json").read_text())
+    data["scenes"][-1]["state"]["condition"] = "moved"
+    (out_dir / "research.json").write_text(json.dumps(data))
+    code = cli_module.cmd_spot("q1-test", photo,
+                               vision_call=grounded_stub(texts))
+    assert code == 0
+    game = json.loads((out_dir / "spot.json").read_text())
+    assert game["year"] == 1779
 
 
 def test_cmd_spot_skips_when_too_little_is_verified(tmp_path, monkeypatch, capsys):
@@ -3411,7 +3484,9 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
     manifest = json.loads((slug_dir / "paint_parallel_b1.json").read_text())
     (entry,) = manifest["eras"]
     assert entry["verdict"] == "recovered"
-    assert (slug_dir / "eras_parallel_b1" / "1932.png").read_bytes() == buf.getvalue()
+    saved = slug_dir / "eras_parallel_b1" / "1932.webp"
+    assert saved.read_bytes()[:4] == b"RIFF"
+    assert Image.open(saved).size == (8, 8)
 
 
 def test_cmd_paint_skips_age_range_scenes(tmp_path, monkeypatch):
@@ -3536,3 +3611,21 @@ def test_pre_admitted_run_job_skips_admission(tmp_path, monkeypatch):
         assert rec.admitted == [("web-vid", None)]
     finally:
         models.configure_spending(None)
+
+
+def test_render_takes_a_photo_source(tmp_path, monkeypatch):
+    import json
+
+    import witness.cli as cli_module
+
+    seen = {}
+    monkeypatch.setattr(cli_module, "cmd_render",
+                        lambda *a, **k: seen.update(k) or 0)
+    source = {"author": "A. Uthor", "licence": "CC BY 4.0",
+              "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+              "file_url": "https://commons.wikimedia.org/wiki/File:X.JPG"}
+    code = cli_module.main(["render", "q1-test", "--photo", "p.jpg",
+                            "--photo-credit", "Today photo: A. Uthor",
+                            "--photo-source", json.dumps(source)])
+    assert code == 0
+    assert seen["photo_source"] == source

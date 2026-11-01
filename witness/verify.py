@@ -470,14 +470,18 @@ def evidence_binding(quote, passages, min_chars=MIN_QUOTE_CHARS):
 
 def quote_carries_year(quote, year, date_text="") -> bool:
     """The winning quote dates the claim: it carries the claim year
-    or its date phrase. Yearless support jobs (captions) never pass."""
+    or its date phrase. Yearless support jobs (captions) never pass,
+    and neither does an age range: "800 to 1,200 years old" never
+    dates a built year the source never computed."""
     if not isinstance(year, int) or isinstance(year, bool) or year == 0:
         return False
     text = quote or ""
     if str(year) in text:
         return True
     phrase = (date_text or "").strip()
-    return len(phrase) > 3 and phrase.lower() in text.lower()
+    if len(phrase) <= 3 or states.is_age_range(phrase):
+        return False
+    return phrase.lower() in text.lower()
 
 
 def judge_claim(support_respond, job, completion_respond=None,

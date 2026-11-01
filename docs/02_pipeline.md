@@ -30,8 +30,8 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
    - **Wikidata nearby items** as a second source, for objects OSM tags poorly. Wikidata is language-neutral: each item carries coordinates and links to its Wikipedia article in every language, so no language is hard-coded. Query items near the photo with the MediaWiki API on wikidata.org (`action=query&list=geosearch`). Avoid the Wikidata Query Service for this: its `wikibase:around` is deprecated for the new backend and the public endpoint is slow and throttled (60 s of query time per minute per client) ([WDQS manual](https://www.mediawiki.org/wiki/Wikidata_Query_Service/User_Manual), [query limits](https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service/query_limits)). **TEST** geosearch on wikidata.org on day 2.
    - **Article languages per candidate (from the Wikidata sitelinks):** the language of the country where the photo was taken (local Wikipedias know local history best), the user's own language, and English as a fallback.
    - **Reliability:** Overpass returned 502 twice on 26 Oct. One fast try per instance (about 5 s) and identify moves on without it; coordinate lookups stay in memory and are never written to the disk cache.
-   - Fair use (OSM wiki, checked 26 Oct): under 10,000 queries and 1 GB a day, a `User-Agent` naming the app, no parallel scripts, cache results, and wait 30 s after a 429 ([Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API)).
-2. **Rank with quality signals, not distance alone.** Each candidate is scored on distance, notability (Wikidata sitelink count), kind and name match; parts merge into their whole where Wikidata says part-of. Camera direction is a tie-breaker only (**proven 26 Oct:** the owner's photo said 201 degrees while the tower stood at bearing 5, so direction ranking put the right answer last). Drop candidates whose centre lies beyond the radius. Keep the top 10.
+   - Fair use (OSM wiki, checked 26 Oct): under 10,000 queries and 1 GB a day, a `User-Agent` naming the app, no parallel scripts, cache results ([Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API)). The code tries the next instance instead of waiting (no 30 s pause): Overpass is optional, never a wait.
+2. **Rank with quality signals, not distance alone.** Each candidate is scored on distance, notability (Wikidata sitelink count), kind and name match; parts merge into their whole where Wikidata says part-of. Camera direction is a tie-breaker only (**proven 26 Oct:** direction ranking put the right answer last on the owner's photo). Drop candidates whose centre lies beyond the radius. Keep the top 10.
 3. **Typed place to coordinates (Nominatim), fallback only.** At most 1 request per second, a `User-Agent` naming the app, results cached, attribution shown; no autocomplete ([usage policy](https://operations.osmfoundation.org/policies/nominatim/)).
 4. **Pick the match (Muse Spark, vision).** `muse-spark-1.3` gets the photo and the ranked candidates (names, kinds and descriptions only: no distances, no bearings) and returns the best match with a confidence, or "none of these" (then the user types the name). A second look asks "does this photo show a \<kind\>?" before the pick is accepted. The photo is sent re-encoded, without EXIF.
 5. **Confirm with the user.** "Is this De Adriaan, Haarlem?" Yes, or a correction, before any research runs. The confirmed name, place and Wikidata or Wikipedia link (when present) seed step 2.
@@ -60,7 +60,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 
 ## Step 3: Verify (agentic check)
 
-- For each claim, a support call gets the claim and the fetched source passages (never snippets) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. The first two votes run in parallel; a third runs only when they disagree. A model-side web search runs only when no passage was fetched.
+- For each claim, a support call gets the claim and the fetched source passages (never snippets) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. The first two votes run in parallel; a third runs only when they disagree. There is no model-side web search fallback: a claim without fetched passages is unverified.
 - A deterministic precheck (the claim's year and key words in one passage) sends an `unsupported` answer to a second confrontation judgement instead of accepting it.
 - A literal quote beats a vote. When a support answer quotes a sentence that really appears in the fetched passages (checked in code after normalising whitespace and quotes) and that sentence carries the claim's year and key terms, the claim is supported with no further vote. A quoted answer is never outvoted by quoteless ones.
 - Wikidata anchors the build year. An inception (P571) or official opening (P1619) date with a reference is the fixed build claim; research may add claims but never a second construction year, neither contradicting the anchor nor duplicating it. The anchor is confirmed by a sentence pairing its year with a construction word in the fetched article text (ten languages read; others fall back to a vote), so it holds on every run.
@@ -70,7 +70,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 - Only `supported` claims reach the film. `partly` means no: there is no rewrite path, and a partly supported claim counts as unverified. Every accepted claim rests on a literal quote in a fetched passage, bound to that passage's URL; search snippets are never evidence.
 - The same pass applies the content rules from [03_accuracy.md](03_accuracy.md): war, political events and living private persons are filtered out.
 - Owner-reviewed research is kept per object and language, so a demo film never changes between runs; stability itself is measured with the cache off.
-- Support checks run on the open-weights Muse Spark Open via Baseten by default (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`), with per-call Meta fallback. Research, vision, the search fallback and completion stay on Meta (`muse-spark-1.3`). Measured 30 Oct on a 12-case hand-labelled set: 9 of 12 right, zero false accepts, 15 s mean vote latency, $0.007 a vote, no fallbacks (docs/07_test_set.md). This targets the "Best Build on Meta Open Weight Models" prize.
+- Support checks run on the open-weights Muse Spark Open via Baseten by default (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`), with per-call Meta fallback. Research, vision and completion stay on Meta (`muse-spark-1.3`). Measured 30 Oct on a 53-case set from fetched pages: 52 of 53 right, zero false accepts, 9.4 s mean vote latency, $0.004 a vote, no fallbacks; Meta alongside scores the same 52 of 53 at 7.1 s and $0.006 a vote (eval/, docs/07_test_set.md). This targets the "Best Build on Meta Open Weight Models" prize.
 
 ## Step 3a: Choose the scenes
 
@@ -88,7 +88,7 @@ Never fill a gap by inventing. After verification, count what is left and choose
 
 | Outcome | Needs | What the user gets |
 |---|---|---|
-| **Full film**, 40 to 60 s | Object confirmed; build year or first mention sourced; at least 5 verified claims across at least 4 eras; at least 2 distinct good sources | The film as designed |
+| **Full film**, about 30 to 37 s | Object confirmed; build year or first mention sourced; at least 5 verified claims across at least 4 eras; at least 2 distinct good sources | The film as designed |
 | **Short film**, 20 to 30 s | At least 3 verified claims across 2 or 3 eras | A shorter film that says so: "Little is written about me, but this is certain." |
 | **Too little for a film** | Fewer than 3 verified claims | No film. One card with the verified facts and their sources, and two ways forward (below) |
 | **Not identified** | Step 0 found no match and the user's name for it finds nothing | An honest message; never a film about the wider area presented as the object |
@@ -105,7 +105,7 @@ The thresholds are first guesses; tune them on the demo subjects.
 Pattern from Meta's cookbook [Keep an image series consistent](https://dev.meta.ai/docs/cookbook/anchored-image-series.md):
 
 - Responses API, model `muse-image-1.0`. Every era branches from the anchor turn (`previous_response_id` = the anchor's id) and paints in parallel (the limit is 150 images a minute).
-- **Parallel decided 28 Oct on De Adriaan:** 6 of 6 eras in 79 s against 5 of 6 in 195 s for the serial chain, framing drift 0.3% against 3.6% by SAM box, and no expired-id cascade. Consistency rests on the anchor alone, and holds.
+- **Parallel decided the evening of 27 October on De Adriaan:** 6 of 6 eras in 79 s against 5 of 6 in 195 s for the serial chain, framing drift 0.3% against 3.6% by SAM box, and no expired-id cascade. Consistency rests on the anchor alone, and holds.
 - **Anchor turn:** the user's photo as `input_image`, with an instruction to keep the place's viewpoint and composition and to establish the painted style.
 - **Era turns:** the object's verified state for that year (from the state timeline) plus the verified surroundings (season, period dress and transport) and the shared style words. The object is painted as it was then: whole, burnt, a stump, under scaffolding, rebuilt.
 - **Settings go inside the image tool** (proven 26 Oct; top-level parameters return 400 `unknown parameter`): `tools: [{"type": "image_generation", "size": "1024x1536", "enable_image_search": false}]`. `"1080x1920"` and `"1024x1792"` are rejected; `"1024x1536"` returns 1280x1920, which the renderer crops to 1080x1920.
@@ -118,14 +118,14 @@ Every source outside the Meta API is free. They ask for good manners, which the 
 
 | Source | Used for | Key | Rules |
 |---|---|---|---|
-| OpenStreetMap Overpass | Nearby candidates | None | User-Agent naming the app, under 10,000 queries a day, no parallel calls, cache, 30 s pause after 429 |
+| OpenStreetMap Overpass | Nearby candidates | None | User-Agent naming the app, under 10,000 queries a day, no parallel calls, cache; the code tries the next instance instead of waiting (no 30 s pause) |
 | Nominatim | Typed place to coordinates | None | At most 1 request per second, User-Agent, cache, attribution, no autocomplete |
 | Wikidata and Wikipedia (MediaWiki API) | Nearby items, structured facts, articles | None | User-Agent with contact details, one request per site at a time (the two geosearch calls run in parallel on different hosts), cache, back off on `ratelimited` ([etiquette](https://www.mediawiki.org/wiki/API:Etiquette), [User-Agent policy](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy)) |
 | Wikimedia Commons | Reference images, planned | None | As Wikidata when built; public domain, CC0 or CC BY files only, CC BY credited by author, licence and link |
 | Europeana | Reference images, planned | Free personal key | A personal key is for "individual, non-production use". Key never shared or committed. Use each image only as its own `edm:rights` statement allows, keep its rights URL and provider link with it, credit the provider, and remove an image on Europeana's request ([terms of use](https://www.europeana.eu/en/rights/terms-of-use)) |
 
 The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson/the-witness)`. Wikimedia's policy accepts a website as the contact, so no email address goes into public code.
-- **Consistency, measured 28 Oct:** branching every era from the anchor holds the object's centre within 0.3 percent of the frame (3.6 percent for the serial chain).
+- **Consistency, measured the evening of 27 October:** branching every era from the anchor holds the object's centre within 0.3 percent of the frame (3.6 percent for the serial chain).
 - A safety block returns 400 `content_policy_violation`; the first block retries the same prompt once (the filter is flaky), the second softens the scene prompt, then the era is dropped and logged.
 
 ## Step 5: Check each painting against the object's state (Muse Spark, vision)
@@ -136,7 +136,7 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 
 ## Step 5b: Spot the difference (children's version)
 
-One painted era next to today's photo; `muse-spark-1.3` (vision) finds up to 5 visible differences with regions, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through research and captions and both versions are written and cached, but the film page renders the adult captions only.
+One painted era next to today's photo; `muse-spark-1.3` (vision) finds up to 5 visible differences with regions, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Adults/Children switch.
 
 ## Step 6: Cut, see Planned
 
@@ -209,7 +209,7 @@ out/<slug>/
 
 ## Streaming (cut 29 Oct)
 
-The 28 Oct streaming experiment is cut from the viewing experience and from the build. The rule that guards quality stands: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
+The 27 October evening streaming experiment is cut from the viewing experience and from the build. The rule that guards quality stands: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
 
 - The opening card, the speculative start during confirm (it spent about $0.55 on visitors who said no) and buffer playback are gone. Only free facts fetch while the visitor decides; a refusal spends nothing beyond identify.
 - The build still verifies in film order (anchor first, then chronological) and paints scenes as their claims land, but the film plays only when finished, with honest progress and a timer meanwhile.

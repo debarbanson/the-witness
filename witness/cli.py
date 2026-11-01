@@ -96,6 +96,8 @@ def main(argv=None):
     render_cmd.add_argument("--subject", default=None)
     render_cmd.add_argument("--era-dir", default="eras_parallel")
     render_cmd.add_argument("--photo-credit", default="")
+    render_cmd.add_argument("--photo-source", default=None)
+    render_cmd.add_argument("--photo-year", type=int, default=None)
     render_cmd.add_argument("--own-photo", action="store_true")
     render_cmd.add_argument("--mp4", action="store_true")
     paint_cmd = sub.add_parser("paint")
@@ -127,10 +129,17 @@ def main(argv=None):
     if args.command == "render":
         from witness.render import record as render_record
 
+        try:
+            photo_source = (json.loads(args.photo_source)
+                            if args.photo_source else None)
+        except json.JSONDecodeError:
+            parser.error("--photo-source must be JSON")
         code = cmd_render(args.slug, args.photo, subject=args.subject,
                           era_dir=args.era_dir,
                           photo_credit=args.photo_credit,
-                          own_photo=args.own_photo, out_dir=args.out_dir)
+                          photo_source=photo_source,
+                          own_photo=args.own_photo, out_dir=args.out_dir,
+                          photo_year=args.photo_year)
         if code == 0 and args.mp4:
             film_html = Path(args.out_dir) / args.slug / "film" / "film.html"
             out_mp4 = Path(args.out_dir) / args.slug / "film" / "film.mp4"
@@ -232,7 +241,7 @@ def collect_paint_entries(paint_futures) -> dict:
                  "attempts": outcome_result["attempts"],
                  "caption": outcome_result.get("caption", "")}
         if outcome_result["image"] is not None:
-            entry["file"] = f"eras_stream/{year}.png"
+            entry["file"] = f"eras_stream/{year}.webp"
         else:
             entry["note"] = outcome_result["note"]
         entries[year] = entry
@@ -659,7 +668,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                                       "verdict": result["verdict"],
                                       "attempts": result["attempts"]})
         if result["image"] is not None:
-            (era_dir / f"{scene['from_year']}.png").write_bytes(result["image"])
+            paint.save_era(era_dir, scene["from_year"], result["image"])
             print(f"Scene {scene_no} ({scene.get('date_label', scene['from_year'])}) painted",
                   flush=True)
         else:
@@ -783,7 +792,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                             final_numbers[year])
                     painted_states[year] = dict(scene.get("state") or {})
                 entries = collect_paint_entries(paint_futures)
-                kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
+                kept_files = sorted(era_dir.glob("[0-9]*.webp"), key=lambda p: p.stem)
                 if kept_files:
                     paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
                                         str(era_dir / "contact.png"))
@@ -1375,7 +1384,9 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
                                    country_code=country_code)
     prior = []
     for run_dir in prior_dirs[:2]:  # newest first; two checks are enough
-        candidate = run_dir / f"{year}.png"
+        candidate = run_dir / f"{year}.webp"
+        if not candidate.exists():  # paintings before the webp switch
+            candidate = run_dir / f"{year}.png"
         if candidate.exists():
             prior.append((str(candidate), candidate.read_bytes()))
     try:
@@ -1512,8 +1523,8 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                  "caption": result.get("caption", ""),
                  "season": era_season}
         if result["image"] is not None:
-            (era_dir / f"{year}.png").write_bytes(result["image"])
-            entry["file"] = f"eras_{suffix}/{year}.png"
+            paint.save_era(era_dir, year, result["image"])
+            entry["file"] = f"eras_{suffix}/{year}.webp"
             if result["verdict"] == "recovered":
                 entry["note"] = result["note"]
         else:
@@ -1524,7 +1535,7 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     for year in skipped:
         entries[year] = {"year": year, "verdict": "skipped", "attempts": 0,
                          "note": "no supported claim of its own"}
-    kept_files = sorted(era_dir.glob("[0-9]*.png"), key=lambda p: p.stem)
+    kept_files = sorted(era_dir.glob("[0-9]*.webp"), key=lambda p: p.stem)
     if kept_files:
         paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],
                             str(era_dir / "contact.png"))
@@ -1657,11 +1668,13 @@ def recheck_paintings(slug_dir, data, checker) -> list:
 
     name = data.get("object", {}).get("name", "")
     state_of = {}
+    context_of = {}
     for scene in data.get("scenes", []):
         year = scene.get("from_year")
         if not isinstance(year, int):
             continue
         state_of[year] = scene.get("state", {})
+        context_of[year] = paint.scene_context(scene)
     done = []
     for manifest_path in sorted(Path(slug_dir).glob("paint_*.json")):
         try:
@@ -1689,8 +1702,12 @@ def recheck_paintings(slug_dir, data, checker) -> list:
             if entry.get("file"):
                 candidate = Path(slug_dir) / entry["file"]
             if candidate is None or not candidate.exists():
-                found = sorted(Path(slug_dir).glob(f"eras_*/{year}.png"),
+                found = sorted(Path(slug_dir).glob(f"eras_*/{year}.webp"),
                                key=lambda p: p.stat().st_mtime, reverse=True)
+                if not found:  # paintings before the webp switch
+                    found = sorted(Path(slug_dir).glob(f"eras_*/{year}.png"),
+                                   key=lambda p: p.stat().st_mtime,
+                                   reverse=True)
                 candidate = found[0] if found else None
             if candidate is None:
                 continue
@@ -1699,7 +1716,8 @@ def recheck_paintings(slug_dir, data, checker) -> list:
                     checker, candidate.read_bytes(), name,
                     paint.describe_state(name, state_of.get(year, {})),
                     year, caption=sentence,
-                    season=entry.get("season"))
+                    season=entry.get("season"),
+                    surroundings=context_of.get(year, ""))
             except models.SpendingCapExceeded:
                 raise
             except Exception as exc:  # noqa: BLE001 - a dead check drops the era
@@ -1882,9 +1900,10 @@ def cmd_children(slug, rewrite_call=None, support_call=None, out_dir="out",
 
 
 def cmd_spot(slug, photo, vision_call=None, out_dir="out"):
-    """Spot the difference from the children's paintings: the earliest
-    painted era with a verified change, against today's photo. Only
-    grounded differences reach the game; anything less is no game."""
+    """Spot the difference from the children's paintings: the starkest
+    painted era that grounds enough differences, against today's
+    photo. Only grounded differences reach the game; anything less
+    is no game."""
     out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
@@ -1906,18 +1925,25 @@ def cmd_spot(slug, photo, vision_call=None, out_dir="out"):
     for entry in entries:
         if entry.get("verdict") not in ("matches", "recovered"):
             continue
-        rel = entry.get("file") or f"{era_dir}/{entry.get('year')}.png"
+        rel = entry.get("file") or _era_fallback(out_dir, era_dir,
+                                                 entry.get("year"))
         candidate = out_dir / rel
         if candidate.exists():
             painted[str(entry.get("year"))] = candidate
     data = json.loads(path.read_text())
     scenes, claims = data.get("scenes", []), data.get("claims", [])
-    year = spot.pick_year(scenes, claims, set(painted))
+    remaining = set(painted)
+    year, changes = None, []
+    while remaining:
+        candidate = spot.pick_year(scenes, claims, remaining)
+        if candidate is None:
+            break
+        changes = spot.verified_changes(scenes, claims, candidate)
+        if len(changes) >= spot.MIN_DIFFERENCES:
+            year = candidate
+            break
+        remaining.discard(str(candidate))
     if year is None:
-        print("too little verified change for spot-the-difference")
-        return 0
-    changes = spot.verified_changes(scenes, claims, year)
-    if len(changes) < spot.MIN_DIFFERENCES:
         print("too little verified change for spot-the-difference")
         return 0
     try:
@@ -1978,8 +2004,8 @@ def job_dir(root="out") -> Path:
 
 
 def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
-               photo_credit="", segment_call=None,
-               own_photo=False, out_dir="out", cache=None):
+               photo_credit="", photo_source=None, segment_call=None,
+               own_photo=False, out_dir="out", cache=None, photo_year=None):
     """Build the live film page from kept research plus paintings.
 
     Only manifest entries marked matches or recovered are filmed;
@@ -1992,7 +2018,8 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         print(f"no research at {path}")
         return 2
     data = json.loads(path.read_text())
-    photo_year = identify.capture_year(photo)
+    if photo_year is None:
+        photo_year = identify.capture_year(photo)
     try:
         photo = str(prepare_photo(photo, out_dir))
     except PhotoError as exc:
@@ -2048,7 +2075,8 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
         photo_file=photo, cutout_file=str(cutout_path) if cutout_path else None,
         photo_year=photo_year, own_photo=own_photo,
         cache=cache or Cache("out/cache"),
-        sibling="child/film.json" if child_files is not None else None)
+        sibling="child/film.json" if child_files is not None else None,
+        photo_source=photo_source)
     if child_files is not None:
         child_images = {key: render_builder.served_era_name(key, src)
                         for key, src in child_files.items()}
@@ -2062,13 +2090,22 @@ def cmd_render(slug, photo, subject=None, era_dir="eras_parallel",
             photo_year=photo_year, own_photo=own_photo,
             cache=cache or Cache("out/cache"),
             folder="film/child", audience="child", sibling="../film.json",
-            spot=game)
+            spot=game, photo_source=photo_source)
     film = json.loads((film_dir / "film.json").read_text())
     total = film["segments"][-1]["end"]
     audiences = "adult and children's" if child_files is not None else "adult"
     print(f"film at {film_dir}/film.html ({len(film['scenes'])} scenes, "
           f"{total} s, {audiences})")
     return 0
+
+
+def _era_fallback(out_dir, era_dir, year) -> str:
+    """A manifest entry without a file: the webp painting, else the
+    png from before the webp switch."""
+    rel = f"{era_dir}/{year}.webp"
+    if (out_dir / rel).exists():
+        return rel
+    return f"{era_dir}/{year}.png"
 
 
 def collect_era_files(out_dir, entries, scenes, era_dir, audience="adult"):
@@ -2088,7 +2125,8 @@ def collect_era_files(out_dir, entries, scenes, era_dir, audience="adult"):
             print(f"{entry.get('year')}: refused (painting was checked "
                   f"against a different caption; rerun {rerun})")
             continue
-        rel = entry.get("file") or f"{era_dir}/{entry['year']}.png"
+        rel = entry.get("file") or _era_fallback(out_dir, era_dir,
+                                                 entry["year"])
         candidate = out_dir / rel
         if candidate.exists():
             era_files[candidate.stem] = str(candidate)

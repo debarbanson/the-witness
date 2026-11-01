@@ -12,22 +12,32 @@ and is corrected here.
 
 | Object | Commons file | Licence |
 |---|---|---|
-| rubjerg-knude | [file](https://commons.wikimedia.org/wiki/File:Rubjerg_Knude_in_December_2009_ubt.JPG) | CC BY 4.0 |
-| kintai-bridge | [file](https://commons.wikimedia.org/wiki/File:Iwakuni,_ponte_kintai-kyo,_03,0.jpg) | CC BY 3.0 |
-| major-oak | [file](https://commons.wikimedia.org/wiki/File:Major_Oak.JPG) | CC BY 3.0 |
-| brooklyn-bridge | [file](https://commons.wikimedia.org/wiki/File:Pont_de_Brooklyn_de_nuit_-_Octobre_2008_edit.jpg) | CC BY 3.0 |
-| christ-redeemer | [file](https://commons.wikimedia.org/wiki/File:Christ-Redeemer-Rio-de-Janeiro.jpg) | CC BY 4.0 |
-| biosphere | [file](https://commons.wikimedia.org/wiki/File:Biosphere_-_Panorama.jpg) | CC BY 2.0 |
-| eiffel-tower | [file](https://commons.wikimedia.org/wiki/File:Eiffel_Tower_blue_skies_(Unsplash).jpg) | CC0 |
+| de-adriaan | [file](https://commons.wikimedia.org/wiki/File:De_Adriaan,_Windmill,_Haarlem,_The_Netherlands.jpg) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| rubjerg-knude | [file](https://commons.wikimedia.org/wiki/File:Rubjerg_Knude_in_December_2009_ubt.JPG) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| kintai-bridge | [file](https://commons.wikimedia.org/wiki/File:Iwakuni,_ponte_kintai-kyo,_03,0.jpg) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| major-oak | [file](https://commons.wikimedia.org/wiki/File:Major_Oak.JPG) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| brooklyn-bridge | [file](https://commons.wikimedia.org/wiki/File:Pont_de_Brooklyn_de_nuit_-_Octobre_2008_edit.jpg) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| christ-redeemer | [file](https://commons.wikimedia.org/wiki/File:Christ-Redeemer-Rio-de-Janeiro.jpg) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| biosphere | [file](https://commons.wikimedia.org/wiki/File:Biosphere_-_Panorama.jpg) | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) |
+| eiffel-tower | [file](https://commons.wikimedia.org/wiki/File:Eiffel_Tower_blue_skies_(Unsplash).jpg) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | djenne-mosque | [file](https://commons.wikimedia.org/wiki/File:Djenne_Mosque_Dubois_1911.jpg) | Public domain |
-| sydney-opera | [file](https://commons.wikimedia.org/wiki/File:MC_Sydney_Opera_House.jpg) | CC BY 2.5 |
-| raffles-hotel | [file](https://commons.wikimedia.org/wiki/File:Singapore_Raffles_Hotel_1.JPG) | CC0 |
+| sydney-opera | [file](https://commons.wikimedia.org/wiki/File:MC_Sydney_Opera_House.jpg) | [CC BY 2.5](https://creativecommons.org/licenses/by/2.5/) |
+| raffles-hotel | [file](https://commons.wikimedia.org/wiki/File:Singapore_Raffles_Hotel_1.JPG) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | sagrada-familia | [file](https://commons.wikimedia.org/wiki/File:Sagrada_Familia_0110.JPG) | Public domain |
-| vasa-ship | [file](https://commons.wikimedia.org/wiki/File:%22Vasa%22,_a_fully_intact_64_gun_warship_from_the_17th_century_that_was_salvaged_(24490197659).jpg) | CC BY 2.0 |
-| colosseum | [file](https://commons.wikimedia.org/wiki/File:Colosseum_of_Rome_and_Roman_forum.jpg) | CC0 |
-| heidelberg-castle | [file](https://commons.wikimedia.org/wiki/File:Heidelberg_castle_from_vine_growing_area.jpg) | CC BY 4.0 |
-| belem-tower | [file](https://commons.wikimedia.org/wiki/File:Lisbon_Bel%C3%A9m_Tower_(470009179).jpg) | CC BY 2.0 |
-| atomium | [file](https://commons.wikimedia.org/wiki/File:The_Atomium,_Brussels_-_54578545913.jpg) | CC0 |
+| vasa-ship | [file](https://commons.wikimedia.org/wiki/File:%22Vasa%22,_a_fully_intact_64_gun_warship_from_the_17th_century_that_was_salvaged_(24490197659).jpg) | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) |
+| colosseum | [file](https://commons.wikimedia.org/wiki/File:Colosseum_of_Rome_and_Roman_forum.jpg) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| heidelberg-castle | [file](https://commons.wikimedia.org/wiki/File:Heidelberg_castle_from_vine_growing_area.jpg) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| belem-tower | [file](https://commons.wikimedia.org/wiki/File:Lisbon_Bel%C3%A9m_Tower_(470009179).jpg) | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) |
+| atomium | [file](https://commons.wikimedia.org/wiki/File:The_Atomium,_Brussels_-_54578545913.jpg) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
+
+### Demo film photo credits
+
+The three demo films carry the full credit (author, licence with link,
+file page) in `film.json` and on the end card:
+
+- De Adriaan: Bj.schoenmakers, [CC0](https://creativecommons.org/publicdomain/zero/1.0/), [file page](https://commons.wikimedia.org/wiki/File:De_Adriaan,_Windmill,_Haarlem,_The_Netherlands.jpg).
+- Major Oak: XXLRay, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), [file page](https://commons.wikimedia.org/wiki/File:Major_Oak.JPG).
+- Rubjerg Knude: Tomasz Sienicki, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), [file page](https://commons.wikimedia.org/wiki/File:Rubjerg_Knude_in_December_2009_ubt.JPG).
 | mont-saint-michel | [file](https://commons.wikimedia.org/wiki/File:Mont_St._Michel_Spire.JPG) | Public domain |
 | neuschwanstein | [file](https://commons.wikimedia.org/wiki/File:Neuschwanstein_Castle_2024-02.jpg) | CC0 |
 | sultan-ahmed-mosque | [file](https://commons.wikimedia.org/wiki/File:2017-09-01_Turkey,_Istanbul_DSC_3669_DxO.jpg) | CC BY 4.0 |
@@ -913,32 +923,32 @@ ruins and 2002 small figures found none), saved per era for
 parallax. One layer viewed: clean cut-out. (Figure layers are
 since cut from the film; see Planned in docs/02_pipeline.md.)
 
-## Open-weights support eval (30 October)
+## Open-weights support eval
 
-Twelve hand-labelled cases through the production Baseten path
-(`baseten_support_respond`, one vote each, completion off): 4 plain
-supports, 2 negations, 2 wrong-object, 2 disputed-date, 2 partial
-support. The strict rule decides: only a literal quote bound to a
-fetched passage accepts.
+First pass (30 Oct): 12 synthetic passages, 4 should pass and 8 fail;
+0 of 8 wrongly accepted, 1 of 4 true supports accepted; too small to
+generalise. Its script was never committed and is not recoverable, so
+only the counts survive; one passage was wrong (1026 is not "soon
+after the Norman conquest"). It is superseded by the set below.
 
-| Group | Cases | Right |
-|---|---|---|
-| Plain support | 4 | 1 |
-| Negation | 2 | 2 |
-| Wrong object | 2 | 2 |
-| Disputed date | 2 | 2 |
-| Partial support | 2 | 2 |
-| **Total** | **12** | **9** |
+Second pass (30 Oct, `eval/`): 53 cases from pages actually fetched
+for the three demo films, one support vote each through the
+production prompt, completion off. 19 true supports (quotes verbatim
+from kept research, English, Dutch and Danish), 10 negations, 8 wrong
+objects, 8 shifted dates and 8 partial supports (invented extra
+detail). Both arms run identically: the open-weights path
+(`baseten_support_respond`, Muse Spark Open) and Meta alongside
+(`support_respond`, `muse-spark-1.3`).
 
-Precision on accepts is 100%: zero false accepts, so nothing
-unproven reaches a film. The 3 misses are all false rejects where
-the model judged a paraphrase ("shifted inland, rolling on rails"
-for "moved inland on rails") as non-support; those scenes drop
-honestly rather than risk a wrong one. Single votes were measured;
-production best-of-three may recover some, unmeasured.
+| Arm | Right | Precision | Recall | Mean vote | Cost a vote |
+|---|---|---|---|---|---|
+| Open (Baseten) | 52 of 53 | 1.0 | 0.95 | 9.4 s | $0.004 |
+| Meta | 52 of 53 | 1.0 | 0.95 | 7.1 s | $0.006 |
 
-Latency: mean 15.3 s a vote, max 40.9 s (the open model reasons
-before it answers). Cost: 69,144 tokens over 21 calls for $0.086,
-about $0.007 a vote at $1.25 per M tokens in and out. Meta
-fallback rate: 0 of 12 (the fallback fired in production runs on
-length cutoffs before the output bound was raised to 16384).
+Both arms agree on every case: every negation, wrong object, shifted
+date and partial support is rejected, and the single miss is the same
+vague claim both models reasonably reject ("structure relocation in
+2019" names no object). Zero false accepts, so nothing unverified
+reaches a caption. Meta fallback rate on the open arm: 0 of 53. The
+run cost $0.52 in API calls. Raw per-case verdicts:
+`eval/support_results_2026-10-30.json`.

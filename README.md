@@ -1,12 +1,12 @@
 # The Witness
 
-One photo of something old. A one-minute film of everything it has seen.
+One photo of something old. A short film of everything it has seen.
 
-Point The Witness at a windmill, an old tree or a lighthouse. It works out which object the photo shows, researches its history on the web, checks every claim against the fetched sources, then paints the decisive eras it lived through: the world around it, and the object itself as it was then, built, damaged, rebuilt, as the sources say. Your own photo closes the film as "today". The result is a 30 to 60 second vertical film, told in the first person by the object, where every caption carries its source.
+Point The Witness at a windmill, an old tree or a lighthouse. It works out which object the photo shows, researches its history on the web, checks every claim against the fetched sources, then paints the decisive eras it lived through: the world around it, and the object itself as it was then, built, damaged, rebuilt, as the sources say. Your own photo closes the film as "today". The result is a vertical film of about 30 to 37 seconds, told in the first person by the object, where every caption carries its source.
 
 > "I burnt down on 23 April 1932." (source shown on screen)
 
-Built for the Meta Global AI Developer Hackathon (27 October to 4 November 2026), track **Build for Your World**.
+Built for the Meta Global AI Developer Hackathon (kicked off 26 October 2026, 17:00 Dutch time; runs to 4 November), track **Build for Your World**.
 
 ## How it works
 
@@ -36,7 +36,16 @@ Every film has a children's version (8+): the same verified facts in simpler wor
 
 ## Use it
 
-- **On your phone:** open the web page, take or pick a photo, allow location (or type the place), confirm the object, watch the finished film. See [docs/06_web.md](docs/06_web.md).
+Set up (Python 3.12; `requirements-lock.txt` pins every dependency):
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-lock.txt
+.venv/bin/playwright install chromium   # only for recording MP4s
+brew install ffmpeg                     # only for recording MP4s (apt on Linux)
+```
+
+- **On your phone (after the deploy; the link stays private until the abuse tests pass):** open the web page, take or pick a photo, allow location (or type the place), confirm the object, watch the finished film. See [docs/06_web.md](docs/06_web.md).
 - **From the command line:**
 
 ```bash
@@ -50,7 +59,13 @@ Location data is used only to identify the object and is never stored or written
 
 ## Cost and speed
 
-A painted adult film costs about $0.30 to $0.50 in API calls (modelled from the price table and measured call counts; the children's set roughly doubles the painting and caption checks). Measured 30 Oct: a Baseten support vote takes 15 s on average and $0.007, with zero false accepts on a 12-case hand-labelled set. End-to-end upload-to-film time is measured on staging; see [docs/04_demo.md](docs/04_demo.md) and [docs/07_test_set.md](docs/07_test_set.md).
+Measured 30 Oct from the saved token counts (research) plus the shipped paintings ($0.01 each):
+
+- De Adriaan: $0.55 research + 6 paintings = about $0.62.
+- Major Oak: $0.23 research + 4 paintings = about $0.28.
+- Rubjerg Knude: $0.28 research + 6 paintings = about $0.35.
+
+Caption and check text tokens and web-search counts are tallied in process but not saved, so they are missing from these totals. The support vote was evaluated on a 53-case set from fetched pages: both the open-weights path and Meta accept nothing wrong (precision 1.0, recall 0.95), at $0.004 and 9.4 s a vote for Baseten against $0.006 and 7.1 s for Meta. End-to-end upload-to-film time will be measured on staging after the deploy; see [docs/04_demo.md](docs/04_demo.md) and [docs/07_test_set.md](docs/07_test_set.md).
 
 ## Planned, not built
 

@@ -55,7 +55,7 @@ python -m witness film photo.jpg --place "Haarlem"  # when the photo has none
 python -m witness research photo.jpg --place "Haarlem"  # story only, no painting
 ```
 
-Location data is used only to identify the object and is never stored or written into the film.
+Location data identifies the object. On the web page it waits in the job's private server folder while the film is made and is deleted with the job 24 h after it ends; the research keeps only a coarse season zone (north, south or tropical), and the film, the logs and the job store never carry the location at all.
 
 ## Cost and speed
 

@@ -555,6 +555,12 @@ def test_runner_gets_a_reference_not_the_location(tmp_path):
     assert "Haarlem" not in str(store.get_job(job_id))
 
 
+def test_privacy_notice_names_modal_as_processor():
+    from witness import webapp
+
+    assert "Modal" in webapp.PRIVACY_PAGE
+
+
 def test_privacy_notice_mentions_the_ip_hash():
     from witness import webapp
 

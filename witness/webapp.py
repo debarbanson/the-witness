@@ -5,10 +5,13 @@ assets. Everything Modal-specific (spawn, Dict, Volume, cron) lives
 in modal_app.py; this module takes plain dependencies so the whole
 page is testable offline with a fake runner and clock.
 
-Privacy shape: the upload's location travels to the runner in memory
-only and is never stored; the typed place likewise. Job films are
-served only through unguessable capability URLs. Nothing request- or
-location-shaped is ever logged here.
+Privacy shape: the upload's location and the typed place wait in
+the job's private folder (spec.json, read only by the worker) and
+are deleted with the job 24 h after it ends; they never reach the
+job store, the film or the logs, and the research keeps only a
+coarse season zone. Job films are served only through unguessable
+capability URLs. Nothing request- or location-shaped is ever logged
+here.
 """
 
 import hashlib
@@ -358,6 +361,7 @@ or cancel clicks. Please type public places only.</p>
 <ul>
 <li>Meta: object recognition, era paintings, painting checks.</li>
 <li>Baseten (open-weights Muse Spark): fact checking.</li>
+<li>Modal: hosts this page and runs the film worker.</li>
 <li>Nominatim: typed place to coordinates.</li>
 <li>Overpass (including the community mirror): nearby named objects.</li>
 <li>Wikidata and Wikipedia: facts and source texts.</li>

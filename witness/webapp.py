@@ -13,6 +13,7 @@ location-shaped is ever logged here.
 
 import hashlib
 import json
+import os
 import secrets
 import shutil
 import tempfile
@@ -534,8 +535,11 @@ def create_app(deps: WebDeps) -> FastAPI:
         job_id = uuid.uuid4().hex
         token = secrets.token_hex(16)
         directory = job_dir(deps.jobs_root)
-        tmp = Path(tempfile.mkstemp(dir=directory, suffix=".upload")[1])
-        tmp.write_bytes(data)
+        upload_fd, upload_path = tempfile.mkstemp(dir=directory,
+                                                  suffix=".upload")
+        with os.fdopen(upload_fd, "wb") as handle:
+            handle.write(data)
+        tmp = Path(upload_path)
         try:
             location, today = photo_module.ingest_upload(tmp, directory)
         except photo_module.PhotoError as exc:

@@ -8,7 +8,8 @@ anything invented is dropped, several items on one change count as
 one, and fewer than three grounded differences means no game.
 """
 
-from witness.verify import filmed
+from witness.verify import (SOURCE_BEGIN, SOURCE_DATA_NOTE, SOURCE_END,
+                            escape_source_block, filmed)
 
 MIN_DIFFERENCES = 3
 MAX_DIFFERENCES = 5
@@ -79,7 +80,9 @@ def spot_prompt(changes) -> str:
         "that looks the same in both. "
         "Each difference must show one of these verified changes, "
         "and only these; quote its line exactly in \"change\":\n"
-        f"{numbered}\n"
+        f"{SOURCE_BEGIN}\n{escape_source_block(numbered)}\n"
+        f"{SOURCE_END}\n"
+        f"{SOURCE_DATA_NOTE} "
         "Never list a difference you cannot tie to one of the lines. "
         "Answer with the quoted lines only.")
 

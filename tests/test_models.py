@@ -702,6 +702,15 @@ def test_empty_account_file_fails_closed(tmp_path):
         auth.total_usd()
 
 
+def test_refused_reserve_leaves_no_empty_account_file(tmp_path):
+    auth = models.BudgetAuthority(tmp_path, daily_cap_usd=0.005)
+    with pytest.raises(models.SpendingCapExceeded):
+        auth.reserve(0.10)
+    assert not auth._file().exists()
+    with pytest.raises(models.SpendingCapExceeded):
+        auth.reserve(0.10)
+
+
 def test_oversized_input_is_refused_before_any_reserve(tmp_path):
     class FakeClient:
         class responses:

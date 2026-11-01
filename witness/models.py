@@ -754,7 +754,15 @@ class BudgetAuthority:
                 data.setdefault("calls", 0)
                 data.setdefault("films", 0)
                 data.setdefault("visitors", {})
-                yield data
+                try:
+                    yield data
+                except BaseException:
+                    if not existed:
+                        try:
+                            os.remove(target)
+                        except OSError:
+                            pass
+                    raise
                 handle.seek(0)
                 handle.truncate()
                 json.dump(data, handle)

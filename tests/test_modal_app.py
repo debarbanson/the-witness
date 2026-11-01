@@ -261,6 +261,16 @@ def test_modal_image_builds_from_the_lockfile():
         assert package in lock, package
 
 
+def test_staging_page_requires_proxy_auth():
+    """The page is private: the asgi app demands Modal proxy auth
+    (https://modal.com/docs/guide/webhook-proxy-auth)."""
+    from pathlib import Path
+
+    src = Path(modal_app.__file__).read_text()
+    assert "requires_proxy_auth=True" in src
+    assert "@modal.asgi_app()" not in src
+
+
 def test_install_instructions_name_the_lockfile():
     from pathlib import Path
 

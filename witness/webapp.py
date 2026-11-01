@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse)
 
 from witness import models, photo as photo_module
 from witness.cli import job_dir
@@ -486,7 +487,7 @@ def create_app(deps: WebDeps) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         items = "".join(
-            f'<li><a href="/examples/{ex["slug"]}">{ex["name"]}</a></li>'
+            f'<li><a href="/examples/{ex["slug"]}/">{ex["name"]}</a></li>'
             for ex in deps.examples)
         page = INDEX_PAGE.replace("__EXAMPLES__", items)
         page = page.replace("__CONTACT__", deps.contact)
@@ -604,6 +605,26 @@ def create_app(deps: WebDeps) -> FastAPI:
             return HTMLResponse(page)
         return FileResponse(target)
 
+    def _film_root(job):
+        """The rendered film directory: the stored path first, then
+        job_dir/film, then the single nested job_dir/*/film the worker
+        renders (one job renders one slug)."""
+        base = Path(job["job_dir"]).resolve()
+        for candidate in (job.get("film_dir"),
+                          (job.get("result") or {}).get("film_dir")):
+            if candidate:
+                root = Path(candidate).resolve()
+                if (base in root.parents or root == base) and root.is_dir():
+                    return root
+        flat = base / "film"
+        if flat.is_dir():
+            return flat
+        nested = sorted(path.parent for path in base.glob("*/film/film.html")
+                        if base in path.resolve().parents)
+        if len(nested) == 1:
+            return nested[0]
+        return flat
+
     @app.get("/film/{job_id}/{token}/{asset:path}")
     async def serve_film(request: Request, job_id: str, token: str, asset: str):
         try:
@@ -612,14 +633,14 @@ def create_app(deps: WebDeps) -> FastAPI:
             raise HTTPException(status_code=404, detail="no such film")
         if not secrets.compare_digest(token, job["token"]):
             raise HTTPException(status_code=404, detail="no such film")
-        return _film_response(request, Path(job["job_dir"]) / "film", asset)
+        return _film_response(request, _film_root(job), asset)
 
     @app.get("/examples/{slug}")
     async def serve_example(request: Request, slug: str):
         known = {ex["slug"] for ex in deps.examples}
         if slug not in known:
             raise HTTPException(status_code=404, detail="no such example")
-        return _film_response(request, Path(deps.examples_root) / slug, "")
+        return RedirectResponse(url=f"/examples/{slug}/", status_code=301)
 
     @app.get("/examples/{slug}/{asset:path}")
     async def serve_example_asset(request: Request, slug: str, asset: str):

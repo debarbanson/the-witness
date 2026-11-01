@@ -571,6 +571,67 @@ def test_film_page_style_hash_matches(tmp_path):
     assert f"'sha256-{digest}'" in csp
 
 
+def test_film_route_serves_the_rendered_slug_directory(tmp_path):
+    """The worker renders job_dir/<slug>/film; the capability route
+    must serve that directory, HTML plus every asset, not job_dir/film."""
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    client = _client(tmp_path, store=store, runner=lambda spec: None)
+    job_id = client.post(
+        "/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
+        data={"ack": "on"}).json()["job_id"]
+    job = store.jobs[job_id]
+    film_dir = tmp_path / "jobs" / job["job_dir"].split("/")[-1] / "q1-mill" / "film"
+    (film_dir / "child").mkdir(parents=True)
+    (film_dir / "film.html").write_text(
+        "<html><body><script>\n\"use strict\";\n</script></body></html>")
+    (film_dir / "film.json").write_text("{\"scenes\": []}")
+    (film_dir / "today.jpg").write_bytes(b"fake-photo")
+    (film_dir / "era_1900.webp").write_bytes(b"fake-era")
+    (film_dir / "child" / "film.html").write_text("<html>child</html>")
+    store.jobs[job_id]["film_dir"] = str(film_dir)
+    base = f"/film/{job_id}/{job['token']}"
+    assert client.get(base + "/film.html").status_code == 200
+    assert client.get(base + "/film.json").json() == {"scenes": []}
+    assert client.get(base + "/today.jpg").content == b"fake-photo"
+    assert client.get(base + "/era_1900.webp").content == b"fake-era"
+    assert client.get(base + "/child/film.html").status_code == 200
+
+
+def test_film_route_finds_one_rendered_slug_without_stored_dir(tmp_path):
+    """Records that predate film_dir storage still resolve: one job
+    directory holds exactly one rendered film."""
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    client = _client(tmp_path, store=store, runner=lambda spec: None)
+    job_id = client.post(
+        "/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
+        data={"ack": "on"}).json()["job_id"]
+    job = store.jobs[job_id]
+    nested = tmp_path / "jobs" / job["job_dir"].split("/")[-1] / "q1-mill" / "film"
+    nested.mkdir(parents=True)
+    (nested / "film.html").write_text("<html>film</html>")
+    assert "film_dir" not in store.jobs[job_id]
+    out = client.get(f"/film/{job_id}/{job['token']}/film.html")
+    assert out.status_code == 200
+
+
+def test_example_url_has_a_trailing_slash(tmp_path):
+    """The example page lives at the slashed URL so relative assets
+    resolve inside the example."""
+    from urllib.parse import urljoin
+
+    client = _client(tmp_path)
+    bare = client.get("/examples/de-adriaan", follow_redirects=False)
+    assert bare.status_code in (301, 307, 308)
+    assert bare.headers["location"].endswith("/examples/de-adriaan/")
+    page = client.get("/examples/de-adriaan/")
+    assert page.status_code == 200
+    assert client.get(urljoin(str(page.url), "film.json")).status_code == 200
+
+
 def test_no_inline_style_attributes_anywhere():
     from pathlib import Path
 

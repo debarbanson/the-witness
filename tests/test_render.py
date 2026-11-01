@@ -237,6 +237,13 @@ def test_write_film_builds_a_sibling_child_film(tmp_path):
     assert adult_film["sibling"] == "child/film.json"
     assert child_film["audience"] == "child"
     assert child_film["sibling"] == "../film.json"
+    from urllib.parse import urljoin
+
+    adult_page = "https://example.org/film/id/cap/film.html"
+    child_page = urljoin(adult_page, adult_film["sibling_page"])
+    assert child_page.endswith("/film/id/cap/child/film.html")
+    assert urljoin(child_page, child_film["sibling_page"]) == adult_page
+    assert urljoin(child_page, "today.jpg").endswith("/cap/child/today.jpg")
     assert child_film["scenes"][0]["caption"] == ["1850", "Little mill words."]
     assert (child / "era_1850.png").read_bytes() == child_era.read_bytes()
     assert (adult / "era_1850.png").read_bytes() == adult_era.read_bytes()
@@ -563,12 +570,19 @@ class _FakeProc:
         self.code = code
         self.stdin = self
         self.target = None
+        self.returncode = code
 
     def write(self, data):
         self.frames.append(data)
 
     def close(self):
         self.closed = True
+
+    def communicate(self):
+        self.close()
+        if self.target is not None:
+            Path(self.target).write_bytes(b"fake-mp4")
+        return None, b""
 
     def wait(self, timeout=None):
         if self.target is not None:
@@ -613,6 +627,66 @@ def test_record_waits_for_ready_and_decoded_frames(tmp_path, monkeypatch):
     assert waits[1:] == [record.FRAME_JS] * 3  # one decoded frame each
     assert len(proc.frames) == 3
     assert proc.closed is True
+
+
+class _PngPage(_FakePage):
+    def __init__(self, shot):
+        super().__init__()
+        self.shot = shot
+
+    def screenshot(self):
+        return self.shot
+
+
+def test_record_exports_a_real_mp4_through_ffmpeg(tmp_path, monkeypatch):
+    """Complete synthetic export: real ffmpeg picks the mp4 muxer for
+    the partial file, and a valid MP4 is published."""
+    import io
+    import shutil
+
+    import pytest
+    from PIL import Image
+
+    import playwright.sync_api
+    from witness.render import record
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 16), "red").save(buf, format="PNG")
+    (tmp_path / "film.html").write_text("<html></html>")
+    (tmp_path / "film.json").write_text(json.dumps(
+        {"segments": [{"kind": "end", "start": 0, "end": 0.1}]}))
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright",
+                        lambda: _FakePlaywright(_PngPage(buf.getvalue())))
+    out = record.record(tmp_path / "film.html", tmp_path / "film.mp4")
+    data = Path(out).read_bytes()
+    assert data[4:8] == b"ftyp"
+    assert list(tmp_path.glob("*.mp4.partial")) == []
+
+
+def test_record_failure_keeps_bounded_ffmpeg_diagnostics(tmp_path, monkeypatch):
+    """A failed encode reports ffmpeg's own error, capped in size."""
+    import shutil
+    import subprocess
+
+    import pytest
+    import playwright.sync_api
+    from witness.render import record
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    (tmp_path / "film.html").write_text("<html></html>")
+    (tmp_path / "film.json").write_text(json.dumps(
+        {"segments": [{"kind": "end", "start": 0, "end": 0.03}]}))
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright",
+                        lambda: _FakePlaywright(_PngPage(b"not a picture")))
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        record.record(tmp_path / "film.html", tmp_path / "film.mp4")
+    assert excinfo.value.stderr
+    assert len(excinfo.value.stderr) <= 4096
+    assert not (tmp_path / "film.mp4").exists()
+    assert list(tmp_path.glob("*.mp4.partial")) == []
 
 
 def test_record_raises_when_ffmpeg_fails(tmp_path, monkeypatch):

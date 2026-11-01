@@ -309,6 +309,47 @@ def test_pinned_send_connects_to_the_validated_ip(monkeypatch):
     assert wrapped["server_hostname"] == "example.org"
 
 
+def test_pinned_send_normalises_a_tuple_timeout(monkeypatch):
+    """A requests-style (connect, read) timeout reaches the stdlib
+    sender as two scalars: connect for the socket, read after TLS."""
+    import io
+    import socket
+    import ssl
+    from witness import web
+
+    seen = {}
+
+    class FakeSock:
+        def settimeout(self, timeout):
+            seen.setdefault("read", []).append(timeout)
+
+        def sendall(self, data):
+            pass
+
+        def makefile(self, mode, *args):
+            return io.BytesIO(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+
+        def close(self):
+            pass
+
+    def create_connection(address, timeout=None):
+        seen["connect"] = timeout
+        return FakeSock()
+
+    class FakeContext:
+        def wrap_socket(self, sock, server_hostname=None):
+            return sock
+
+    monkeypatch.setattr(socket, "create_connection", create_connection)
+    monkeypatch.setattr(ssl, "create_default_context", lambda: FakeContext())
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a: [
+        (2, 1, 6, "", ("93.184.216.34", 0))])
+    fetched = web.fetch_public("https://example.org/a", timeout=(5, 10))
+    assert fetched.body == b"ok"
+    assert seen["connect"] == 5
+    assert seen["read"] == [10]
+
+
 def test_web_error_strips_query_strings():
     err = ConnectionError(
         "failed for url: /w/api.php?ggscoord=0.00000|0.00000&format=json")

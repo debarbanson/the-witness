@@ -23,12 +23,17 @@ FRAME_JS = ("[...document.querySelectorAll('#stage img')]"
             ".every(i => i.complete && i.naturalWidth > 0)")
 
 
+ERR_TAIL_BYTES = 4096
+
+
 def finish_ffmpeg(proc):
-    """Close the pipe and fail loudly when ffmpeg did."""
-    proc.stdin.close()
-    code = proc.wait()
+    """Close the pipe and fail loudly when ffmpeg did, keeping the
+    tail of its own diagnostics."""
+    _, err = proc.communicate()
+    code = proc.returncode
     if code != 0:
-        raise subprocess.CalledProcessError(code, "ffmpeg")
+        raise subprocess.CalledProcessError(code, "ffmpeg",
+                                            stderr=(err or b"")[-ERR_TAIL_BYTES:])
     return code
 
 
@@ -56,6 +61,12 @@ def _kill(proc) -> None:
     if proc.poll() is None:
         proc.kill()
         proc.wait()
+    close_err = getattr(getattr(proc, "stderr", None), "close", None)
+    if callable(close_err):
+        try:
+            close_err()
+        except (OSError, ValueError):
+            pass
 
 
 def record(film_html, out_mp4, fps=30):
@@ -75,11 +86,12 @@ def record(film_html, out_mp4, fps=30):
     if partial.exists():
         partial.unlink()
     ffmpeg = subprocess.Popen(
-        ["ffmpeg", "-y", "-f", "image2pipe", "-framerate", str(fps),
+        ["ffmpeg", "-v", "error", "-y", "-f", "image2pipe",
+         "-framerate", str(fps),
          "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-         "-movflags", "+faststart", str(partial)],
+         "-movflags", "+faststart", "-f", "mp4", str(partial)],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL)
+        stderr=subprocess.PIPE)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(

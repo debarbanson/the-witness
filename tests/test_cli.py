@@ -419,6 +419,7 @@ def test_child_rewrite_marks_gentle(monkeypatch):
         return Resp()
 
     monkeypatch.setattr(cli_module.models, "respond", fake_respond)
+    monkeypatch.setattr(cli_module, "_respond_for", lambda spec: object())
     assert cli_module.child_rewrite_respond("adult", "source", False) == "Little line"
     assert "gently" not in seen["prompt"]
     cli_module.child_rewrite_respond("adult", "source", False, gentle=True)

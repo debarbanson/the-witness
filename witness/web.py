@@ -188,7 +188,13 @@ def _pinned_send(url, params=None, data=None, headers=None, timeout=15,
                  **_ignored):
     """One request pinned to the validated address: resolve once, open
     the socket to that IP, and verify TLS for the real hostname via
-    SNI. Nothing here follows redirects."""
+    SNI. Nothing here follows redirects. A requests-style (connect,
+    read) timeout tuple is normalised to scalars: connect opens the
+    socket, read guards everything after."""
+    if isinstance(timeout, tuple):
+        connect_timeout, read_timeout = timeout
+    else:
+        connect_timeout = read_timeout = timeout
     parsed = urlparse(url)
     host = parsed.hostname or ""
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -206,13 +212,13 @@ def _pinned_send(url, params=None, data=None, headers=None, timeout=15,
     if body is not None:
         send_headers.setdefault("Content-Type",
                                 "application/x-www-form-urlencoded")
-    sock = socket.create_connection((ips[0], port), timeout=timeout)
+    sock = socket.create_connection((ips[0], port), timeout=connect_timeout)
     try:
         if parsed.scheme == "https":
             context = ssl.create_default_context()
             sock = context.wrap_socket(sock, server_hostname=host)
-        sock.settimeout(timeout)
-        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        sock.settimeout(read_timeout)
+        conn = http.client.HTTPConnection(host, port, timeout=read_timeout)
         conn.sock = sock
         conn.request("POST" if data is not None else "GET", path,
                      body=body, headers=send_headers)

@@ -419,9 +419,11 @@ def prune_daily():
 
 
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume})
-@modal.asgi_app()
+@modal.asgi_app(requires_proxy_auth=True)
 def web():
-    """The private page: examples plus Try your own."""
+    """The private page: examples plus Try your own. Proxy auth keeps
+    staging off the public internet (Modal proxy-auth docs:
+    https://modal.com/docs/guide/webhook-proxy-auth)."""
     from witness.webapp import WebDeps, create_app
 
     def spawn(ref):

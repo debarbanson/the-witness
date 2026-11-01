@@ -71,6 +71,15 @@ def test_player_offers_an_audience_switch_when_a_sibling_exists():
     assert '"Adults"' in template
 
 
+def test_audience_switch_navigates_to_the_sibling_page():
+    """No fetch-then-start: the switch navigates, so every asset
+    resolves against its own manifest."""
+    template = TEMPLATE.read_text()
+    assert "start(next)" not in template
+    assert "audienceTarget(film, location.href)" in template
+    assert "location.href =" in template
+
+
 def test_player_links_the_spot_game_when_present():
     template = TEMPLATE.read_text()
     assert 'id="spotbtn"' in template

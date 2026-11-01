@@ -26,6 +26,7 @@ const byId = {};
 const seenIds = [];
 const sandbox = {
   location: { search: "" },
+  URL,
   URLSearchParams,
   document: {
     getElementById: (id) => {
@@ -198,5 +199,15 @@ const withCutout = Object.assign({}, sandbox.__DATA__, { cutout: "cutout.png" })
 assert.deepStrictEqual([...collectImages(withCutout)],
   ["today.jpg", "cutout.png", "era_1865.png", "era_1920.png"],
   "every frame image, deduplicated");
+
+// The audience switch navigates to the sibling page, so every asset
+// resolves against its own manifest; both directions round-trip.
+const audienceTarget = vm.runInContext("audienceTarget", sandbox);
+const adultPage = "https://example.org/film/id/cap/film.html";
+const childPage = audienceTarget({ sibling_page: "child/film.html" }, adultPage);
+assert.strictEqual(childPage,
+  "https://example.org/film/id/cap/child/film.html", "adult goes to the child page");
+assert.strictEqual(audienceTarget({ sibling_page: "../film.html" }, childPage),
+  adultPage, "child returns to the adult page");
 
 console.log("player check OK: finished film, photo-first today, titled sources");

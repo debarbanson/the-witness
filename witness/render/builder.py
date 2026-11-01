@@ -317,6 +317,9 @@ def _build_film(film_dir, research, images, photo, photo_credit,
                                    research.get("claims", []), cache),
             "segments": plan, "scenes": film_scenes,
             "audience": audience, "sibling": sibling,
+            "sibling_page": (sibling[:-len("film.json")] + "film.html"
+                             if sibling and sibling.endswith("film.json")
+                             else None),
             "spot": "spot.html" if spot is not None else None}
     (film_dir / "film.json").write_text(json.dumps(film, indent=1))
     template = (Path(__file__).parent / "film.html").read_text()

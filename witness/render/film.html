@@ -269,6 +269,10 @@ function replayFilm() {
   render(0);
 }
 
+function audienceTarget(film, href) {
+  return new URL(film.sibling_page, href).href;
+}
+
 function start(film) {
   FILM = film;
   fit();
@@ -291,16 +295,7 @@ function start(film) {
       audienceBtn.classList.remove("hidden");
       audienceBtn.style.display = "";
       audienceBtn.onclick = () => {
-        audienceBtn.disabled = true;
-        fetch(film.sibling).then(r => r.json()).then(next => {
-          player.paused = false;
-          pauseBtn.textContent = "Pause";
-          audienceBtn.disabled = false;
-          start(next);
-        }).catch(() => {
-          audienceBtn.disabled = false;
-          fail("The other version cannot load.");
-        });
+        location.href = audienceTarget(film, location.href);
       };
     } else {
       audienceBtn.style.display = "none";

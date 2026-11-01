@@ -3,6 +3,7 @@
 import json as _json
 import time as _time
 import traceback as _traceback
+from pathlib import Path
 
 from witness import cli, models
 from witness.cache import Cache
@@ -167,6 +168,7 @@ def run_web_film(spec, store, authority, clock=None):
                          "cost_usd": total_cost()}, "facts_only")
                 return finish(
                     {"film_url": f"/film/{job_id}/{spec['token']}/film.html",
+                     "film_dir": str(Path(spec["job_dir"]) / slug / "film"),
                      "outcome": outcome, "cost_usd": total_cost(),
                      "audiences": audiences}, "film")
             return finish(

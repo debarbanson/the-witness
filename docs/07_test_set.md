@@ -952,3 +952,27 @@ vague claim both models reasonably reject ("structure relocation in
 reaches a caption. Meta fallback rate on the open arm: 0 of 53. The
 run cost $0.52 in API calls. Raw per-case verdicts:
 `eval/support_results_2026-10-30.json`.
+
+Third pass (1 Nov, `eval/hard_cases.json`): 24 harder cases on the
+same kept quotes, one vote each through the same prompt: near numbers
+(230 m for 230 ft, 12,000 for 12,100, fire-year arithmetic), near
+dates (off-by-one days, first-lit/construction conflation), right
+year with the wrong event (engine removed not placed, horn installed
+not taken down), stated negations (accepted when the passage states
+them, rejected flipped), scope overstatements and plans stated as
+events (bought to prevent demolition, expected to fall by 2023).
+
+| Arm | Right | Precision | Recall | Mean vote | Cost a vote |
+|---|---|---|---|---|---|
+| Open (Baseten) | 24 of 24 | 1.0 | 1.0 | 8.9 s | $0.004 |
+| Meta | 24 of 24 | 1.0 | 1.0 | 4.3 s | $0.005 |
+
+Both arms agree on every case again, so the sets do not separate the
+models; they bound the risk instead: 77 cases, zero false accepts.
+The first hard run caught a mislabelled case, not a model error: "the
+cause of the 1932 fire was never established" names a year the
+passage never states, so both arms rightly rejected it and the claim
+was corrected to what the passage states. Meta fallback rate on the
+open arm: 0 of 24. The run cost $0.22 in API calls. Raw per-case
+verdicts: `eval/hard_results_2026-11-01.json`. Runner takes
+`--set support|hard`.

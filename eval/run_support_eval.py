@@ -1,8 +1,8 @@
-"""One support vote per case per model over eval/support_cases.json.
+"""One support vote per case per model over a named case set.
 
 Compares the open-weights path (Baseten Muse Spark Open) with Meta
 (muse-spark-1.3) on identical votes: verify_claim, completion off, one
-vote each. Writes eval/support_results_<date>.json with every verdict,
+vote each. Writes eval/<set>_results_<date>.json with every verdict,
 latency and cost. Keys load from .env.local like the CLI; nothing is
 printed but the summary. Budget: refuses to start past $3 reserved.
 """
@@ -25,6 +25,21 @@ from witness import models, verify  # noqa: E402
 
 MAX_USD = 3.0
 WORKERS = 6
+
+CASE_SETS = {
+    "support": "support_cases.json",
+    "hard": "hard_cases.json",
+}
+
+
+def load_cases(name="support"):
+    """Cases for a named set; unknown names raise KeyError."""
+    return json.loads((HERE / CASE_SETS[name]).read_text())
+
+
+def results_path(name="support"):
+    """Results file for a named set, dated today."""
+    return HERE / f"{name}_results_{date.today().isoformat()}.json"
 
 
 def one_vote(respond, case):
@@ -95,17 +110,24 @@ def summarize(cases, results):
     return out
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    import argparse
+    import os as _os
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--set", default="support", choices=sorted(CASE_SETS),
+                        help="case set to run")
+    args = parser.parse_args(argv)
     cli_module.load_dotenv()
     tmp = Path(tempfile.mkdtemp(prefix="eval-spending-"))
     models.configure_spending(authority=models.BudgetAuthority(
         tmp, daily_cap_usd=MAX_USD))
     try:
-        cases = json.loads((HERE / "support_cases.json").read_text())
-        import os as _os
-
+        cases = load_cases(args.set)
         if _os.environ.get("EVAL_SMOKE"):
-            cases = [cases[0], cases[19]]
+            accept = next(c for c in cases if c["expected"] == "accept")
+            reject = next(c for c in cases if c["expected"] == "reject")
+            cases = [accept, reject]
         by_id = {case["id"]: case for case in cases}
         opened, open_cost = run_arm(
             cases, open_vote, "open-weights (Baseten)")
@@ -133,7 +155,7 @@ def main() -> int:
         payload = {"date": date.today().isoformat(), "cases": len(cases),
                    "results": results, "summary": summary,
                    "eval_cost_usd": round(open_cost + meta_cost, 4)}
-        out = HERE / f"support_results_{date.today().isoformat()}.json"
+        out = results_path(args.set)
         out.write_text(json.dumps(payload, indent=1))
         print(json.dumps(summary, indent=1))
         print(f"wrote {out}")

@@ -127,6 +127,26 @@ def test_huge_dimensions_are_refused(tmp_path, monkeypatch):
         photo.load_clean(src)
 
 
+def test_header_gate_passes_formats_and_refuses_junk(monkeypatch):
+    import pytest
+
+    for fmt in ("JPEG", "PNG", "WEBP"):
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(buf, format=fmt)
+        photo.check_upload_header(buf.getvalue())
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="GIF")
+    with pytest.raises(photo.PhotoError):
+        photo.check_upload_header(buf.getvalue())
+    with pytest.raises(photo.PhotoError):
+        photo.check_upload_header(b"not an image at all" * 4)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="JPEG")
+    monkeypatch.setattr(photo, "MAX_UPLOAD_PIXELS", 10)
+    with pytest.raises(photo.PhotoError):
+        photo.check_upload_header(buf.getvalue())
+
+
 def test_corrupt_upload_is_refused(tmp_path):
     import pytest
 

@@ -152,7 +152,8 @@ def checked_location(location) -> tuple:
 
 
 def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
-             cache=None, lang="en", timings=None, progress=None, location=None):
+             cache=None, lang="en", timings=None, progress=None, location=None,
+             pace=None):
     """Run step 0. Transports and the vision call are injectable for tests.
 
     EXIF GPS can lie (a placeholder far from the object), so when the
@@ -167,7 +168,8 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
         try:
             return _identify_once(photo, place=place, post=post, get=get, respond=respond,
                                   sleep=sleep, cache=cache, lang=lang, timings=timings,
-                                  progress=progress, location=location)
+                                  progress=progress, location=location,
+                                  pace=pace)
         except NotIdentifiedError as failed:
             if not place:
                 raise
@@ -182,14 +184,15 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
                 progress("fallback", {"to": "typed place"})
             return _identify_once(photo, place=place, post=post, get=get, respond=respond,
                                   sleep=sleep, cache=cache, lang=lang, timings=timings,
-                                  progress=progress, _gps_ok=False, location=None)
+                                  progress=progress, _gps_ok=False, location=None,
+                                  pace=pace)
     finally:
         clear_cache()
 
 
 def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
                    cache=None, lang="en", timings=None, progress=None, _gps_ok=True,
-                   location=None):
+                   location=None, pace=None):
     """One identify attempt: EXIF GPS first, then browser geolocation,
     then the typed place.
 
@@ -232,7 +235,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
             if not place:
                 raise
             started = time.perf_counter()
-            lat, lon, country_code, municipality = geocode(place, get=get, sleep=sleep)
+            lat, lon, country_code, municipality = geocode(place, get=get, sleep=sleep,
+                                                             pace=pace)
             steps["geocode_s"] = round(time.perf_counter() - started, 1)
             loc = PhotoLocation(lat=lat, lon=lon, direction=None, precision="typed place")
             from_place = True
@@ -934,7 +938,7 @@ def _municipality(address: dict) -> str | None:
     return None
 
 
-def geocode(place, get=None, sleep=time.sleep) -> tuple:
+def geocode(place, get=None, sleep=time.sleep, pace=None) -> tuple:
     """Nominatim fallback: typed place to rounded coordinates, country
     and municipality. Only the municipality travels on; the typed text
     and the full address never leave this call. The cache key is a
@@ -949,7 +953,7 @@ def geocode(place, get=None, sleep=time.sleep) -> tuple:
         return _cache[key]
     results = _nominatim(
         NOMINATIM_URL, {"q": place, "format": "json", "limit": 5,
-                        "addressdetails": 1}, get, sleep
+                        "addressdetails": 1}, get, sleep, pace
     )
     if not results:
         raise NotIdentifiedError("typed place matched nothing")
@@ -961,7 +965,7 @@ def geocode(place, get=None, sleep=time.sleep) -> tuple:
     return coords
 
 
-def reverse(lat, lon, get=None, sleep=time.sleep) -> tuple:
+def reverse(lat, lon, get=None, sleep=time.sleep, pace=None) -> tuple:
     """Country code plus municipality of coordinates, for the research
     reading order and the canonical downstream identity."""
     key = ("reverse", round(lat, 3), round(lon, 3))
@@ -972,6 +976,7 @@ def reverse(lat, lon, get=None, sleep=time.sleep) -> tuple:
         {"lat": f"{lat:.6f}", "lon": f"{lon:.6f}", "format": "json"},
         get,
         sleep,
+        pace,
     )
     address = result.get("address", {}) or {}
     found = (address.get("country_code"), _municipality(address))
@@ -979,9 +984,14 @@ def reverse(lat, lon, get=None, sleep=time.sleep) -> tuple:
     return found
 
 
-def _nominatim(url, params, get, sleep):
+def _nominatim(url, params, get, sleep, pace=None):
+    """One Nominatim lookup, paced to the usage policy (at most one
+    request per second per application). The pace hook lets the
+    deployed page share one limiter across containers; locally it
+    stays a plain sleep."""
+    wait = pace or (lambda: sleep(1.1))
     for attempt in range(NOMINATIM_TRIES):
-        sleep(1.1)
+        wait()
         try:
             fetched = fetch_public(
                 url, sender=get, params=params,

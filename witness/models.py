@@ -856,6 +856,24 @@ class BudgetAuthority:
                 seen[key] = int(seen.get(key, 0)) + 1
             data["visitors"] = seen
 
+    def reset_quotas(self) -> None:
+        """Clear the film and visitor counters, keeping spend. Only the
+        staging abuse reset calls this, between cases."""
+        with self._account() as data:
+            data["films"] = 0
+            data["visitors"] = {}
+
+    def snapshot(self) -> dict:
+        """Counts only, never visitor keys: films, visitors, paid calls,
+        spend and held reservations."""
+        data = self._read()
+        seen = data.get("visitors", {})
+        return {"films": int(data.get("films", 0)),
+                "visitors": len(seen) if isinstance(seen, dict) else 0,
+                "calls": int(data.get("calls", 0)),
+                "total_usd": float(data.get("total_usd", 0.0)),
+                "reserved_usd": float(data.get("reserved_usd", 0.0))}
+
 
 _DAILY: BudgetAuthority | None = None
 

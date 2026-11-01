@@ -24,9 +24,10 @@ def test_every_check_declares_real_or_fake_provider():
 def test_new_abuse_cases_exist():
     module = _load()
     names = [entry[0] for entry in module.CHECKS]
-    for wanted in ("cancel after research ends it",
+    for wanted in ("cancel after research ends the spending",
                    "closed tab cancels through the beacon endpoint",
                    "oversize body refused before reading",
+                   "handler spool refuses before admission",
                    "foreign and missing origins refused",
                    "cookieless quota refuses the third film",
                    "cancel racing progress writes ends cancelled",

@@ -3,10 +3,12 @@
 Allowlisted image: the witness package plus three reviewed example
 films. Never out/, samples/ or .env.local. Keys arrive only as the
 Modal secret "the-witness-keys". One budget authority serves every
-container through a single max-concurrency-1 ledger function over a
-Dict (a Dict alone is not atomic for read-modify-write; the single
-container makes it so). Job state lives in a Dict, job files on a
-Volume, and a daily cron enforces the 24 h retention rule.
+container through a single-container ledger function over a Dict
+(a Dict alone is not atomic for read-modify-write; the single
+container makes it so), and one single-container slot function
+paces Nominatim to the usage policy's one request per second.
+Job state lives in a Dict, job files on a Volume, and a daily cron
+enforces the 24 h retention rule.
 
 Volume protocol: the web container commits before spawning the
 worker, the worker reloads on start and commits when done, and film
@@ -61,6 +63,7 @@ keys = modal.Secret.from_name("the-witness-keys")
 jobs_volume = modal.Volume.from_name("witness-jobs", create_if_missing=True)
 store_dict = modal.Dict.from_name("witness-store", create_if_missing=True)
 ledger_dict = modal.Dict.from_name("witness-ledger", create_if_missing=True)
+nominatim_dict = modal.Dict.from_name("witness-nominatim", create_if_missing=True)
 
 
 def _apply_ledger_op(data, op):
@@ -110,6 +113,16 @@ def _apply_ledger_op(data, op):
             seen[key] = seen.get(key, 0) + 1
     elif kind == "total":
         pass
+    elif kind == "reset":
+        data["films"] = 0
+        data["visitors"] = {}
+    elif kind == "snapshot":
+        seen = data["visitors"]
+        return data, {"ok": True, "films": data["films"],
+                      "visitors": len(seen) if isinstance(seen, dict) else 0,
+                      "calls": data["calls"],
+                      "total_usd": data["total_usd"],
+                      "reserved_usd": data["reserved_usd"]}
     else:
         return data, {"ok": False, "error": "unknown op"}
     return data, {"ok": True, "total_usd": data["total_usd"],
@@ -200,6 +213,20 @@ class ModalAuthority:
 
     def reserved_usd(self):
         return float(self._call({"kind": "total"})["reserved_usd"])
+
+    def reset_quotas(self):
+        """Clear the film and visitor counters, keeping spend. Only the
+        staging abuse reset calls this, between cases."""
+        self._call({"kind": "reset"})
+
+    def snapshot(self):
+        """Counts only, never visitor keys."""
+        answer = self._call({"kind": "snapshot"})
+        return {"films": int(answer["films"]),
+                "visitors": int(answer["visitors"]),
+                "calls": int(answer["calls"]),
+                "total_usd": float(answer["total_usd"]),
+                "reserved_usd": float(answer["reserved_usd"])}
 
 
 class DictStore:
@@ -379,6 +406,36 @@ def _watch_job(store, job_id, control, stop, poll_s=2.0, heartbeat_s=120,
     threading.Thread(target=poll, daemon=True).start()
 
 
+def _nominatim_wait(last_fired, now) -> float:
+    """Seconds to wait before the next Nominatim call: the usage
+    policy allows one request per second per application
+    (https://operations.osmfoundation.org/policies/nominatim/)."""
+    return max(0.0, 1.0 - (now - last_fired))
+
+
+_NOMINATIM_LOCK = threading.Lock()
+
+
+@app.function(max_containers=1)
+def nominatim_slot():
+    """One limiter shared across containers: a single container plus
+    a lock and the last-fired timestamp in the Dict paces every
+    Nominatim call to at most one per second, however many workers
+    run."""
+    import time as _time
+
+    with _NOMINATIM_LOCK:
+        try:
+            last = float(nominatim_dict.get("last", 0.0))
+        except (KeyError, ValueError, TypeError):
+            last = 0.0
+        wait = _nominatim_wait(last, _time.time())
+        if wait:
+            _time.sleep(wait)
+        nominatim_dict["last"] = _time.time()
+    return True
+
+
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume},
              timeout=1800)
 def run_film(ref):
@@ -410,9 +467,12 @@ def run_film(ref):
     def watch_cancel(control):
         _watch_job(store, job_id, control, stop)
 
+    def nominatim_pace():
+        nominatim_slot.remote()
+
     try:
         outcome = run_web_film({**spec, "on_cancel": watch_cancel}, store,
-                               authority)
+                               authority, nominatim_pace=nominatim_pace)
     finally:
         stop.set()
     jobs_volume.commit()
@@ -457,7 +517,8 @@ def web():
         jobs_root="/jobs", examples_root="/app/examples",
         examples=[{"slug": ex["slug"], "name": ex["name"]} for ex in EXAMPLES],
         contact=_contact(),
-        secure_cookies=True))
+        secure_cookies=True,
+        debug_reset=os.environ.get("WITNESS_ABUSE_RESET") == "1"))
 
     volume = jobs_volume
 

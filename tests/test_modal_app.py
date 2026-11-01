@@ -143,6 +143,55 @@ def test_ledger_ticket_reconciles_once():
     assert answer == {"ok": False, "error": "unknown ticket"}
 
 
+def test_ledger_reset_clears_films_and_visitors_keeps_spend():
+    from modal_app import _apply_ledger_op
+
+    data, _ = _apply_ledger_op(
+        {}, {"kind": "admit", "visitor": "vid-a", "extra": "ip:h",
+             "daily_films": 10, "visitor_films": 1})
+    data, answer = _apply_ledger_op(
+        data, {"kind": "admit", "visitor": "vid-a", "extra": "ip:h",
+               "daily_films": 10, "visitor_films": 1})
+    assert answer == {"ok": False, "error": "visitor quota"}
+    data, answer = _apply_ledger_op(data, {"kind": "reset"})
+    assert answer["ok"] is True
+    assert data["films"] == 0 and data["visitors"] == {}
+    data, answer = _apply_ledger_op(
+        data, {"kind": "admit", "visitor": "vid-a", "extra": "ip:h",
+               "daily_films": 10, "visitor_films": 1})
+    assert answer["ok"] is True
+
+
+def test_ledger_snapshot_reports_counts_not_keys():
+    from modal_app import _apply_ledger_op
+
+    data, _ = _apply_ledger_op(
+        {}, {"kind": "admit", "visitor": "vid-a", "extra": "ip:h",
+             "daily_films": 10, "visitor_films": 2})
+    _, answer = _apply_ledger_op(data, {"kind": "snapshot"})
+    assert answer["ok"] is True
+    assert answer["films"] == 1 and answer["visitors"] == 2
+    assert answer["calls"] == 0
+    assert "vid-a" not in str(answer) and "ip:h" not in str(answer)
+
+
+def test_modal_authority_reset_and_snapshot_call_ledger(monkeypatch):
+    import modal_app
+
+    ops = []
+    auth = modal_app.ModalAuthority(cap_usd=1.0)
+    def fake(op):
+        ops.append(op)
+        return {"ok": True, "films": 1, "visitors": 2, "calls": 0,
+                "total_usd": 0.0, "reserved_usd": 0.0}
+
+    monkeypatch.setattr(auth, "_call", fake)
+    auth.reset_quotas()
+    snap = auth.snapshot()
+    assert [op["kind"] for op in ops] == ["reset", "snapshot"]
+    assert snap["films"] == 1 and snap["visitors"] == 2
+
+
 def test_modal_authority_tags_tickets_with_id_and_day(monkeypatch):
     import modal_app
 
@@ -155,6 +204,25 @@ def test_modal_authority_tags_tickets_with_id_and_day(monkeypatch):
     assert ops[0]["kind"] == "reserve"
     assert ops[0]["ticket_id"] == ticket.ticket_id == ops[1]["ticket_id"]
     assert ops[0]["day"] == ops[1]["day"]
+
+
+def test_nominatim_slot_waits_out_the_second():
+    from modal_app import _nominatim_wait
+
+    assert _nominatim_wait(100.0, 100.5) == pytest.approx(0.5)
+    assert _nominatim_wait(100.0, 101.5) == 0.0
+
+
+def test_nominatim_slot_runs_single_flight():
+    """One limiter shared across containers: the slot function
+    serializes every Nominatim call (usage policy:
+    https://operations.osmfoundation.org/policies/nominatim/)."""
+    import re
+    from pathlib import Path
+
+    src = Path(modal_app.__file__).read_text()
+    assert re.search(r"@app\.function\(max_containers=1\)\n"
+                     r"def nominatim_slot", src)
 
 
 def test_contact_is_required(monkeypatch):
@@ -219,9 +287,10 @@ def test_run_film_loads_the_spec_from_the_job_folder(tmp_path, monkeypatch):
     store.create_job("j", _record(job_dir=str(job_dir)))
     seen = {}
 
-    def fake_run(full_spec, job_store, authority):
+    def fake_run(full_spec, job_store, authority, nominatim_pace=None):
         seen.update(full_spec)
         assert job_store is store
+        assert callable(nominatim_pace)
         full_spec["on_cancel"](_control())
         return {"status": "done"}
 

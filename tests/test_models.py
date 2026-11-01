@@ -644,6 +644,29 @@ def test_admit_checks_both_visitor_keys_counts_once(tmp_path):
     assert auth.total_films() == 3
 
 
+def test_reset_quotas_clears_films_and_visitors_keeps_spend(tmp_path):
+    auth = models.BudgetAuthority(tmp_path, daily_films=10, visitor_films=1)
+    auth.admit("vid-a", extra="ip:hash-a")
+    with pytest.raises(models.SpendingCapExceeded):
+        auth.admit("vid-a", extra="ip:hash-a")
+    before = auth.total_usd()
+    auth.reset_quotas()
+    auth.admit("vid-a", extra="ip:hash-a")
+    assert auth.total_films() == 1
+    assert auth.total_usd() == before
+
+
+def test_snapshot_reports_films_visitors_calls_and_spend(tmp_path):
+    auth = models.BudgetAuthority(tmp_path, daily_films=10, visitor_films=2)
+    auth.admit("vid-a", extra="ip:hash-a")
+    snap = auth.snapshot()
+    assert snap["films"] == 1
+    assert snap["visitors"] == 2
+    assert snap["calls"] == 0
+    assert "total_usd" in snap and "reserved_usd" in snap
+    assert "vid-a" not in str(snap) and "hash-a" not in str(snap)
+
+
 def test_research_ceiling_covers_worst_case_searches():
     worst = models.SEARCH_BUDGET_PER_JOB * models.WEB_SEARCH_USD
     assert models.RESEARCH.ceiling_usd >= worst

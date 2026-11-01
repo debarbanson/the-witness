@@ -25,6 +25,24 @@ ALLOWED_FORMATS = frozenset({"JPEG", "PNG", "WEBP"})
 Image.MAX_IMAGE_PIXELS = MAX_UPLOAD_PIXELS  # a bomb never decodes
 
 
+def check_upload_header(data: bytes) -> None:
+    """Gate raw upload bytes on the format allowlist and the pixel cap
+    from the header alone, before any decoder runs or quota is spent."""
+    try:
+        with Image.open(io.BytesIO(data),
+                        formats=tuple(ALLOWED_FORMATS)) as img:
+            size = img.size
+            if size[0] * size[1] > MAX_UPLOAD_PIXELS:
+                raise PhotoError(
+                    f"upload too many pixels ({size[0]}x{size[1]})")
+    except PhotoError:
+        raise
+    except Image.UnidentifiedImageError:
+        raise PhotoError("upload must be JPEG, PNG or WebP")
+    except Exception as exc:
+        raise PhotoError(f"unreadable upload: {exc.__class__.__name__}")
+
+
 def load_clean(photo) -> Image.Image:
     """The photo upright in RGB on a fresh canvas: pixels only, an
     empty info dict, nothing inherited from the file. The format and
@@ -35,12 +53,10 @@ def load_clean(photo) -> Image.Image:
         raise PhotoError(f"unreadable upload: {exc.__class__.__name__}")
     if len(data) > MAX_UPLOAD_BYTES:
         raise PhotoError(f"upload too large ({len(data)} bytes)")
+    check_upload_header(data)
     try:
-        with Image.open(io.BytesIO(data), formats=tuple(ALLOWED_FORMATS)) as img:
-            size = img.size
-            if size[0] * size[1] > MAX_UPLOAD_PIXELS:
-                raise PhotoError(
-                    f"upload too many pixels ({size[0]}x{size[1]})")
+        with Image.open(io.BytesIO(data),
+                        formats=tuple(ALLOWED_FORMATS)) as img:
             img.load()
             upright = ImageOps.exif_transpose(img).convert("RGB")
     except PhotoError:

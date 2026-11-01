@@ -220,6 +220,36 @@ def test_run_job_paints_no_blanked_visible_change(tmp_path, monkeypatch):
     assert scene["state"]["description"] == ""
 
 
+def test_run_job_forwards_pace_to_identify(tmp_path, monkeypatch):
+    import types
+
+    from witness import cli as cli_module
+    from witness import identify as identify_module
+
+    _stub_job(monkeypatch)
+    seen = {}
+    sentinel = object()
+
+    def fake_identify(*args, **kwargs):
+        seen.update(kwargs)
+        raise identify_module.NotIdentifiedError("no match")
+
+    monkeypatch.setattr(
+        cli_module, "identify", types.SimpleNamespace(
+            identify=fake_identify,
+            capture_year=identify_module.capture_year,
+            NoGpsError=identify_module.NoGpsError,
+            NotIdentifiedError=identify_module.NotIdentifiedError,
+            SourceError=identify_module.SourceError))
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"),
+        nominatim_pace=sentinel)
+    assert result["identified"] is False
+    assert seen["pace"] is sentinel
+
+
 def test_run_job_refuses_a_war_subject_before_research(tmp_path, monkeypatch):
     import types
 

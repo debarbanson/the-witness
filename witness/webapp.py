@@ -52,6 +52,7 @@ class WebDeps:
     clock: object = None  # seconds; real time when None
     secure_cookies: bool = False
     ip_secret: str = field(default_factory=lambda: secrets.token_hex(16))
+    debug_reset: bool = False  # staging abuse runs only; off everywhere else
 
 
 class MemoryStore:
@@ -514,10 +515,6 @@ def create_app(deps: WebDeps) -> FastAPI:
         day = clock()
         vkey = visitor_key(deps.ip_secret, client_ip,
                            int(day // (24 * 3600)))
-        try:
-            admit_upload(deps, vid, vkey, day)
-        except models.SpendingCapExceeded as exc:
-            return _deny(request, f"{exc} spent; try again tomorrow", 429)
         data = b""
         while len(data) <= photo_module.MAX_UPLOAD_BYTES:
             piece = await photo.read(65536)
@@ -526,6 +523,14 @@ def create_app(deps: WebDeps) -> FastAPI:
             data += piece
         if len(data) > photo_module.MAX_UPLOAD_BYTES or not data:
             return _deny(request, "bad photo", 400)
+        try:
+            photo_module.check_upload_header(data)
+        except photo_module.PhotoError as exc:
+            return _deny(request, f"bad photo: {exc}", 400)
+        try:
+            admit_upload(deps, vid, vkey, day)
+        except models.SpendingCapExceeded as exc:
+            return _deny(request, f"{exc} spent; try again tomorrow", 429)
         job_id = uuid.uuid4().hex
         token = secrets.token_hex(16)
         directory = job_dir(deps.jobs_root)
@@ -590,6 +595,24 @@ def create_app(deps: WebDeps) -> FastAPI:
         _owned(request, job_id)
         store.set_cancel(job_id)
         return {"cancelled": True}
+
+    def _debug():
+        authority = deps.authority
+        if not deps.debug_reset or authority is None:
+            raise HTTPException(status_code=404, detail="no such page")
+        return authority
+
+    @app.get("/api/debug/ledger")
+    async def debug_ledger():
+        """Staging abuse runs only: ledger counts, never visitor keys."""
+        return _debug().snapshot()
+
+    @app.post("/api/debug/reset-quotas")
+    async def debug_reset_quotas():
+        """Staging abuse runs only: clear the film and visitor counters
+        between cases. Spend totals are kept."""
+        _debug().reset_quotas()
+        return {"reset": True}
 
     def _film_response(request: Request, root: Path, asset: str):
         base = root.resolve()

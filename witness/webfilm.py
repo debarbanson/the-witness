@@ -27,7 +27,7 @@ def load_spec(job_dir):
         return _json.load(handle)
 
 
-def run_web_film(spec, store, authority, clock=None):
+def run_web_film(spec, store, authority, clock=None, nominatim_pace=None):
     """Identify, confirm, research, paint, render under one job
     ledger and control. `spec` carries the in-memory location and
     place; the store never sees them. Returns a short status."""
@@ -94,7 +94,7 @@ def run_web_film(spec, store, authority, clock=None):
                 progress=progress, quiet=True, location=location,
                 out_dir=spec["job_dir"], visitor=spec["vid"],
                 control=control, deadline_s=spec.get("deadline_s", 1500),
-                pre_admitted=True)
+                pre_admitted=True, nominatim_pace=nominatim_pace)
     except models.JobCancelled as exc:
         return halted("cancelled", str(exc) or "job cancelled")
     except models.JobDeadlineExceeded as exc:

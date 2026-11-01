@@ -18,6 +18,59 @@ def _photo_bytes(color="blue"):
     return buf.getvalue()
 
 
+def test_debug_endpoints_are_404_by_default(tmp_path):
+    client = _client(tmp_path)
+    assert client.get("/api/debug/ledger").status_code == 404
+    assert client.post("/api/debug/reset-quotas").status_code == 404
+
+
+def test_debug_endpoints_need_an_authority(tmp_path):
+    client = _client(tmp_path, authority=None, debug_reset=True)
+    assert client.get("/api/debug/ledger").status_code == 404
+    assert client.post("/api/debug/reset-quotas").status_code == 404
+
+
+def test_debug_reset_clears_quotas_and_ledger_reports_counts(tmp_path):
+    auth = models.BudgetAuthority(tmp_path / "spend", daily_films=10,
+                                  visitor_films=1)
+    auth.admit("vid-a", extra="ip:hash-a")
+    client = _client(tmp_path, authority=auth, debug_reset=True)
+    before = client.get("/api/debug/ledger").json()
+    assert before["films"] == 1 and before["visitors"] == 2
+    assert "vid-a" not in str(before)
+    assert client.post("/api/debug/reset-quotas").status_code == 200
+    after = client.get("/api/debug/ledger").json()
+    assert after["films"] == 0 and after["visitors"] == 0
+    auth.admit("vid-a", extra="ip:hash-a")
+
+
+def test_refused_upload_consumes_no_quota(tmp_path):
+    from witness import photo as photo_module
+    from witness import webapp as webapp_module
+
+    auth = FakeAuthority()
+    client = _client(tmp_path, authority=auth)
+    over = photo_module.MAX_UPLOAD_BYTES + 100  # past the handler spool
+    body = b"\xff\xd8" + b"0" * over  # under the middleware cap
+    assert len(body) < (photo_module.MAX_UPLOAD_BYTES
+                        + webapp_module.FORM_SLACK_BYTES)
+    out = client.post("/api/jobs", files={"photo": ("p.jpg", body)},
+                      data={"ack": "on"})
+    assert out.status_code == 400, out.text[:200]
+    bad = client.post("/api/jobs", files={"photo": ("up.jpg", b"junk" * 64)},
+                      data={"ack": "on"})
+    assert bad.status_code == 400, bad.text[:200]
+    assert auth.admitted == []
+
+
+def test_debug_reset_requires_origin(tmp_path):
+    auth = models.BudgetAuthority(tmp_path / "spend", daily_films=10,
+                                  visitor_films=2)
+    bare = TestClient(create_app(_deps(tmp_path, authority=auth,
+                                       debug_reset=True)))
+    assert bare.post("/api/debug/reset-quotas").status_code == 403
+
+
 class FakeAuthority:
     def __init__(self):
         self.admitted = []

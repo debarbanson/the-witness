@@ -272,6 +272,39 @@ def test_coordinates_round_to_4_decimals_at_entry():
     identify.clear_cache()
 
 
+def test_geocode_uses_an_injected_pace():
+    """The shared limiter paces Nominatim calls instead of a local
+    sleep: the gate runs, the 1.1 s sleep does not."""
+    payload = [{"display_name": "X", "lat": "50.0", "lon": "4.0",
+                "importance": 1,
+                "address": {"country_code": "be", "city": "Paced"}}]
+    get = FakeTransport([(200, payload)])
+    gates, sleeps = [], []
+    identify.geocode("Paced Place", get=get, sleep=sleeps.append,
+                     pace=lambda: gates.append(1))
+    assert gates == [1]
+    assert 1.1 not in sleeps
+    identify.clear_cache()
+
+
+def test_identify_forwards_pace_to_geocode(tmp_path, monkeypatch):
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8)).save(photo)
+    seen = {}
+    sentinel = object()
+
+    def fake_geocode(place, get=None, sleep=None, pace=None):
+        seen["pace"] = pace
+        raise identify.NotIdentifiedError("no match")
+
+    monkeypatch.setattr(identify, "geocode", fake_geocode)
+    with pytest.raises(identify.NotIdentifiedError):
+        identify.identify(photo, place="Somewhere", post=None,
+                          get=routed(), respond=vision_pick(),
+                          sleep=lambda s: None, pace=sentinel)
+    assert seen["pace"] is sentinel
+
+
 def test_location_event_carries_no_place(tmp_path):
     photo = tmp_path / "p.jpg"
     Image.new("RGB", (8, 8)).save(photo)

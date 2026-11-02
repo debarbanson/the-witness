@@ -439,10 +439,14 @@ def _contact():
     """The page's contact, from the secret. Refusing to start without
     a real address: the notice names this contact."""
     try:
-        return os.environ["WITNESS_CONTACT"]
+        contact = os.environ["WITNESS_CONTACT"]
     except KeyError:
         raise RuntimeError("WITNESS_CONTACT is not set: the page needs "
                            "a real contact before it goes live")
+    if not contact.strip():
+        raise RuntimeError("WITNESS_CONTACT is blank: the page needs "
+                           "a real contact before it goes live")
+    return contact
 
 
 def _ip_secret():
@@ -450,12 +454,17 @@ def _ip_secret():
     every container, derived per day in visitor_key, so every
     container hashes an address the same way. Refusing to start
     without it: a per-container secret would let a fresh cookie
-    bypass the visitor quota."""
+    bypass the visitor quota. Blank or short values are refused;
+    the real one is 64 hex characters."""
     try:
-        return os.environ["WITNESS_IP_SECRET"]
+        secret = os.environ["WITNESS_IP_SECRET"]
     except KeyError:
         raise RuntimeError("WITNESS_IP_SECRET is not set: the page needs "
                            "a shared visitor-hash secret before it goes live")
+    if len(secret.strip()) < 32:
+        raise RuntimeError("WITNESS_IP_SECRET is blank or too short: "
+                           "the page needs at least 32 characters")
+    return secret
 
 
 def _judge_cap() -> float:

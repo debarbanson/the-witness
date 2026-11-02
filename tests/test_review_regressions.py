@@ -1505,3 +1505,25 @@ def test_r4_01_invalid_usage_is_priced_at_the_ceiling(tmp_path):
         assert authority.total_usd() == pytest.approx(3 * one)
     finally:
         models.configure_spending(None)
+
+
+def test_r4_04_blank_and_short_secrets_are_refused(monkeypatch):
+    """Startup refuses a blank contact and a blank or short secret."""
+    import modal_app
+
+    monkeypatch.delenv("WITNESS_CONTACT", raising=False)
+    with pytest.raises(RuntimeError):
+        modal_app._contact()
+    monkeypatch.setenv("WITNESS_CONTACT", "   ")
+    with pytest.raises(RuntimeError):
+        modal_app._contact()
+    monkeypatch.delenv("WITNESS_IP_SECRET", raising=False)
+    with pytest.raises(RuntimeError):
+        modal_app._ip_secret()
+    for bad in ("", "   ", "short-secret"):
+        monkeypatch.setenv("WITNESS_IP_SECRET", bad)
+        with pytest.raises(RuntimeError):
+            modal_app._ip_secret()
+    good = "ab12" * 16
+    monkeypatch.setenv("WITNESS_IP_SECRET", good)
+    assert modal_app._ip_secret() == good

@@ -379,8 +379,9 @@ def test_ip_secret_is_required(monkeypatch):
     with pytest.raises(RuntimeError) as excinfo:
         modal_app._ip_secret()
     assert "WITNESS_IP_SECRET" in str(excinfo.value)
-    monkeypatch.setenv("WITNESS_IP_SECRET", "test-secret")
-    assert modal_app._ip_secret() == "test-secret"
+    good = "ab12" * 16
+    monkeypatch.setenv("WITNESS_IP_SECRET", good)
+    assert modal_app._ip_secret() == good
 
 
 def test_run_film_scrubs_and_commits_before_starting_work(tmp_path,

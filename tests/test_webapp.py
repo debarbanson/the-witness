@@ -717,6 +717,7 @@ def test_job_status_reports_its_end(tmp_path):
 
 def test_upload_form_dependency_is_declared_for_fresh_clones():
     import tomllib
+    from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent
     deps = tomllib.loads((root / "pyproject.toml").read_text())["project"][

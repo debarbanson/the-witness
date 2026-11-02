@@ -147,17 +147,6 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None):
                         {"message": "Research is done but painting failed.",
                          "claims": public_claims(result["kept"]),
                          "cost_usd": total_cost()}, "facts_only")
-                audiences = "adult"
-                progress("children", {"slug": slug})
-                if cli.cmd_children(slug, out_dir=spec["job_dir"],
-                                    cache=knowledge) == 0:
-                    if cli.cmd_paint(slug, spec["photo"], mode="parallel",
-                                     out_dir=spec["job_dir"],
-                                     audience="child") == 0:
-                        audiences = "both"
-                        progress("spot", {"slug": slug})
-                        cli.cmd_spot(slug, spec["photo"],
-                                     out_dir=spec["job_dir"])
                 progress("render", {"slug": slug})
                 if cli.cmd_render(slug, spec["photo"], era_dir="eras_parallel",
                                   out_dir=spec["job_dir"],
@@ -166,11 +155,45 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None):
                         {"message": "Research is done but the film failed.",
                          "claims": public_claims(result["kept"]),
                          "cost_usd": total_cost()}, "facts_only")
-                return finish(
-                    {"film_url": f"/film/{job_id}/{spec['token']}/film.html",
-                     "film_dir": str(Path(spec["job_dir"]) / slug / "film"),
-                     "outcome": outcome, "cost_usd": total_cost(),
-                     "audiences": audiences}, "film")
+                film = {"film_url": f"/film/{job_id}/{spec['token']}/film.html",
+                        "film_dir": str(Path(spec["job_dir"]) / slug / "film"),
+                        "outcome": outcome, "audiences": "adult",
+                        "unavailable": []}
+                try:
+                    progress("children", {"slug": slug})
+                    children_ok = cli.cmd_children(
+                        slug, out_dir=spec["job_dir"],
+                        cache=knowledge) == 0
+                    if children_ok:
+                        children_ok = cli.cmd_paint(
+                            slug, spec["photo"], mode="parallel",
+                            out_dir=spec["job_dir"], audience="child") == 0
+                    if not children_ok:
+                        film["unavailable"].append("children")
+                    else:
+                        try:
+                            progress("spot", {"slug": slug})
+                            if cli.cmd_spot(slug, spec["photo"],
+                                            out_dir=spec["job_dir"]) != 0:
+                                film["unavailable"].append("spot")
+                        except Exception:
+                            film["unavailable"].append("spot")
+                            progress("extra_unavailable", {"extra": "spot"})
+                        progress("render", {"slug": slug,
+                                            "audiences": "both"})
+                        if cli.cmd_render(slug, spec["photo"],
+                                          era_dir="eras_parallel",
+                                          out_dir=spec["job_dir"],
+                                          cache=knowledge) != 0:
+                            film["unavailable"].append("children")
+                        else:
+                            film["audiences"] = "both"
+                except Exception:
+                    if "children" not in film["unavailable"]:
+                        film["unavailable"].append("children")
+                    progress("extra_unavailable", {"extra": "children"})
+                film["cost_usd"] = total_cost()
+                return finish(film, "film")
             return finish(
                 {"message": "Too little evidence for a film; the facts are below.",
                  "claims": public_claims(result["kept"])}, "facts_only")

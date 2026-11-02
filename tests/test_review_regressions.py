@@ -831,3 +831,35 @@ def test_dictstore_loses_cancel_under_concurrent_progress():
     assert cancelled_seen == [True]
     assert store.is_cancelled("j") is True
     assert {"event": "verifying"} in store.get_job("j")["events"]
+
+
+def test_r3_09_child_budget_failure_discards_ready_adult_result(tmp_path, monkeypatch):
+    """A child cap failure still delivers the rendered adult film."""
+    store = webapp.MemoryStore(clock=lambda: 1000)
+    spec = {"job_id": "id", "token": "cap", "vid": "vid", "job_dir": str(tmp_path),
+            "photo": "synthetic", "place": "", "location": None, "lat": None, "lon": None}
+    store.create_job("id", {"vid": "vid", "job_dir": str(tmp_path), "status": "started",
+                            "started_at": 1000, "last_poll": 1000})
+    result = {"identified": True, "confirmed": True, "slug": "tower",
+              "found": SimpleNamespace(name="Tower"), "order": [], "kept": [evidence_claim()],
+              "timeline": [], "chosen": [evidence_scene()],
+              "result": {"outcome": "full_film"}, "timings": {}, "failures": [],
+              "comparison": None, "tokens": {}, "cost_usd": 0.01}
+    monkeypatch.setattr(cli, "run_job", lambda *a, **kw: result)
+    monkeypatch.setattr(cli, "report_and_save", lambda *a, **kw: None)
+    monkeypatch.setattr(cli, "cmd_captions", lambda *a, **kw: 0)
+    monkeypatch.setattr(cli, "cmd_children", lambda *a, **kw: 0)
+    def paint_call(*a, **kw):
+        if kw.get("audience") == "child":
+            raise models.SpendingCapExceeded("synthetic cap")
+        return 0
+    monkeypatch.setattr(cli, "cmd_paint", paint_call)
+    seen = []
+    monkeypatch.setattr(cli, "cmd_render", lambda *a, **kw: seen.append(True) or 0)
+    answer = webfilm.run_web_film(spec, store, None, clock=lambda: 1000)
+    assert answer["status"] == "film"
+    assert seen
+    finished = store.get_job("id")
+    assert finished["result"]["film_url"].endswith("/film.html")
+    assert finished["result"]["audiences"] == "adult"
+    assert finished["result"]["unavailable"] == ["children"]

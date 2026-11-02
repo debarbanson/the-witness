@@ -165,7 +165,7 @@ def test_captions_run_before_paint(tmp_path, monkeypatch):
                         lambda *a, **k: order.append("render") or 0)
     try:
         assert run_web_film(spec, store, authority=None) == {"status": "film"}
-        assert order == ["save", "captions", "paint", "children",
+        assert order == ["save", "captions", "paint", "render", "children",
                          "child_paint", "spot", "render"]
     finally:
         models.configure_spending(None)

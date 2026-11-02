@@ -1137,3 +1137,33 @@ def test_r3_18_broken_image_spends_no_quota(tmp_path):
                        files={"photo": ("x.png", buf.getvalue())},
                        data={"ack": "on"})
     assert good.status_code == 200
+
+
+def test_r3_08_missing_usage_charges_the_reserved_ceiling(tmp_path):
+    """A response without usable usage is charged, not forgiven."""
+    authority = models.BudgetAuthority(tmp_path / "budget",
+                                       daily_cap_usd=10.0)
+    models.configure_spending(authority=authority)
+    calls = []
+    fake = SimpleNamespace(responses=SimpleNamespace(
+        create=lambda **kw: calls.append(kw) or {"output": []}))
+    for _ in range(4):
+        models.respond(fake, models.VERIFY, input="synthetic")
+    payload = dict(calls[0])
+    payload.pop("model", None)
+    one = models.call_ceiling(
+        models.VERIFY, models.estimate_input_tokens(payload))
+    assert one > 0
+    assert authority.total_usd() == pytest.approx(4 * one)
+    assert authority.reserved_usd() == 0
+    assert authority.snapshot()["calls"] == 4
+    junk = SimpleNamespace(responses=SimpleNamespace(
+        create=lambda **kw: {"output": [], "usage": "junk"}))
+    models.respond(junk, models.VERIFY, input="synthetic")
+    assert authority.total_usd() == pytest.approx(5 * one)
+    zero = SimpleNamespace(responses=SimpleNamespace(
+        create=lambda **kw: {"output": [],
+                             "usage": {"prompt_tokens": 0,
+                                       "completion_tokens": 0}}))
+    models.respond(zero, models.VERIFY, input="synthetic")
+    assert authority.total_usd() == pytest.approx(5 * one)

@@ -505,8 +505,15 @@ def catch_job_halt(fn):
 
 def _paid_call(spec, response, ticket=None):
     """Record one finished paid call on the job ledger and reconcile
-    the reservation with the authority. Failures never reach here."""
+    the reservation with the authority. Failures never reach here. A
+    response without usable usage is charged its reserved ceiling,
+    the same as an ambiguous failure: an unreadable bill is charged,
+    not forgiven."""
     usage = getattr(response, "usage", None) if not isinstance(response, dict) else response.get("usage")
+    if ticket is not None and not _usage_dict(usage):
+        cost = current_ledger().note_ceiling(ticket.ceiling_usd)
+        _DAILY.reconcile(ticket, cost)
+        return response
     searches = 0 if spec.provider == "baseten" else _count_searches(response)
     cost = current_ledger().note(spec.provider, spec.model, usage, searches=searches)
     if ticket is not None:
@@ -608,6 +615,13 @@ class SpendingLedger:
         self.cost_usd += cost
         self.calls += 1
         return cost
+
+    def note_ceiling(self, ceiling_usd: float) -> float:
+        """Record a call whose usage was missing or invalid at its
+        reserved ceiling, with no token counts to report."""
+        self.cost_usd += ceiling_usd
+        self.calls += 1
+        return ceiling_usd
 
 
 _JOB_LEDGER: contextvars.ContextVar = contextvars.ContextVar(

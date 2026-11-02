@@ -395,12 +395,27 @@ def _fetched_para(passage: str):
     return url, para
 
 
-def anchor_hit(passages, year):
-    """A sentence pairing the anchor year with a construction word, from
-    the best-ranked fetched source. Weak sources and search snippets
-    never decide; rebuild, negated, planned and other-object
-    sentences do not confirm an inception. Returns (url, sentence)
-    or None."""
+def _names_object(lowered: str, names) -> bool:
+    """The sentence names the object: a full name or alias phrase, or
+    a single kind word on its own. No names means no match."""
+    for name in names or ():
+        if not isinstance(name, str) or not name.strip():
+            continue
+        phrase = name.strip().lower()
+        if " " in phrase:
+            if phrase in lowered:
+                return True
+        elif re.search(rf"\b{re.escape(phrase)}\b", lowered):
+            return True
+    return False
+
+
+def anchor_hit(passages, year, names=()):
+    """A sentence pairing the anchor year with a construction word and
+    naming this object, from the best-ranked fetched source. Weak
+    sources and search snippets never decide; rebuild, negated,
+    planned and other-object sentences do not confirm an inception.
+    Returns (url, sentence) or None."""
     if year is None:
         return None
     ordered = []
@@ -423,6 +438,8 @@ def anchor_hit(passages, year):
             if _anchor_built_at(lowered)[0] is None:
                 continue
             if _anchor_rejected(lowered):
+                continue
+            if not _names_object(lowered, names):
                 continue
             return url, cleaned
     return None
@@ -495,27 +512,20 @@ def judge_claim(support_respond, job, completion_respond=None,
     accepted only on a quote bound to a fetched passage; a supporting
     sentence carrying a dispute tag does not support, and the winner
     is repicked from a clean bound quote of a supported round or the
-    claim drops."""
+    claim drops. A naming anchor sentence focuses the vote on itself;
+    it never accepts without one."""
     passages = job.get("passages") or []
     votes = max(1, job.get("votes", 1))
     fast_path = None
     stopper = None
     if job.get("anchor") == "build" and passages:
-        hit = anchor_hit(passages, job.get("year"))
+        hit = anchor_hit(passages, job.get("year"),
+                         job.get("anchor_names") or ())
         if hit is not None:
             url, sentence = hit
             if dispute_check is None or not dispute_check(url, sentence):
-                return {
-                    "verdict": "supported", "quote": sentence, "url": url,
-                    "support": [{"url": url, "supports": True,
-                                 "quote": sentence}],
-                    "note": "wikidata anchor confirmed in article text",
-                    "completed": True,
-                    "completion_note": "wikidata anchor needs no completion check",
-                    "rewritten": None, "war_politics_only": False,
-                "refused_content": False,
-                    "rounds": [], "votes": 0, "fast_path": "anchor",
-                }
+                passages = [f"{url}\n{sentence}"]
+                fast_path = "anchor"
             # A disputed anchor is not evidence: fall through to votes.
     if passages:
         def quoted_supported(round):
@@ -571,7 +581,8 @@ def judge_claim(support_respond, job, completion_respond=None,
         stopper = next((found for found in decided
                         if quoted_supported(found)), None)
         if stopper is not None:
-            fast_path = "literal_quote"
+            if fast_path is None:
+                fast_path = "literal_quote"
             winner = stopper
         else:
             winner = decided[-1]

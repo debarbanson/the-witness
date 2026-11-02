@@ -1179,7 +1179,8 @@ def test_film_facts_returns_anchor_without_research(monkeypatch, capsys):
     timings = {}
     first = cli_module.film_facts(found, "en", None, timings)
     assert first["build_anchor_year"] == 1779
-    assert first["claims"] == [{"year": 1779, "anchor": "build"}]
+    assert first["claims"] == [{"year": 1779, "anchor": "build",
+                                "anchor_names": []}]
     assert "facts_s" in timings
     out = capsys.readouterr().out
     assert "build anchor: 1779 fixed by Wikidata" in out
@@ -1198,6 +1199,7 @@ def test_film_facts_without_qid_has_no_anchor(capsys):
 def anchor_claim():
     return {"year": 1900, "anchor": "build", "claim": "built in 1900",
             "event": "built", "quote_span": "", "date_text": "",
+            "anchor_names": ["Tower", "tower"],
             "sources": ["https://en.wikipedia.org/wiki/X"]}
 
 

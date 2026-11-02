@@ -929,3 +929,18 @@ def test_r3_14_failed_poll_recovers_and_http_error_shows(tmp_path):
     assert "SYNTHETIC_FACT" in recovered["facts"]
     failed = _run_r3_14_harness(tmp_path, "http500")
     assert "500" in failed["facts"] or "went wrong" in failed["facts"]
+
+
+def test_r3_02_anchor_accepts_another_building_without_a_vote():
+    """An anchor sentence about another building falls through to votes."""
+    quote = "The chapel was built in 1900 with a tiled roof."
+    called = []
+    def reject(prompt):
+        called.append(prompt)
+        return verify.text_answer(json.dumps({"verdict": "unsupported", "quote": "", "support": []}))
+    result = verify.judge_claim(reject, {"claim": "The tower was built in 1900.", "year": 1900,
+        "anchor": "build", "event": "built", "detail": "tower built", "votes": 3,
+        "keywords": ["tower", "built"], "passages": [URL + "\n" + quote],
+        "anchor_names": ["Tower", "tower"]}, dispute_check=lambda *a: False)
+    assert called
+    assert result["verdict"] == "unsupported"

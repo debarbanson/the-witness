@@ -965,6 +965,9 @@ def film_facts(found, lang, cache, timings, quiet=False) -> dict:
              if found.qid else {"facts": []})
     timings["facts_s"] = round(time.perf_counter() - phase, 1)
     claims = research.wikidata_claims(found.qid, facts) if found.qid else []
+    for claim in claims:
+        if claim.get("anchor") == "build":
+            claim["anchor_names"] = identify.object_names(found)
     if not quiet:
         print(f"wikidata facts: {len(facts['facts'])} statements, {len(claims)} dated claims")
     build_anchor_year = next((c["year"] for c in claims if c.get("anchor") == "build"), None)
@@ -976,12 +979,14 @@ def film_facts(found, lang, cache, timings, quiet=False) -> dict:
 def confirm_build_anchor(anchor_claim, texts, cache=None):
     """The anchor year when a clean article sentence confirms the build,
     else None. The sentence must pair the year with a construction
-    word; negated, planned and other-object sentences never confirm,
-    and neither does a sentence carrying a dispute tag."""
+    word and name the object; negated, planned and other-object
+    sentences never confirm, and neither does a sentence carrying a
+    dispute tag."""
     job = build_jobs([anchor_claim], texts, [], anchor_claim["year"])[0]
     if job["anchor"] != "build" or not job["passages"]:
         return None
-    hit = verify.anchor_hit(job["passages"], job["year"])
+    hit = verify.anchor_hit(job["passages"], job["year"],
+                            job.get("anchor_names") or ())
     if hit is None:
         return None
     url, sentence = hit
@@ -1103,6 +1108,7 @@ def build_jobs(claims, texts, snippets, anchor_year) -> list:
             "keywords": keywords, "passages": evidence[:13],
             "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
             "anchor": claim.get("anchor"), "claim_index": index,
+            "anchor_names": claim.get("anchor_names") or (),
         })
     jobs.sort(key=lambda j: (j["anchor"] != "build", j["year"]))
     return jobs

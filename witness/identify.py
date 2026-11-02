@@ -108,6 +108,17 @@ class Identification:
     municipality: str | None = None
 
 
+def object_names(found) -> list:
+    """Namings the anchor sentence must use: the name, the kind and
+    the known article titles. Anything may be missing; empties drop."""
+    names = [getattr(found, "name", ""), getattr(found, "kind", "")]
+    articles = getattr(found, "articles", {}) or {}
+    if isinstance(articles, dict):
+        names.extend(articles.values())
+    return [name for name in names
+            if isinstance(name, str) and name.strip()]
+
+
 def clear_cache() -> None:
     global _LOOKUP_GEN
     _cache.clear()

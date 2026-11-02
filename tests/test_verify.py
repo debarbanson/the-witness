@@ -928,16 +928,19 @@ def anchor_job(**overrides):
     base = {"claim": "built 1932", "event": "built", "detail": "built 1932",
             "year": 1932, "keywords": ["built"], "anchor": "build",
             "passages": ["https://en.wikipedia.org/wiki/X\nThe tower was built in 1932 to store water."],
-            "urls": ["https://www.wikidata.org/wiki/Q999#P571"], "votes": 3}
+            "urls": ["https://www.wikidata.org/wiki/Q999#P571"], "votes": 3,
+            "anchor_names": ["Tower", "tower"]}
     base.update(overrides)
     return base
 
 
-def test_anchor_sentence_confirms_without_model_call():
-    respond = quoted_support(("unsupported", ""))
-    result = verify.judge_claim(respond, anchor_job())
+def test_anchor_sentence_focuses_the_vote():
+    sentence = "The tower was built in 1932 to store water."
+    respond = quoted_support(("supported", sentence))
+    complete = lambda prompt: answered_with({"completed": True, "quote": sentence})
+    result = verify.judge_claim(respond, anchor_job(), completion_respond=complete)
+    assert respond.calls != []
     assert result["verdict"] == "supported"
-    assert respond.calls == []
     assert result["fast_path"] == "anchor"
     assert result["quote"] == "The tower was built in 1932 to store water."
     assert result["url"] == "https://en.wikipedia.org/wiki/X"
@@ -945,12 +948,14 @@ def test_anchor_sentence_confirms_without_model_call():
 
 
 def test_anchor_sentence_prefers_good_source_over_weak():
-    respond = quoted_support(("unsupported", ""))
+    respond = quoted_support(("supported", "The tower was built in 1932 to store water."))
     result = verify.judge_claim(respond, anchor_job(passages=[
         "https://tripadvisor.example/x\nBuilt in 1932, nice tower.",
         "https://en.wikipedia.org/wiki/X\nThe tower was built in 1932 to store water.",
-    ]))
+    ]), completion_respond=completion_quoting())
+    assert respond.calls != []
     assert result["verdict"] == "supported"
+    assert result["fast_path"] == "anchor"
     assert result["url"] == "https://en.wikipedia.org/wiki/X"
 
 
@@ -983,12 +988,14 @@ def test_anchor_sentence_without_build_word_falls_back_to_vote():
 
 
 def test_anchor_sentence_reads_dutch():
-    respond = quoted_support(("unsupported", ""))
-    result = verify.judge_claim(respond, anchor_job(passages=[
-        "https://nl.wikipedia.org/wiki/X\nDe toren werd gebouwd in 1932 voor de druk.",
-    ]))
+    respond = quoted_support(("supported", "De toren werd gebouwd in 1932 voor de druk."))
+    result = verify.judge_claim(respond, anchor_job(
+        anchor_names=["toren"],
+        passages=["https://nl.wikipedia.org/wiki/X\nDe toren werd gebouwd in 1932 voor de druk."]),
+        completion_respond=completion_quoting())
+    assert respond.calls != []
     assert result["verdict"] == "supported"
-    assert respond.calls == []
+    assert result["fast_path"] == "anchor"
 
 
 def test_judge_stream_yields_each_claim_as_it_finishes():
@@ -1530,7 +1537,9 @@ def test_anchor_rejects_negated_planned_and_other_object():
                      "The council proposed that a tower would be built in 1900."):
         assert verify.anchor_hit([f"{url}\n{sentence}"], 1900) is None, sentence
     good = "The tower was built in 1900 by the town architect."
-    assert verify.anchor_hit([f"{url}\n{good}"], 1900) == (url, good)
+    assert verify.anchor_hit([f"{url}\n{good}"], 1900, ["tower"]) == (url, good)
+    chapel = "The chapel was built in 1900 with a tiled roof."
+    assert verify.anchor_hit([f"{url}\n{chapel}"], 1900, ["Tower", "tower"]) is None
 
 
 def test_age_range_never_carries_a_built_year():

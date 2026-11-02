@@ -800,7 +800,7 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                 (era_dir.parent / "paint_stream.json").write_text(json.dumps(
                     {"mode": "stream", "object": found.name,
                      "eras": [entries[y] for y in sorted(entries)]}, indent=1))
-            report_and_save(found, lang, result["order"], result["kept"],
+            slug = report_and_save(found, lang, result["order"], result["kept"],
                             result["timeline"], chosen, result["result"],
                             result["timings"], verify_with, result["failures"], None,
                             stream_events=filmed.events, out_root=out_dir,
@@ -823,12 +823,19 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
                         f"first scene painted at {filmed.metric('scene_painted')} s, "
                         f"film ready at {result['timings']['total_s']} s, playback pauses: {pauses}")
             print(line)
-            return 0
+            if cmd_captions(slug, out_dir=out_dir) != 0:
+                return 2
+            if cmd_paint(slug, photo, out_dir=out_dir) != 0:
+                return 2
+            return cmd_render(slug, photo, out_dir=out_dir)
     except models.JobCancelled:
         print("cancelled; stopping")
         return 2
     except models.JobDeadlineExceeded:
         print("job deadline passed; stopping")
+        return 2
+    except models.SpendingCapExceeded as exc:
+        print(f"capped; stopping ({exc})")
         return 2
     finally:
         if paint_pool is not None:

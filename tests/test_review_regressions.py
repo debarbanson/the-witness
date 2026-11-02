@@ -303,6 +303,8 @@ def test_film_save_uses_restored_outer_ledger(monkeypatch):
         saved.append(kwargs.get("cost_usd", models.current_cost_usd()))
     monkeypatch.setattr(cli, "run_job", fake_run)
     monkeypatch.setattr(cli, "report_and_save", save)
+    for name in ("cmd_captions", "cmd_paint", "cmd_render"):
+        monkeypatch.setattr(cli, name, lambda *a, **k: 0)
     assert cli.cmd_film("unused", yes=True) == 0
     assert saved == [pytest.approx(0.00125)]
 
@@ -1014,3 +1016,31 @@ def test_r3_10_eval_counts_errors_as_correct_rejects():
     summary = recorded["summary"]["meta"]
     assert summary["errors"] == 5
     assert summary["right"] == 47
+
+
+def test_r3_11_no_fresh_clone_example_assets(tmp_path, capsys):
+    """Missing example films are skipped with a log line, not deployed."""
+    import modal_app
+
+    assert modal_app._available_examples(tmp_path) == []
+    assert capsys.readouterr().out.count("skipping") == 3
+    root = Path(modal_app.__file__).resolve().parent
+    assert len(modal_app.EXAMPLES) <= 3
+    for example in modal_app.EXAMPLES:
+        assert (root / example["local"] / "film.html").exists()
+
+
+def test_r3_12_readme_film_command_only_researches():
+    """The README gives a venv sequence from photo to film.html."""
+    root = Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text()
+    assert re.search(r"^python -m witness", readme, re.M) is None
+    for line in (".venv/bin/python -m witness film",
+                 ".venv/bin/python -m witness captions",
+                 ".venv/bin/python -m witness paint",
+                 ".venv/bin/python -m witness render",
+                 "film/film.html"):
+        assert line in readme, line
+    evaluation = (root / "eval" / "README.md").read_text()
+    assert ".venv/bin/python eval/run_support_eval.py --set support" in evaluation
+    assert ".venv/bin/python eval/run_support_eval.py --set hard" in evaluation

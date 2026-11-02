@@ -2633,6 +2633,50 @@ def test_capped_result_does_not_crash_film(tmp_path, monkeypatch, capsys):
     assert "cap" in capsys.readouterr().out
 
 
+def test_cmd_film_runs_captions_paint_render(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "run_job", lambda *a, **k: {
+        "identified": True, "confirmed": True, "cached": False,
+        "slug": "q1-test", "order": [], "kept": [], "timeline": [],
+        "chosen": [], "result": {"outcome": "full_film"},
+        "timings": {"total_s": 1}, "failures": [], "comparison": None,
+        "tokens": {}, "cost_usd": 0.0})
+    monkeypatch.setattr(cli_module, "report_and_save",
+                        lambda *a, **k: "q1-test")
+    seen = []
+    for name in ("cmd_captions", "cmd_paint", "cmd_render"):
+        monkeypatch.setattr(
+            cli_module, name,
+            lambda *a, stage=name, **k: seen.append(stage) or 0)
+    assert cli_module.cmd_film("unused", yes=True,
+                               out_dir=str(tmp_path / "out")) == 0
+    assert seen == ["cmd_captions", "cmd_paint", "cmd_render"]
+
+
+def test_cmd_film_stops_when_captions_fail(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "run_job", lambda *a, **k: {
+        "identified": True, "confirmed": True, "cached": False,
+        "slug": "q1-test", "order": [], "kept": [], "timeline": [],
+        "chosen": [], "result": {"outcome": "full_film"},
+        "timings": {"total_s": 1}, "failures": [], "comparison": None,
+        "tokens": {}, "cost_usd": 0.0})
+    monkeypatch.setattr(cli_module, "report_and_save",
+                        lambda *a, **k: "q1-test")
+    seen = []
+    monkeypatch.setattr(cli_module, "cmd_captions",
+                        lambda *a, **k: seen.append("cmd_captions") or 2)
+    for name in ("cmd_paint", "cmd_render"):
+        monkeypatch.setattr(
+            cli_module, name,
+            lambda *a, stage=name, **k: seen.append(stage) or 0)
+    assert cli_module.cmd_film("unused", yes=True,
+                               out_dir=str(tmp_path / "out")) == 2
+    assert seen == ["cmd_captions"]
+
+
 def test_cancelled_result_does_not_crash_film_or_research(
         tmp_path, monkeypatch, capsys):
     from witness import cli as cli_module
@@ -2746,6 +2790,8 @@ def test_film_save_records_real_job_cost(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli_module, "run_job", fake_run)
     monkeypatch.setattr(cli_module, "report_and_save", save)
+    for name in ("cmd_captions", "cmd_paint", "cmd_render"):
+        monkeypatch.setattr(cli_module, name, lambda *a, **k: 0)
     assert cli_module.cmd_film("unused", yes=True,
                                out_dir=str(tmp_path / "out")) == 0
     assert saved["cost_usd"] == pytest.approx(1000 / 1e6 * 1.25)

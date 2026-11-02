@@ -22,19 +22,35 @@ newer container meets an older record.
 
 import os
 import threading
+from pathlib import Path
 
 import modal
 
 from witness.webapp import MAX_FILMS_PER_DAY, MAX_VISITOR_FILMS_PER_DAY
 
-EXAMPLES = [
-    {"slug": "de-adriaan", "name": "De Adriaan, Haarlem",
-     "local": "out/q2763574-de-adriaan/film"},
-    {"slug": "major-oak", "name": "The Major Oak, Sherwood Forest",
-     "local": "out/q388443-major-oak/film"},
-    {"slug": "rubjerg-knude", "name": "Rubjerg Knude lighthouse, Denmark",
-     "local": "out/q2206180-rubjerg-knude-fyr/film"},
-]
+def _available_examples(root=None):
+    """Example films baked into the image when their local folders
+    exist. Missing ones are skipped with a log line, so a fresh
+    clone without the git-ignored films still deploys."""
+    wanted = [
+        ("de-adriaan", "De Adriaan, Haarlem",
+         "out/q2763574-de-adriaan/film"),
+        ("major-oak", "The Major Oak, Sherwood Forest",
+         "out/q388443-major-oak/film"),
+        ("rubjerg-knude", "Rubjerg Knude lighthouse, Denmark",
+         "out/q2206180-rubjerg-knude-fyr/film"),
+    ]
+    base = root or Path(__file__).resolve().parent
+    found = []
+    for slug, name, local in wanted:
+        if (base / local / "film.html").exists():
+            found.append({"slug": slug, "name": name, "local": local})
+        else:
+            print(f"examples: skipping {slug} (no local film at {local})")
+    return found
+
+
+EXAMPLES = _available_examples()
 
 TRY_DAILY_CAP_USD = 5.0
 TRY_DAILY_FILMS = MAX_FILMS_PER_DAY
@@ -50,14 +66,12 @@ image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install_from_requirements("requirements-lock.txt")
     .add_local_dir("witness", remote_path="/app/witness")
-    .add_local_dir("out/q2763574-de-adriaan/film",
-                   remote_path="/app/examples/de-adriaan")
-    .add_local_dir("out/q388443-major-oak/film",
-                   remote_path="/app/examples/major-oak")
-    .add_local_dir("out/q2206180-rubjerg-knude-fyr/film",
-                   remote_path="/app/examples/rubjerg-knude")
     .env({"PYTHONPATH": "/app"})
 )
+for _example in EXAMPLES:
+    image = image.add_local_dir(
+        _example["local"],
+        remote_path=f"/app/examples/{_example['slug']}")
 
 keys = modal.Secret.from_name("the-witness-keys")
 jobs_volume = modal.Volume.from_name("witness-jobs", create_if_missing=True)

@@ -46,13 +46,29 @@ brew install ffmpeg                     # only for recording MP4s (apt on Linux)
 ```
 
 - **On your phone (after the deploy; the link stays private until the abuse tests pass):** open the web page, take or pick a photo, allow location (or type the place), confirm the object, watch the finished film. See [docs/06_web.md](docs/06_web.md).
-- **From the command line:**
+- **From the command line:** (commands use the project venv)
+
+```
+cp .env.example .env.local   # add your keys; the CLI loads this file itself
+.venv/bin/python -m witness film path/to/photo.jpg            # location from the photo's GPS data
+.venv/bin/python -m witness film photo.jpg --place "Haarlem"  # when the photo has none
+.venv/bin/python -m witness research photo.jpg --place "Haarlem"  # story only, no painting
+```
+
+One film end to end, straight to `out/<slug>/film/film.html`:
 
 ```bash
-cp .env.example .env.local   # add your keys; the CLI loads this file itself
-python -m witness film path/to/photo.jpg            # location from the photo's GPS data
-python -m witness film photo.jpg --place "Haarlem"  # when the photo has none
-python -m witness research photo.jpg --place "Haarlem"  # story only, no painting
+.venv/bin/python -m witness film photo.jpg --place "Haarlem"
+```
+
+The same run step by step (the slug is the folder name under
+`out/`; `research` stops before painting):
+
+```bash
+.venv/bin/python -m witness research photo.jpg --place "Haarlem"
+.venv/bin/python -m witness captions <slug>
+.venv/bin/python -m witness paint <slug> --photo photo.jpg
+.venv/bin/python -m witness render <slug> --photo photo.jpg
 ```
 
 Location data identifies the object. On the web page it waits in the job's private server folder while the film is made and is deleted with the job 24 h after it ends; the research keeps only a coarse season zone (north, south or tropical), and the film, the logs and the job store never carry the location at all.

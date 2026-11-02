@@ -28,9 +28,15 @@ One support vote per case per model: the production Baseten path
   tests isolated support votes only, not anchors, captions, state,
   painting or rendering.
 
-Run: `.venv/bin/python eval/run_support_eval.py --set support|hard`
-(keys from `.env.local`, like the CLI). Smoke: `EVAL_SMOKE=1` runs
-the first accept plus the first reject of the chosen set.
+Run one set at a time (keys from `.env.local`, like the CLI):
+
+```bash
+.venv/bin/python eval/run_support_eval.py --set support
+.venv/bin/python eval/run_support_eval.py --set hard
+```
+
+Smoke: `EVAL_SMOKE=1` runs the first accept plus the first reject
+of the chosen set.
 
 Spot-check list (5 accept, 5 reject, both sets): T01, T14, N03, W02,
 D07, P04, H03, H17, H21, I02.

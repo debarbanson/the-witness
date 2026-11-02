@@ -3,6 +3,30 @@
 from witness.cli import slug_for
 
 
+def _bind_eras(scenes, entries, audience="adult"):
+    """Stamp manifest entries with bindings to the given scenes."""
+    from witness import paint as paint_module
+
+    by_year = {scene.get("from_year"): scene for scene in scenes}
+    for entry in entries:
+        scene = by_year.get(entry.get("year")) or {}
+        entry["binding"] = paint_module.painting_binding(
+            scene.get("state"),
+            paint_module.scene_caption(scene, audience=audience),
+            (scene.get("caption_sentence") or {}).get("evidence"))
+    return entries
+
+
+def _bind_manifest_to_research(manifest_path, research_path, audience="adult"):
+    """Stamp a written manifest's entries to the written research."""
+    import json as _json
+
+    research = _json.loads(research_path.read_text())
+    manifest = _json.loads(manifest_path.read_text())
+    _bind_eras(research["scenes"], manifest.get("eras", []), audience)
+    manifest_path.write_text(_json.dumps(manifest))
+
+
 def test_slug_transliterates_accents():
     assert slug_for("Biosphère", "Q123", {}) == "q123-biosphere"
 
@@ -541,10 +565,10 @@ def test_cmd_captions_rechecks_child_paintings_against_child_lines(
         support_call=lambda sentence, passages, *a: "supported",
         check_call=check)
     assert code == 0
-    assert len(checked) == 1
-    assert "I opened long ago." in checked[0]
+    assert checked == []
     manifest = json.loads((slug_dir / "paint_parallel_child.json").read_text())
-    assert manifest["eras"][0]["caption"] == "I opened long ago."
+    assert manifest["eras"][0]["verdict"] == "dropped"
+    assert "repaint" in manifest["eras"][0]["note"]
 
 
 def test_refresh_film_drops_partly_claims():
@@ -1405,10 +1429,14 @@ def test_cmd_paint_saves_eras_contact_sheet_and_manifest(tmp_path, monkeypatch):
     assert not (out_dir / "eras_parallel" / "today.webp").exists()
     assert (out_dir / "eras_parallel" / "contact.png").exists()
     manifest = json.loads((out_dir / "paint_parallel.json").read_text())
+    from witness import paint as paint_module
+    binding = paint_module.painting_binding(
+        {"condition": "standing", "degree": "total", "scope": "whole",
+         "description": ""}, "", None)
     assert manifest["eras"] == [
         {"year": 1850, "verdict": "matches", "attempts": 1,
          "caption": "", "season": "summer",
-         "file": "eras_parallel/1850.webp"}]
+         "file": "eras_parallel/1850.webp", "binding": binding}]
     assert manifest["mode"] == "parallel"
 
 
@@ -1653,6 +1681,8 @@ def test_cmd_render_photo_year_overrides_exif(tmp_path, monkeypatch):
         (0, 0, 8, 8), 0.5, Image.new("L", (16, 24)),
         Image.new("RGBA", (16, 24), (1, 2, 3, 255)))
 
+    _bind_manifest_to_research(out_dir / "paint_parallel_b1.json",
+                               out_dir / "research.json")
     code = cli_module.cmd_render(
         "q1-test", str(photo), subject="mill",
         era_dir="eras_parallel_b1", photo_year=2009,
@@ -1704,6 +1734,8 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
         (0, 0, 8, 8), 0.5, Image.new("L", (16, 24)),
         Image.new("RGBA", (16, 24), (1, 2, 3, 255)))
 
+    _bind_manifest_to_research(out_dir / "paint_parallel_b1.json",
+                               out_dir / "research.json")
     code = cli_module.cmd_render(
         "q1-test", str(photo), subject="mill",
         era_dir="eras_parallel_b1", photo_credit="me",
@@ -1772,6 +1804,10 @@ def render_both_setup(tmp_path):
         "timeline": [], "timings": {}}))
     photo = tmp_path / "photo.jpg"
     photo.write_bytes(adult)
+    research = out_dir / "research.json"
+    _bind_manifest_to_research(out_dir / "paint_parallel.json", research)
+    _bind_manifest_to_research(out_dir / "paint_parallel_child.json",
+                               research, audience="child")
     return out_dir, str(photo), child
 
 
@@ -2456,11 +2492,10 @@ def test_cmd_captions_rechecks_stale_paintings(tmp_path, monkeypatch, capsys):
         support_call=lambda sentence, passages, *a: "supported",
         check_call=check)
     assert code == 0
-    assert len(checked) == 1
-    assert "I opened my doors." in checked[0]
+    assert checked == []
     manifest = json.loads((slug_dir / "paint_parallel.json").read_text())
-    assert manifest["eras"][0]["caption"] == "I opened my doors."
-    assert manifest["eras"][0]["verdict"] == "matches"
+    assert manifest["eras"][0]["verdict"] == "dropped"
+    assert "repaint" in manifest["eras"][0]["note"]
 
 
 def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
@@ -2495,6 +2530,8 @@ def test_render_png_upload_serves_today_jpg(tmp_path, monkeypatch):
                                               "quote": "The mill opened in 1850."}}},
         ],
         "timeline": [], "timings": {}}))
+    _bind_manifest_to_research(out_dir / "paint_parallel_b1.json",
+                               out_dir / "research.json")
     photo = tmp_path / "photo.png"
     exif = Image.Exif()
     exif[34853] = {0: b"\x02\x03\x00\x00", 1: "N",
@@ -2520,6 +2557,8 @@ def test_render_without_subject_removes_stale_cutout(tmp_path, monkeypatch):
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
                    "caption": "I opened my doors."}]}))
+    _bind_manifest_to_research(out_dir / "paint_parallel_b1.json",
+                               out_dir / "research.json")
     stale = out_dir / "today_cutout.png"
     stale.write_bytes(b"previous-visitor-cutout")
     code = cli_module.cmd_render("q1-test", str(photo),
@@ -2542,6 +2581,8 @@ def test_film_cached_relay_current_photo(tmp_path, monkeypatch):
     (out_dir / "paint_stream.json").write_text(json.dumps(
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
                    "caption": "I opened my doors."}]}))
+    _bind_manifest_to_research(out_dir / "paint_stream.json",
+                               out_dir / "research.json")
     film_dir = out_dir / "film"
     film_dir.mkdir()
     Image.new("RGB", (24, 16), "red").save(film_dir / "today.jpg")
@@ -2977,6 +3018,8 @@ def test_render_uses_separate_knowledge_cache(tmp_path, monkeypatch):
     separate = Cache(tmp_path / "knowledge")
     separate.put("https://a.example/x",
                  "I opened my doors to the town that spring. In 1850, witnesses agree.")
+    _bind_manifest_to_research(out_dir / "paint_parallel_b1.json",
+                               out_dir / "research.json")
     code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1",
                                  cache=separate)
@@ -3010,6 +3053,8 @@ def test_render_ignores_paintings_missing_from_manifest(tmp_path, monkeypatch):
                    "caption": "I opened my doors."},
                   {"year": 1900, "verdict": "dropped", "attempts": 3,
                    "note": "differed"}]}))
+    _bind_manifest_to_research(out_dir / "paint_parallel_b1.json",
+                               out_dir / "research.json")
     code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1")
     assert code == 0
@@ -3403,6 +3448,8 @@ def test_render_writes_into_job_folder(tmp_path, monkeypatch):
     (out_dir / "paint_parallel_b1.json").write_text(json.dumps(
         {"eras": [{"year": 1850, "verdict": "matches", "attempts": 1,
                    "caption": "I opened my doors."}]}))
+    _bind_manifest_to_research(out_dir / "paint_parallel_b1.json",
+                               out_dir / "research.json")
     code = cli_module.cmd_render("q1-test", str(photo),
                                  era_dir="eras_parallel_b1", out_dir=root)
     assert code == 0
@@ -3697,7 +3744,11 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
                        "description": "Only stones and beams left."},
              "caption_lines": [],
              "caption_sentence": {"text": "I burnt down in the evening.",
-                                 "claim_year": 1932, "claim_url": "u"}},
+                                 "claim_year": 1932, "claim_url": "u",
+                                 "evidence": {
+                                     "claim": "burnt in 1932",
+                                     "quote": "The mill burnt down in 1932.",
+                                     "url": "https://a.example/x"}}},
         ],
     }))
 
@@ -3707,7 +3758,8 @@ def test_cmd_paint_recovers_dropped_critical_era(tmp_path, monkeypatch):
     code = cli_module.cmd_paint(
         "q1-test", str(tmp_path / "photo.jpg"), tag="b1",
         paint_call=blocked, check_call=lambda image, p: "MATCHES base only.",
-        photo_call=lambda photo_bytes, prompt: "winter")
+        photo_call=lambda photo_bytes, prompt: "winter",
+        support_call=_voter("unsupported"))
     assert code == 0
     manifest = json.loads((slug_dir / "paint_parallel_b1.json").read_text())
     (entry,) = manifest["eras"]

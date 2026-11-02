@@ -1421,20 +1421,33 @@ def recover_or_retry(call, checker, scene, name, municipality, photo_bytes,
 
 
 def verify_scene_states(eras, name, support_respond) -> list:
-    """Blank era descriptions the cited quote does not state, so a
+    """Check each era state against its cited evidence, in place, so a
     reloaded research file cannot smuggle unverified visuals to
-    either painter. Returns the years blanked. Uncheckable details
-    are not painted either."""
-    blanked = []
+    either painter. Conditions, degrees and scopes with no trace in
+    the cited claim and quote reset to the default; descriptions the
+    cited quote does not state are blanked. Returns the years
+    changed. Uncheckable details are not painted either."""
+    changed = []
     for scene in eras:
         state = scene.get("state") or {}
-        if not (state.get("description") or "").strip():
-            continue
         stored = scene.get("caption_sentence") or {}
         evidence = stored.get("evidence") or {}
         if not evidence.get("quote") or not evidence.get("url"):
             state["description"] = ""
-            blanked.append(scene["from_year"])
+            state["condition"], state["degree"], state["scope"] = (
+                "standing", "total", "whole")
+            scene["state"] = state
+            changed.append(scene["from_year"])
+            continue
+        words = f"{evidence.get('claim', '')} {evidence.get('quote', '')}"
+        before = (state.get("condition"), state.get("degree"),
+                  state.get("scope"))
+        traced = states.traced_state(*before, words)
+        state["condition"], state["degree"], state["scope"] = traced
+        scene["state"] = state
+        if traced != before:
+            changed.append(scene["from_year"])
+        if not (state.get("description") or "").strip():
             continue
         pseudo = {"year": scene["from_year"], "verdict": "supported",
                   "visible_change": state["description"],
@@ -1446,8 +1459,8 @@ def verify_scene_states(eras, name, support_respond) -> list:
             verdict = "unverified"
         if verdict != "supported":
             state["description"] = ""
-            blanked.append(scene["from_year"])
-    return blanked
+            changed.append(scene["from_year"])
+    return changed
 
 
 def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
@@ -1493,8 +1506,9 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         return 2
     support = support_call or baseten_support_respond
     for year in verify_scene_states(eras, name, support):
-        print(f"{year}: state description not in its cited quote; "
-              f"painting without it")
+        print(f"{year}: state not in its cited evidence; "
+              f"painting the checked state")
+    path.write_text(json.dumps(data, indent=1))
     hint = "run children first" if audience == "child" else "run captions first"
     for scene in eras:
         if not paint.scene_caption(scene, audience=audience):
@@ -1572,6 +1586,10 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         if result["image"] is not None:
             paint.save_era(era_dir, year, result["image"])
             entry["file"] = f"eras_{suffix}/{year}.webp"
+            entry["binding"] = paint.painting_binding(
+                scene.get("state"),
+                paint.scene_caption(scene, audience=audience),
+                (scene.get("caption_sentence") or {}).get("evidence"))
             if result["verdict"] == "recovered":
                 entry["note"] = result["note"]
         else:
@@ -1707,21 +1725,19 @@ def verify_visible_changes(claims, support_respond, object_name) -> list:
 
 
 def recheck_paintings(slug_dir, data, checker) -> list:
-    """Kept paintings whose manifest caption differs from the current
-    sentence are checked again against it. Matches update the
-    manifest; differs drops the era with a repaint note. Returns
-    (year, kept) per rechecked era."""
-    from witness import check as check_module
-
-    name = data.get("object", {}).get("name", "")
-    state_of = {}
-    context_of = {}
+    """Kept paintings whose binding no longer matches the current
+    checked state, caption and evidence are dropped with a repaint
+    note; the scene is repainted or dropped, never reused. Paintings
+    from before evidence binding carry no hash and are dropped too.
+    Returns (year, kept) per rechecked era. The checker argument is
+    kept for signature stability and is no longer consulted."""
+    del checker
+    current = {}
     for scene in data.get("scenes", []):
         year = scene.get("from_year")
         if not isinstance(year, int):
             continue
-        state_of[year] = scene.get("state", {})
-        context_of[year] = paint.scene_context(scene)
+        current[year] = scene
     done = []
     for manifest_path in sorted(Path(slug_dir).glob("paint_*.json")):
         try:
@@ -1729,58 +1745,29 @@ def recheck_paintings(slug_dir, data, checker) -> list:
         except (json.JSONDecodeError, OSError):
             continue
         audience = manifest.get("audience", "adult")
-        sentences = {}
-        for scene in data.get("scenes", []):
-            year = scene.get("from_year")
-            if not isinstance(year, int):
-                continue
-            sentence = paint.scene_caption(scene, audience=audience)
-            if sentence:
-                sentences[year] = sentence
         changed = False
         for entry in manifest.get("eras", []):
             if entry.get("verdict") not in ("matches", "recovered"):
                 continue
             year = entry.get("year")
-            sentence = sentences.get(year)
-            if not sentence or entry.get("caption") == sentence:
+            scene = current.get(year)
+            sentence = paint.scene_caption(scene, audience=audience) if scene else ""
+            if not scene or not sentence:
                 continue
-            candidate = None
-            if entry.get("file"):
-                candidate = Path(slug_dir) / entry["file"]
-            if candidate is None or not candidate.exists():
-                found = sorted(Path(slug_dir).glob(f"eras_*/{year}.webp"),
-                               key=lambda p: p.stat().st_mtime, reverse=True)
-                if not found:  # paintings before the webp switch
-                    found = sorted(Path(slug_dir).glob(f"eras_*/{year}.png"),
-                                   key=lambda p: p.stat().st_mtime,
-                                   reverse=True)
-                candidate = found[0] if found else None
-            if candidate is None:
+            binding = paint.painting_binding(
+                scene.get("state"), sentence,
+                (scene.get("caption_sentence") or {}).get("evidence"))
+            if entry.get("binding") == binding:
+                done.append((year, True))
                 continue
-            try:
-                verdict = check_module.check_painting(
-                    checker, candidate.read_bytes(), name,
-                    paint.describe_state(name, state_of.get(year, {})),
-                    year, caption=sentence,
-                    season=entry.get("season"),
-                    surroundings=context_of.get(year, ""))
-            except models.SpendingCapExceeded:
-                raise
-            except Exception as exc:  # noqa: BLE001 - a dead check drops the era
-                entry["verdict"] = "dropped"
-                entry["note"] = f"caption recheck failed: {exc}"
-                changed = True
-                done.append((year, False))
-                continue
-            if verdict["verdict"] == "matches":
-                entry["caption"] = sentence
+            entry["verdict"] = "dropped"
+            if entry.get("binding"):
+                entry["note"] = ("state, caption or evidence changed "
+                                 "since painting; repaint")
             else:
-                entry["verdict"] = "dropped"
-                entry["note"] = (f"differs from its caption "
-                                 f"({verdict['note']}); repaint")
+                entry["note"] = "painted before evidence binding; repaint"
             changed = True
-            done.append((year, verdict["verdict"] == "matches"))
+            done.append((year, False))
         if changed:
             manifest_path.write_text(json.dumps(manifest, indent=1))
     return done
@@ -2177,21 +2164,26 @@ def _era_fallback(out_dir, era_dir, year) -> str:
 
 
 def collect_era_files(out_dir, entries, scenes, era_dir, audience="adult"):
-    """Kept paintings whose check caption still matches, per audience.
-    Only final-scene years are collected: a draft painting for a year
-    the film dropped never reaches the film."""
-    sentences = {s.get("from_year"): paint.scene_caption(s, audience=audience)
-                 for s in scenes}
-    rerun = "children" if audience == "child" else "captions"
+    """Kept paintings whose binding still matches the current checked
+    state, caption and evidence, per audience. Only final-scene years
+    are collected: a draft painting for a year the film dropped never
+    reaches the film. A mismatch, or a painting from before evidence
+    binding, is refused; the scene is repainted or dropped."""
+    current = {s.get("from_year"): s for s in scenes}
     era_files = {}
     for entry in entries:
         if entry.get("verdict") not in ("matches", "recovered"):
             continue
-        if entry.get("year") not in sentences:
+        scene = current.get(entry.get("year"))
+        if scene is None:
             continue
-        if entry.get("caption") != sentences[entry.get("year")]:
-            print(f"{entry.get('year')}: refused (painting was checked "
-                  f"against a different caption; rerun {rerun})")
+        sentence = paint.scene_caption(scene, audience=audience)
+        binding = paint.painting_binding(
+            scene.get("state"), sentence,
+            (scene.get("caption_sentence") or {}).get("evidence"))
+        if entry.get("binding") != binding:
+            print(f"{entry.get('year')}: refused (painting predates its "
+                  f"state, caption and evidence; rerun paint)")
             continue
         rel = entry.get("file") or _era_fallback(out_dir, era_dir,
                                                  entry["year"])

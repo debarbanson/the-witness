@@ -158,6 +158,38 @@ DAMAGE_WORDS = (
 )
 FINAL_WORDS = tuple(w for w in STANDING_WORDS if w not in ("built", "gebouwd"))
 
+CONDITION_WORDS = {
+    "under_construction": START_WORDS + CONSTRUCT_START + ("construction",),
+    "damaged": DAMAGE_WORDS + RUIN_WORDS,
+    "burnt": FIRE_WORDS + RUIN_WORDS,
+    "ruin": RUIN_WORDS,
+    "rebuilt": REBUILD_WORDS,
+    "moved": MOVE_WORDS + EVENT_MOVE,
+    "demolished": DEMOLISH_WORDS,
+}
+
+
+def traced_state(condition, degree, scope, text):
+    """The state the accepted words support. A condition, degree or
+    scope with no trace in the cited claim and quote resets to the
+    default; standing is the default, so it always traces."""
+    lowered = (text or "").lower()
+    keep = (condition or "") == "standing"
+    if not keep and condition in CONDITION_WORDS:
+        found = _has(lowered, CONDITION_WORDS[condition])
+        keep = found is not None and not _negated(lowered, found)
+    kept_condition = condition if keep else "standing"
+    if (degree or "") == "partial" and not (
+            _has(lowered, PARTIAL_WORDS) or _nearly_destroyed(lowered)):
+        kept_degree = "total"
+    else:
+        kept_degree = degree if degree in DEGREES else "total"
+    if (scope or "") == "part" and not _has(lowered, ATTACHED_PART):
+        kept_scope = "whole"
+    else:
+        kept_scope = scope if scope in SCOPES else "whole"
+    return kept_condition, kept_degree, kept_scope
+
 
 def _has(text: str, words) -> str | None:
     """First whole word or phrase found, else None."""

@@ -950,3 +950,58 @@ def test_r3_04_anchor_drops_approximate_date():
     """An approximate date keeps its qualifier on the opening card."""
     card = builder.anchor_card({"from_year": 1900, "date_label": "around 1900"})
     assert card["label"] == "around 1900"
+
+
+def test_r3_03_unverified_condition_reaches_adult_and_child_paint(tmp_path, monkeypatch):
+    """An unsourced condition is reset before either painter sees it."""
+    scene = evidence_scene(state={"condition": "burnt"})
+    scene["caption_sentence"]["child"] = {"text": "I rose with a stone roof."}
+    root = tmp_path / "synthetic"
+    root.mkdir()
+    (root / "research.json").write_text(json.dumps({"object": {"name": "Tower", "country_code": "gb"}, "claims": [evidence_claim()], "scenes": [scene]}))
+    monkeypatch.setattr(cli, "photo_bytes_clean", lambda _: b"synthetic")
+    monkeypatch.setattr(identify, "capture_month", lambda _: None)
+    monkeypatch.setattr(paint, "paint_directives", lambda *a: {"season": "summer", "excluded": {}})
+    seen = []
+    def parallel(*args, **kwargs):
+        seen.append((dict(args[2][0]["state"]), kwargs["audience"]))
+        return [{"image": None, "verdict": "dropped", "attempts": 1, "note": "synthetic"}]
+    monkeypatch.setattr(paint, "paint_parallel", parallel)
+    monkeypatch.setattr(cli, "recover_or_retry", lambda *a, **k: a[8])
+    deny = lambda _: answer("", verdict="unsupported")
+    for audience in ("adult", "child"):
+        assert cli.cmd_paint("synthetic", "unused", out_dir=tmp_path, audience=audience, photo_month=1, support_call=deny) == 0
+    assert [state["condition"] for state, _ in seen] == ["standing", "standing"]
+
+
+def test_r3_16_old_painting_survives_state_change_with_same_caption(tmp_path):
+    """A painting whose state changed is dropped, never reused."""
+    scene = evidence_scene(state={"condition": "burnt"})
+    data = {"object": {"name": "Tower"}, "claims": [evidence_claim()], "scenes": [scene]}
+    root = tmp_path / "synthetic"
+    root.mkdir()
+    (root / "research.json").write_text(json.dumps(data))
+    (root / "paint_test.json").write_text(json.dumps({"eras": [{"year": 1900, "verdict": "matches", "attempts": 1, "caption": "I rose with a stone roof.", "file": "synthetic.webp"}]}))
+    (root / "synthetic.webp").write_bytes(b"synthetic")
+    cli.recheck_paintings(root, data, lambda *a: "MATCHES even though burnt.")
+    manifest = json.loads((root / "paint_test.json").read_text())
+    kept = [entry for entry in manifest["eras"] if entry["verdict"] in ("matches", "recovered")]
+    assert kept == []
+
+
+def test_r3_16_matching_binding_keeps_painting(tmp_path):
+    """A painting whose binding still matches is kept without a recheck."""
+    scene = evidence_scene()
+    data = {"object": {"name": "Tower"}, "claims": [evidence_claim()], "scenes": [scene]}
+    root = tmp_path / "synthetic"
+    root.mkdir()
+    (root / "research.json").write_text(json.dumps(data))
+    state = scene["state"]
+    binding = paint.painting_binding(state, "I rose with a stone roof.", scene["caption_sentence"]["evidence"])
+    (root / "paint_test.json").write_text(json.dumps({"eras": [{"year": 1900, "verdict": "matches", "attempts": 1, "caption": "I rose with a stone roof.", "file": "synthetic.webp", "binding": binding}]}))
+    (root / "synthetic.webp").write_bytes(b"synthetic")
+    def fail(*args):
+        raise AssertionError("no vision check needed")
+    assert cli.recheck_paintings(root, data, fail) == [(1900, True)]
+    manifest = json.loads((root / "paint_test.json").read_text())
+    assert manifest["eras"][0]["verdict"] == "matches"

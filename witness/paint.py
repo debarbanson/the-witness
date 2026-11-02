@@ -5,6 +5,8 @@ parallel (every era branches from the anchor turn alone). The model
 call is injected, so tests run without live calls.
 """
 
+import hashlib
+import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 
@@ -402,6 +404,22 @@ def scene_caption(scene, audience="adult") -> str:
     if audience == "child":
         return (stored.get("child") or {}).get("text", "")
     return stored.get("text", "")
+
+
+def painting_binding(state, caption, evidence) -> str:
+    """The hash binding a painting to its checked state, caption and
+    evidence. Reloads and re-renders recompute it; a mismatch means
+    the scene is repainted or dropped, never reused."""
+    state = state or {}
+    canonical = {"state": {
+        "condition": state.get("condition", ""),
+        "degree": state.get("degree", ""),
+        "scope": state.get("scope", ""),
+        "description": state.get("description", "")},
+        "caption": caption or "",
+        "evidence": evidence or {}}
+    return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode(
+        "utf-8")).hexdigest()
 
 
 def aftermath_prompt(scene, object_name, municipality, season=None,

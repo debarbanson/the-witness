@@ -1025,12 +1025,13 @@ def test_r3_11_no_fresh_clone_example_assets(tmp_path, capsys):
     """Missing example films are skipped with a log line, not deployed."""
     import modal_app
 
-    assert modal_app._available_examples(tmp_path) == []
+    assert modal_app._volume_examples(tmp_path) == []
     assert capsys.readouterr().out.count("skipping") == 3
-    root = Path(modal_app.__file__).resolve().parent
-    assert len(modal_app.EXAMPLES) <= 3
-    for example in modal_app.EXAMPLES:
-        assert (root / example["local"] / "film.html").exists()
+    remote = tmp_path / "examples" / "de-adriaan"
+    remote.mkdir(parents=True)
+    (remote / "film.html").write_text("<html>synthetic</html>")
+    found = modal_app._volume_examples(tmp_path / "examples")
+    assert [ex["slug"] for ex in found] == ["de-adriaan"]
 
 
 def test_r3_12_readme_film_command_only_researches():
@@ -1355,3 +1356,44 @@ def test_r3_13_repository_carries_its_licence():
     text = (root / "LICENSE").read_text()
     assert "MIT License" in text
     assert "2026 De Barbanson Data Solutions" in text
+
+
+def test_r4_05_remote_example_layout_is_discovered(tmp_path):
+    """Both apps discover examples from the Volume at request time."""
+    import ast
+    from fastapi.testclient import TestClient
+
+    import modal_app
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    assigned = {t.id for n in tree.body if isinstance(n, ast.Assign)
+                for t in n.targets if isinstance(t, ast.Name)}
+    assert "EXAMPLES" not in assigned
+    assert not hasattr(modal_app, "_available_examples")
+    web = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+               and n.name == "web")
+    names = {n.id for n in ast.walk(web) if isinstance(n, ast.Name)}
+    assert "_volume_examples" in names
+    remote = tmp_path / "examples"
+    for slug in ("de-adriaan", "major-oak", "rubjerg-knude"):
+        folder = remote / slug
+        folder.mkdir(parents=True)
+        (folder / "film.html").write_text("<html>synthetic</html>")
+        (folder / "film.json").write_text("{}")
+        (folder / "today.jpg").write_bytes(b"synthetic-today")
+    found = modal_app._volume_examples(remote)
+    assert [ex["slug"] for ex in found] == ["de-adriaan", "major-oak",
+                                            "rubjerg-knude"]
+    deps = webapp.WebDeps(webapp.MemoryStore(), None,
+                           lambda ref: "test-receipt", tmp_path / "jobs",
+                           remote, examples=found)
+    client = TestClient(webapp.create_app(deps),
+                        raise_server_exceptions=False)
+    page = client.get("/")
+    assert page.status_code == 200
+    for slug in ("de-adriaan", "major-oak", "rubjerg-knude"):
+        assert f"/examples/{slug}/" in page.text
+        assert client.get(f"/examples/{slug}/").status_code == 200
+        for asset in ("film.html", "film.json", "today.jpg"):
+            out = client.get(f"/examples/{slug}/{asset}")
+            assert out.status_code == 200, (slug, asset)

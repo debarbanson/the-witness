@@ -1,7 +1,8 @@
 """The Witness on Modal: private staging plus public judge mode.
 
-Allowlisted image: the witness package plus three reviewed example
-films. Never out/, samples/ or .env.local. Keys arrive only as the
+Allowlisted image: the witness package only. Never out/, samples/
+or .env.local. The reviewed example films live on a shared Volume,
+discovered at request time. Keys arrive only as the
 Modal secret "the-witness-keys". One budget authority serves every
 container through a single-container ledger function over a Dict
 (a Dict alone is not atomic for read-modify-write; the single
@@ -10,8 +11,9 @@ paces Nominatim to the usage policy's one request per second.
 Job state lives in a Dict, job files on a Volume, and an hourly cron
 enforces the 24 h retention rule. Staging (`web`, proxy auth) and
 judge mode (`judge`, public and unlisted) run on fully separate
-state; judge mode serves its examples from a shared Volume and
-gates Try your own behind a hard cap, quotas and an off switch.
+state. Both serve the reviewed examples from the shared Volume;
+judge mode gates Try your own behind a hard cap, quotas and an
+off switch.
 
 Volume protocol: the web container commits before spawning the
 worker, the worker reloads on start and commits when done, and film
@@ -31,30 +33,6 @@ import modal
 
 from witness.webapp import MAX_FILMS_PER_DAY, MAX_VISITOR_FILMS_PER_DAY
 
-def _available_examples(root=None):
-    """Example films baked into the image when their local folders
-    exist. Missing ones are skipped with a log line, so a fresh
-    clone without the git-ignored films still deploys."""
-    wanted = [
-        ("de-adriaan", "De Adriaan, Haarlem",
-         "out/q2763574-de-adriaan/film"),
-        ("major-oak", "The Major Oak, Sherwood Forest",
-         "out/q388443-major-oak/film"),
-        ("rubjerg-knude", "Rubjerg Knude lighthouse, Denmark",
-         "out/q2206180-rubjerg-knude-fyr/film"),
-    ]
-    base = root or Path(__file__).resolve().parent
-    found = []
-    for slug, name, local in wanted:
-        if (base / local / "film.html").exists():
-            found.append({"slug": slug, "name": name, "local": local})
-        else:
-            print(f"examples: skipping {slug} (no local film at {local})")
-    return found
-
-
-EXAMPLES = _available_examples()
-
 TRY_DAILY_CAP_USD = 5.0
 TRY_DAILY_FILMS = MAX_FILMS_PER_DAY
 TRY_VISITOR_FILMS = MAX_VISITOR_FILMS_PER_DAY
@@ -71,10 +49,6 @@ image = (
     .add_local_dir("witness", remote_path="/app/witness")
     .env({"PYTHONPATH": "/app"})
 )
-for _example in EXAMPLES:
-    image = image.add_local_dir(
-        _example["local"],
-        remote_path=f"/app/examples/{_example['slug']}")
 
 keys = modal.Secret.from_name("the-witness-keys")
 jobs_volume = modal.Volume.from_name("witness-jobs", create_if_missing=True)
@@ -694,18 +668,22 @@ def prune_hourly():
 def try_switch(enable: bool):
     """Flip judge mode's Try-your-own switch, on or off within a
     minute, with no redeploy. Run from a shell with Modal access:
-    modal run modal_app.py::try_switch --enable 0. The examples are
-    unaffected either way."""
+    modal run modal_app.py::try_switch --no-enable (off) or
+    --enable (on). The examples are unaffected either way."""
     try_flag_dict["enabled"] = bool(enable)
     return {"enabled": bool(enable)}
 
 
-@app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume})
+@app.function(image=image, secrets=[keys],
+             volumes={"/jobs": jobs_volume,
+                     "/examples": examples_volume})
 @modal.asgi_app(requires_proxy_auth=True)
 def web():
     """The private page: examples plus Try your own. Proxy auth keeps
     staging off the public internet (Modal proxy-auth docs:
-    https://modal.com/docs/guide/webhook-proxy-auth)."""
+    https://modal.com/docs/guide/webhook-proxy-auth). Examples are
+    discovered from the shared Volume at request time, never baked
+    in at import time."""
     from witness.webapp import WebDeps, create_app
 
     def spawn(ref):
@@ -718,22 +696,26 @@ def web():
                                  daily_films=TRY_DAILY_FILMS,
                                  visitor_films=TRY_VISITOR_FILMS),
         runner=spawn,
-        jobs_root="/jobs", examples_root="/app/examples",
-        examples=[{"slug": ex["slug"], "name": ex["name"]} for ex in EXAMPLES],
+        jobs_root="/jobs", examples_root="/examples",
+        examples=_volume_examples("/examples"),
         contact=_contact(),
         secure_cookies=True,
         ip_secret=_ip_secret(),
         debug_reset=os.environ.get("WITNESS_ABUSE_RESET") == "1"))
 
     volume = jobs_volume
+    shared = examples_volume
 
     class _Reload:
         def __init__(self, wrapped):
             self._wrapped = wrapped
 
         async def __call__(self, scope, receive, send):
-            if scope.get("path", "").startswith("/film/"):
+            path = scope.get("path", "")
+            if path.startswith("/film/"):
                 volume.reload()
+            elif path.startswith("/examples/"):
+                shared.reload()
             await self._wrapped(scope, receive, send)
 
     return _Reload(app)

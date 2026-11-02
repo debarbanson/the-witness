@@ -944,3 +944,9 @@ def test_r3_02_anchor_accepts_another_building_without_a_vote():
         "anchor_names": ["Tower", "tower"]}, dispute_check=lambda *a: False)
     assert called
     assert result["verdict"] == "unsupported"
+
+
+def test_r3_04_anchor_drops_approximate_date():
+    """An approximate date keeps its qualifier on the opening card."""
+    card = builder.anchor_card({"from_year": 1900, "date_label": "around 1900"})
+    assert card["label"] == "around 1900"

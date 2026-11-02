@@ -177,7 +177,8 @@ def anchor_card(first_scene) -> dict:
         return {"line": "I have stood here for", "label": words}
     year = first_scene.get("from_year")
     if isinstance(year, int) and str(year) in label:
-        return {"line": "I have stood here since", "label": str(year)}
+        shown = str(year) if label.strip() == str(year) else label
+        return {"line": "I have stood here since", "label": shown}
     return {"line": "I have stood here", "label": label or "longer than memory"}
 
 

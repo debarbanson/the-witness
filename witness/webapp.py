@@ -262,46 +262,140 @@ def admit_upload(deps, vid, vkey, now) -> None:
 
 INDEX_PAGE = """<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>The Witness</title>
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="The Witness turns your landmark photo into a short sourced film.">
+<title>The Witness</title>
 <style>
+:root{--paper:#f7f1e3;--card:#fffdf7;--ink:#211b12;--muted:#57503f;--accent:#84301f;--line:#e0d3b8;--serif:"Fraunces",Georgia,"Times New Roman",serif;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+@font-face{font-family:"Fraunces";src:url("/assets/fonts/fraunces-600.woff2") format("woff2");font-weight:600;font-display:swap}
+html,body{overflow-x:clip}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;margin:0;padding:0 20px 64px}
+.wrap{max-width:1020px;margin:0 auto}
+h1,h2,h3{font-family:var(--serif);font-weight:600;line-height:1.15;overflow-wrap:break-word;min-width:0}
+h1{font-size:clamp(34px,6vw,54px);margin:0 0 12px}
+h2{font-size:clamp(24px,4vw,32px);margin:0 0 12px}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header.top{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:20px 0;border-bottom:1px solid var(--line);margin-bottom:36px}
+.wordmark{font-family:var(--serif);font-weight:600;font-size:20px;margin:0}
+nav.top a{margin-left:16px;font-size:15px}
+.hero{display:grid;gap:28px;margin-bottom:56px}
+.years{list-style:none;display:flex;margin:0 0 16px;padding:14px 0 0;border-top:2px solid var(--line)}
+.years li{position:relative;flex:1;min-width:0;font-size:14px;color:var(--muted)}
+.years li::before{content:"";position:absolute;top:-15px;left:2px;width:2px;height:8px;background:var(--accent)}
+.lede{font-size:19px;max-width:34em;margin:0 0 20px}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 28px}
+.btn{display:inline-block;background:var(--ink);color:var(--paper);text-decoration:none;padding:11px 22px;border-radius:999px;font-size:16px}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+.hero-media{min-width:0}
+.hero-video,.hero-still{width:100%;max-width:320px;height:auto;border-radius:10px;background:#000}
+.hero-still{display:none}
+section.block{margin-bottom:56px}
+.steps{display:grid;gap:36px}
+.step{display:grid;gap:16px;align-items:start}
+.step img{width:100%;max-width:280px;height:auto;border-radius:8px}
+.step h3{margin:0 0 8px;font-size:21px}
+.step p{margin:0 0 8px;color:var(--muted)}
+.step .fine{font-size:13px}
+.promise{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px}
+.promise ul{margin:0 0 20px;padding-left:22px}
+.promise li{margin-bottom:8px}
+.promise figure{margin:0;border-top:1px solid var(--line);padding-top:20px}
+.promise blockquote{margin:0 0 8px;font-family:var(--serif);font-size:19px;line-height:1.5}
+.promise figcaption{font-size:14px;color:var(--muted)}
+.gallery{display:grid;gap:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;min-width:0}
+.card h3{margin:0 0 4px;font-size:21px}
+.card .span{margin:0 0 12px;color:var(--muted);font-size:15px}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-bottom:12px}
+.pair img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:6px;display:block}
+.card .credit{font-size:13px;color:var(--muted);margin:0 0 12px}
+.card .links{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;font-size:15px}
+.pill{border:1px solid var(--accent);border-radius:999px;padding:2px 12px;text-decoration:none;font-size:14px}
+.try{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px}
+.try .fine{font-size:15px;color:var(--muted)}
+form p{margin:0 0 12px}
+input[type="text"],input[type="file"]{font:inherit;max-width:100%}
+button{font:inherit;cursor:pointer;background:var(--ink);color:var(--paper);border:none;border-radius:999px;padding:10px 22px}
+button#geo,button#yes,button#no{background:transparent;color:var(--ink);border:1px solid var(--ink);padding:6px 16px;font-size:15px}
+footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;color:var(--muted)}
 .hidden{display:none}
+@media (prefers-reduced-motion:reduce){.hero-video{display:none}.hero-still{display:block}}
+@media (max-width:520px){header.top{flex-wrap:wrap;row-gap:8px}nav.top a{margin-left:0;margin-right:16px}}
+@media (min-width:760px){.hero{grid-template-columns:minmax(0,1fr) 320px;align-items:start}.step{grid-template-columns:280px minmax(0,1fr)}.step:nth-child(even){grid-template-columns:minmax(0,1fr) 280px}.step:nth-child(even) .step-media{order:2}.gallery{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
 </style>
 </head>
 <body>
-<h1>The Witness</h1>
-<h2>Example films</h2>
-<ul>
-__EXAMPLES__
-</ul>
-<h2>Try your own photo</h2>
-<section id="notice">
-<p><strong>Before you upload:</strong> your photo is processed to find and
-tell the story of the landmark it shows. It is sent to Meta (recognition,
-painting, checks) and Baseten (fact checking), on hosting by Modal.
-Nearby-place lookups go to
-Nominatim, Overpass (including the community mirror), Wikidata and
-Wikipedia. Your photo and everything made from it are deleted at the
-hourly sweep once your film ended over 24 h ago. Questions: __CONTACT__.
-<a href="/privacy">Full notice</a></p>
-</section>
-<form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
-<p><input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></p>
-<p><label><input type="checkbox" name="ack" value="on" required>
-I understand the notice above.</label></p>
-<p>No location in your photo?
-<button type="button" id="geo">Use my location</button>
-or type public places only: <input type="text" name="place" autocomplete="off"></p>
-<p><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"></p>
-<p><button type="submit">Make my film</button></p>
-</form>
-<div id="job" class="hidden">
-<p>Working: <span id="clock">0</span> s</p>
-<div id="confirm" class="hidden">
-<p>Is this <strong id="confirm-name"></strong> (<span id="confirm-kind"></span>)?</p>
-<p><button id="yes">Yes</button> <button id="no">No</button></p>
+<div class="wrap">
+<header class="top">
+<p class="wordmark">The Witness</p>
+<nav class="top" aria-label="Page"><a href="#examples">Examples</a><a href="#try">Try your own</a><a href="/privacy">Privacy</a></nav>
+</header>
+<section class="hero" aria-label="Introduction">
+<div>
+<h1>Your photo, painted through the centuries.</h1>
+<p class="lede">Your landmark, researched and painted back through time, every fact sourced.</p>
+<p class="actions"><a class="btn" href="#examples">Watch the examples</a> <a class="btn ghost" href="#try">Try your own photo</a></p>
+<ol class="years" aria-label="De Adriaan through time">
+<li>1779</li>
+<li>1932</li>
+<li>2002</li>
+<li>today</li>
+</ol>
 </div>
-<ul id="events"></ul>
-<p id="result"></p>
+<div class="hero-media">
+<video class="hero-video" autoplay muted loop playsinline preload="metadata" poster="/assets/landing/hero-poster.jpg" aria-label="Preview of the De Adriaan film: the painted mill in 1779"><source src="/assets/landing/hero.mp4" type="video/mp4"></video>
+<img class="hero-still" src="/assets/landing/hero-poster.jpg" width="480" height="854" alt="De Adriaan windmill in Haarlem, painted in 1779 and captioned I was opened">
+</div>
+</section>
+<section class="block" aria-label="How it works">
+<h2>How it works</h2>
+<div class="steps">
+<article class="step">
+<div class="step-media"><img src="/assets/landing/step1.jpg" width="1200" height="900" loading="lazy" alt="Today's photo of De Adriaan windmill in Haarlem"></div>
+<div><h3>1. Your photo</h3><p>Start with any photo of a landmark, old or new.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
+</article>
+<article class="step">
+<div class="step-media"><img src="/assets/landing/step2.jpg" width="960" height="720" loading="lazy" alt="A film frame showing the painted mill captioned 1779: I was opened, sourced from Wikipedia"></div>
+<div><h3>2. Its sourced history</h3><p>We research what happened here, and check every claim against its sources.</p></div>
+</article>
+<article class="step">
+<div class="step-media"><img src="/assets/landing/step3.webp" width="1280" height="1920" loading="lazy" alt="De Adriaan painted in 1932, the year it burnt down"></div>
+<div><h3>3. Painted eras</h3><p>Each era is painted from checked evidence. Then the film returns to your photo.</p></div>
+</article>
+</div>
+</section>
+<section class="block promise" aria-label="The accuracy promise">
+<h2>True, or it is not in the film</h2>
+<ul>
+<li>Every fact shown links to the page it came from.</li>
+<li>Claims without a source are left out of the film.</li>
+</ul>
+<figure>
+<blockquote>Not in the film: in July 2020 the tree was reported as vandalised, with a three-foot section of bark fallen off. No source said so.</blockquote>
+<figcaption>From the Major Oak research. The claim was checked and left out.</figcaption>
+</figure>
+</section>
+<section class="block" id="examples" aria-label="Example films">
+<h2>Example films</h2>
+<p>Three landmarks, researched and painted. Each card opens the film player.</p>
+<div class="gallery">
+__EXAMPLES__
+</div>
+</section>
+<section class="block try" id="try" aria-label="Try your own photo">
+<h2>Try your own photo</h2>
+<p>Works best with old, well-documented landmarks: a tower, windmill, lighthouse, old tree or bridge.</p>
+<p>__TRY_DURATION__</p>
+<p>Sometimes the sources are thin. Then you get the verified facts instead of a film. That is by design.</p>
+__TRY_BLOCK__
+<p class="fine">Your photo is deleted after your film. Read the <a href="/privacy">privacy notice</a>.</p>
+</section>
+<footer class="site">
+<p>Built for the Meta Global AI Developer Hackathon with Muse Spark, Muse Image and Muse Spark Open (via Baseten). The example films' subject cutouts were made with SAM 3.1.</p>
+<p><a href="https://github.com/debarbanson/the-witness">GitHub</a> · <a href="mailto:__CONTACT__">__CONTACT__</a> · <a href="/privacy">Privacy</a></p>
+</footer>
 </div>
 <script nonce="__NONCE__">
 "use strict";
@@ -338,6 +432,7 @@ function showResult(box, st) {
   if (r.film_url) {
     const a = document.createElement("a");
     a.href = r.film_url; a.textContent = "Watch your film.";
+    box.appendChild(document.createTextNode(" "));
     box.appendChild(a);
   }
   for (const c of r.claims || []) {
@@ -423,6 +518,116 @@ window.addEventListener("pagehide", () => {
 </body>
 </html>
 """
+
+TRY_DURATION_LINE = ("Films usually take a few minutes, and the page "
+                     "shows each step as it happens.")
+
+TRY_FORM = """<section id="notice">
+<p><strong>Before you upload:</strong> your photo is processed to find and
+tell the story of the landmark it shows. It is sent to Meta (recognition,
+painting, checks) and Baseten (fact checking), on hosting by Modal.
+Nearby-place lookups go to
+Nominatim, Overpass (including the community mirror), Wikidata and
+Wikipedia. Your photo and everything made from it are deleted at the
+hourly sweep once your film ended over 24 h ago. Questions: __CONTACT__.
+<a href="/privacy">Full notice</a></p>
+</section>
+<form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
+<p><input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></p>
+<p><label><input type="checkbox" name="ack" value="on" required>
+I understand the notice above.</label></p>
+<p>No location in your photo?
+<button type="button" id="geo">Use my location</button>
+or type public places only: <input type="text" name="place" autocomplete="off"></p>
+<p><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"></p>
+<p><button type="submit">Make my film</button></p>
+</form>
+<div id="job" class="hidden">
+<p>Working: <span id="clock">0</span> s</p>
+<div id="confirm" class="hidden">
+<p>Is this <strong id="confirm-name"></strong> (<span id="confirm-kind"></span>)?</p>
+<p><button id="yes">Yes</button> <button id="no">No</button></p>
+</div>
+<ul id="events"></ul>
+<p id="result"></p>
+</div>"""
+
+TRY_RESTING = ("<p><strong>Try your own is resting; the example "
+               "films above still play.</strong> New films are paused "
+               "for now.</p>")
+
+LANDING_ASSETS = {"hero.mp4": "video/mp4",
+                  "hero-poster.jpg": "image/jpeg",
+                  "step1.jpg": "image/jpeg",
+                  "step2.jpg": "image/jpeg",
+                  "step3.webp": "image/webp"}
+FONT_ASSETS = {"fraunces-600.woff2": "font/woff2"}
+
+
+def _gallery_cards(examples_root, examples) -> str:
+    """One card per example film: name, year span, a painted era next
+    to today, the player link, and the children's version where it
+    exists. Spans and credits come from each film's own film.json;
+    a film without one still gets its name and link. An empty
+    gallery says so plainly."""
+    import html as _html
+
+    cards = []
+    for entry in examples:
+        slug, name = entry.get("slug", ""), entry.get("name", "")
+        if not slug or "/" in slug or slug.startswith("."):
+            continue
+        base = Path(examples_root) / slug
+        film = {}
+        try:
+            film = json.loads((base / "film.json").read_text())
+        except (OSError, ValueError):
+            film = {}
+        if not isinstance(film, dict):
+            film = {}
+        years = sorted({scene.get("year")
+                        for scene in film.get("segments", [])
+                        if isinstance(scene, dict)
+                        and isinstance(scene.get("year"), int)})
+        span = (f"<p class=\"span\">{years[0]} – {years[-1]}</p>"
+                if years else "")
+        middle = years[len(years) // 2] if years else None
+        era = ""
+        if middle is not None and (base / f"era_{middle}.webp").exists():
+            era = f"era_{middle}.webp"
+        else:
+            fallbacks = sorted(base.glob("era_*.webp"))
+            era = fallbacks[0].name if fallbacks else ""
+        today = "today.jpg" if (base / "today.jpg").exists() else ""
+        thumbs = "".join(
+            f"<img src=\"/examples/{slug}/{shot}\" loading=\"lazy\" "
+            f"alt=\"{_html.escape(name)}: "
+            f"{'a painted era' if shot != 'today.jpg' else 'today'}\">"
+            for shot in (era, today) if shot)
+        pair = (f"<a class=\"pair\" href=\"/examples/{slug}/\" "
+                f"aria-label=\"Watch {_html.escape(name)}\">{thumbs}</a>"
+                if thumbs else "")
+        credit = film.get("photo_credit") or ""
+        if not credit:
+            source = film.get("photo_source") or {}
+            if isinstance(source, dict) and source.get("author"):
+                credit = (f"Today photo: {source.get('author')}, "
+                          f"{source.get('licence', 'unknown licence')}")
+        credit_line = (f"<p class=\"credit\">"
+                       f"{_html.escape(credit)}</p>" if credit else "")
+        child = (base / "child" / "film.html").exists()
+        pill = (f" <a class=\"pill\" "
+                f"href=\"/examples/{slug}/child/film.html\">"
+                f"Children's version</a>" if child else "")
+        cards.append(
+            f"<article class=\"card\"><h3>{_html.escape(name)}</h3>"
+            f"{span}{pair}{credit_line}<p class=\"links\">"
+            f"<a href=\"/examples/{slug}/\">Watch the film</a>{pill}</p>"
+            f"</article>")
+    if not cards:
+        return "<p>The example films are on their way.</p>"
+    return "\n".join(cards)
+
 
 PRIVACY_PAGE = """<!doctype html>
 <html lang="en">
@@ -634,14 +839,35 @@ def create_app(deps: WebDeps) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
-        items = "".join(
-            f'<li><a href="/examples/{ex["slug"]}/">{ex["name"]}</a></li>'
-            for ex in deps.examples)
-        page = INDEX_PAGE.replace("__EXAMPLES__", items)
+        page = INDEX_PAGE.replace(
+            "__EXAMPLES__",
+            _gallery_cards(deps.examples_root, deps.examples))
+        resting = (deps.try_enabled is not None
+                   and not deps.try_enabled())
+        page = page.replace("__TRY_BLOCK__",
+                            TRY_RESTING if resting else TRY_FORM)
+        page = page.replace("__TRY_DURATION__", TRY_DURATION_LINE)
         page = page.replace("__CONTACT__", deps.contact)
         page = page.replace("__NONCE__", request.state.nonce)
         request.state.style_hashes = _style_hashes(page)
         return HTMLResponse(page)
+
+    def _landing_file(folder, catalog, name):
+        if name not in catalog:
+            raise HTTPException(status_code=404, detail="no such asset")
+        target = (Path(__file__).resolve().parent / "landing" / folder
+                  / name)
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="no such asset")
+        return FileResponse(target, media_type=catalog[name])
+
+    @app.get("/assets/landing/{name}")
+    async def landing_asset(name: str):
+        return _landing_file("", LANDING_ASSETS, name)
+
+    @app.get("/assets/fonts/{name}")
+    async def font_asset(name: str):
+        return _landing_file("fonts", FONT_ASSETS, name)
 
     @app.get("/privacy", response_class=HTMLResponse)
     async def privacy():

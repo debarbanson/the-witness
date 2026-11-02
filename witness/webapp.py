@@ -27,7 +27,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse)
+                               PlainTextResponse, RedirectResponse)
 
 from witness import models, photo as photo_module
 from witness.cli import job_dir
@@ -60,6 +60,9 @@ class WebDeps:
     secure_cookies: bool = False
     ip_secret: str = field(default_factory=lambda: secrets.token_hex(16))
     debug_reset: bool = False  # staging abuse runs only; off everywhere else
+    # try_enabled answers the production off switch; None means always on.
+    try_enabled: object = None
+    noindex: bool = False  # judge mode: unlisted page, never indexed
 
 
 class MemoryStore:
@@ -498,8 +501,9 @@ class BodyCapMiddleware:
     cap are replayed to the app untouched. The cap is read per
     request so tests can shrink it."""
 
-    def __init__(self, app):
+    def __init__(self, app, noindex=False):
         self.app = app
+        self.noindex = noindex
 
     async def __call__(self, scope, receive, send):
         if (scope.get("type") != "http" or scope.get("method") != "POST"
@@ -524,11 +528,13 @@ class BodyCapMiddleware:
                 break
         if capped:
             payload = b'{"error":"bad photo: upload too large"}'
+            headers = [(b"content-type", b"application/json"),
+                       (b"content-length", str(len(payload)).encode()),
+                       (b"x-content-type-options", b"nosniff")]
+            if self.noindex:
+                headers.append((b"x-robots-tag", b"noindex"))
             await send({"type": "http.response.start", "status": 400,
-                        "headers": [(b"content-type", b"application/json"),
-                                    (b"content-length",
-                                     str(len(payload)).encode()),
-                                    (b"x-content-type-options", b"nosniff")]})
+                        "headers": headers})
             await send({"type": "http.response.body", "body": payload})
             return
         buffered_iter = iter(buffered)
@@ -549,7 +555,7 @@ def create_app(deps: WebDeps) -> FastAPI:
     clock = deps.clock or _time.time
     store = deps.store
     app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
-    app.add_middleware(BodyCapMiddleware)
+    app.add_middleware(BodyCapMiddleware, noindex=deps.noindex)
 
     def _head(response, request, nonce, correlation):
         response.headers["Strict-Transport-Security"] = (
@@ -559,6 +565,8 @@ def create_app(deps: WebDeps) -> FastAPI:
         response.headers["Content-Security-Policy"] = _csp(
             nonce, getattr(request.state, "style_hashes", ()))
         response.headers["X-Correlation-Id"] = correlation
+        if deps.noindex:
+            response.headers["X-Robots-Tag"] = "noindex"
         return response
 
     def _refuse(request, detail, status, nonce, correlation):
@@ -639,10 +647,18 @@ def create_app(deps: WebDeps) -> FastAPI:
     async def privacy():
         return HTMLResponse(PRIVACY_PAGE.replace("__CONTACT__", deps.contact))
 
+    @app.get("/robots.txt", response_class=PlainTextResponse)
+    async def robots():
+        return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
     @app.post("/api/jobs")
     async def start_job(request: Request, photo: UploadFile = File(...),
                         ack: str = Form(None), place: str = Form(""),
                         lat: str = Form(""), lon: str = Form("")):
+        if deps.try_enabled is not None and not deps.try_enabled():
+            return _deny(request,
+                         "Try your own is resting; the examples are below",
+                         503)
         if ack != "on":
             return _deny(request, "notice not accepted", 400)
         try:

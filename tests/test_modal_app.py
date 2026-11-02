@@ -302,7 +302,8 @@ def test_run_film_loads_the_spec_from_the_job_folder(tmp_path, monkeypatch):
             seen["committed"] = True
 
     monkeypatch.setattr(modal_app, "jobs_volume", Volume())
-    monkeypatch.setattr(modal_app, "_worker_store", lambda: store)
+    monkeypatch.setattr(modal_app, "_worker_store",
+                            lambda backend="staging": store)
     monkeypatch.setattr(webfilm, "run_web_film", fake_run)
     assert modal_app.run_film.local({"job_id": "j",
                                      "job_dir": str(job_dir)}) == {
@@ -331,7 +332,8 @@ def test_run_film_without_a_spec_ends_failed(tmp_path, monkeypatch):
             pass
 
     monkeypatch.setattr(modal_app, "jobs_volume", Volume())
-    monkeypatch.setattr(modal_app, "_worker_store", lambda: store)
+    monkeypatch.setattr(modal_app, "_worker_store",
+                            lambda backend="staging": store)
     monkeypatch.setattr(webfilm, "run_web_film", boom)
     assert modal_app.run_film.local({"job_id": "j",
                                      "job_dir": str(job_dir)}) == {
@@ -360,16 +362,6 @@ def test_modal_image_builds_from_the_lockfile():
     for package in ("fastapi==", "pillow==", "openai==", "meta-sam-parser==",
                     "python-multipart==", "modal=="):
         assert package in lock, package
-
-
-def test_staging_page_requires_proxy_auth():
-    """The page is private: the asgi app demands Modal proxy auth
-    (https://modal.com/docs/guide/webhook-proxy-auth)."""
-    from pathlib import Path
-
-    src = Path(modal_app.__file__).read_text()
-    assert "requires_proxy_auth=True" in src
-    assert "@modal.asgi_app()" not in src
 
 
 def test_install_instructions_name_the_lockfile():
@@ -423,7 +415,8 @@ def test_run_film_scrubs_and_commits_before_starting_work(tmp_path,
             seen.append("committed")
 
     monkeypatch.setattr(modal_app, "jobs_volume", Volume())
-    monkeypatch.setattr(modal_app, "_worker_store", lambda: store)
+    monkeypatch.setattr(modal_app, "_worker_store",
+                            lambda backend="staging": store)
     monkeypatch.setattr(webfilm, "run_web_film", fake_run)
     assert modal_app.run_film.local({"job_id": "j",
                                      "job_dir": str(job_dir)}) == {
@@ -444,3 +437,193 @@ def test_spawn_returns_the_worker_handle():
                and isinstance(n.value.func, ast.Attribute)
                and n.value.func.attr == "spawn"]
     assert len(returns) == 1
+
+
+def _judge_fn():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    return next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                and n.name == "judge")
+
+
+def test_judge_has_no_proxy_auth_and_staging_does():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    found = {}
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in ("web",
+                                                               "judge"):
+            for deco in node.decorator_list:
+                target = deco.func if isinstance(deco, ast.Call) else deco
+                if (isinstance(target, ast.Attribute)
+                        and target.attr == "asgi_app"):
+                    if isinstance(deco, ast.Call):
+                        flags = {k.arg: ast.literal_eval(k.value)
+                                 for k in deco.keywords if k.arg}
+                    else:
+                        flags = {}
+                    found[node.name] = flags.get("requires_proxy_auth",
+                                                 False)
+    assert found == {"web": True, "judge": False}
+
+
+def test_judge_wiring_pins_safety_flags():
+    import ast
+
+    judge = _judge_fn()
+    calls = [n for n in ast.walk(judge) if isinstance(n, ast.Call)]
+    deps = next(n for n in calls
+                if isinstance(n.func, ast.Name) and n.func.id == "WebDeps")
+    flags = {}
+    for key in deps.keywords:
+        if isinstance(key.value, ast.Constant):
+            flags[key.arg] = key.value.value
+        elif isinstance(key.value, ast.Name):
+            flags[key.arg] = key.value.id
+        elif isinstance(key.value, ast.Call):
+            flags[key.arg] = ast.dump(key.value.func)
+    assert flags["noindex"] is True
+    assert flags["debug_reset"] is False
+    assert flags["try_enabled"] == "_try_enabled"
+    assert "jobs_root" in flags
+    authority = next(n for n in calls
+                     if isinstance(n.func, ast.Name)
+                     and n.func.id == "ModalAuthority")
+    auth_flags = {k.arg: k.value for k in authority.keywords}
+    assert isinstance(auth_flags["cap_usd"], ast.Call)
+    assert auth_flags["cap_usd"].func.id == "_judge_cap"
+    assert ast.literal_eval(auth_flags["backend"]) == "judge"
+
+
+def test_judge_cap_requires_a_positive_number(monkeypatch):
+    monkeypatch.delenv("WITNESS_JUDGE_CAP_USD", raising=False)
+    with pytest.raises(RuntimeError):
+        modal_app._judge_cap()
+    for bad in ("abc", "-1", "0", "nan"):
+        monkeypatch.setenv("WITNESS_JUDGE_CAP_USD", bad)
+        with pytest.raises(RuntimeError):
+            modal_app._judge_cap()
+    monkeypatch.setenv("WITNESS_JUDGE_CAP_USD", "12.5")
+    assert modal_app._judge_cap() == 12.5
+
+
+def test_try_switch_flips_the_flag(monkeypatch):
+    flag = {}
+    monkeypatch.setattr(modal_app, "try_flag_dict", flag)
+    assert modal_app._try_enabled() is True
+    modal_app.try_switch.local(False)
+    assert flag == {"enabled": False}
+    assert modal_app._try_enabled() is False
+    modal_app.try_switch.local(True)
+    assert modal_app._try_enabled() is True
+
+
+def test_try_enabled_fails_open_when_unreadable(monkeypatch):
+    class Broken:
+        def get(self, key, default=None):
+            raise OSError("synthetic dict outage")
+
+    monkeypatch.setattr(modal_app, "try_flag_dict", Broken())
+    assert modal_app._try_enabled() is True
+
+
+def test_volume_examples_lists_ready_films(tmp_path):
+    ready = tmp_path / "de-adriaan"
+    ready.mkdir()
+    (ready / "film.html").write_text("synthetic")
+    found = modal_app._volume_examples(tmp_path)
+    assert found == [{"slug": "de-adriaan",
+                      "name": "De Adriaan, Haarlem"}]
+    assert modal_app._volume_examples(tmp_path / "empty") == []
+
+
+def test_production_ledger_is_isolated(monkeypatch):
+    staging, judge = {}, {}
+    monkeypatch.setattr(modal_app, "ledger_dict", staging)
+    monkeypatch.setattr(modal_app, "judge_ledger_dict", judge)
+    answer = modal_app.ledger_op.local(
+        {"kind": "admit", "visitor": "v", "daily_films": 10,
+         "visitor_films": 2, "now": 1000.0, "backend": "judge"})
+    assert answer["ok"] is True
+    assert staging == {}
+    assert len(judge) == 1
+    answer = modal_app.ledger_op.local({"kind": "total",
+                                        "backend": "nope"})
+    assert answer == {"ok": False, "error": "unknown backend"}
+
+
+def test_modal_authority_carries_its_backend(monkeypatch):
+    ops = []
+
+    class LedgerFn:
+        def remote(self, op):
+            ops.append(op)
+            return {"ok": True, "total_usd": 0.0, "reserved_usd": 0.0}
+
+    monkeypatch.setattr(modal_app, "ledger_op", LedgerFn())
+    modal_app.ModalAuthority(cap_usd=1.0, backend="judge").admit("v")
+    assert ops[0]["backend"] == "judge"
+    modal_app.ModalAuthority(cap_usd=1.0).admit("v")
+    assert ops[1]["backend"] == "staging"
+
+
+def test_run_film_routes_by_backend(tmp_path, monkeypatch):
+    import json
+
+    from witness import webfilm
+
+    monkeypatch.setenv("WITNESS_JUDGE_CAP_USD", "12.5")
+
+    job_dir = tmp_path / "job-x"
+    job_dir.mkdir()
+    spec = {"job_id": "j", "token": "t", "vid": "v",
+            "job_dir": str(job_dir), "photo": str(job_dir / "today.jpg"),
+            "place": "", "lat": None, "lon": None, "location": None}
+    (job_dir / "spec.json").write_text(json.dumps(spec))
+    (job_dir / "today.jpg").write_bytes(b"x")
+    store = MemoryStore()
+    store.create_job("j", _record(job_dir=str(job_dir)))
+    seen = []
+
+    def fake_run(full_spec, job_store, authority, nominatim_pace=None):
+        full_spec["on_cancel"](_control())
+        return {"status": "done"}
+
+    def recorder(name):
+        class Volume:
+            def reload(self):
+                seen.append((name, "reload"))
+
+            def commit(self):
+                seen.append((name, "commit"))
+
+        return Volume()
+
+    backends = []
+
+    def worker_store(backend="staging"):
+        backends.append(backend)
+        return store
+
+    monkeypatch.setattr(modal_app, "jobs_volume", recorder("staging"))
+    monkeypatch.setattr(modal_app, "judge_jobs_volume",
+                        recorder("judge"))
+    monkeypatch.setattr(modal_app, "_worker_store", worker_store)
+    monkeypatch.setattr(webfilm, "run_web_film", fake_run)
+    assert modal_app.run_film.local({"job_id": "j",
+                                     "job_dir": str(job_dir),
+                                     "backend": "judge"}) == {
+        "status": "done"}
+    assert backends == ["judge"]
+    assert seen == [("judge", "reload"), ("judge", "commit"),
+                    ("judge", "commit")]
+    store.create_job("k", _record(job_dir=str(job_dir)))
+    assert modal_app.run_film.local({"job_id": "k",
+                                     "job_dir": str(job_dir),
+                                     "backend": "nope"}) == {
+        "status": "failed"}
+    assert store.get_job("k")["status"] == "failed"

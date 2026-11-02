@@ -789,3 +789,52 @@ def test_privacy_notice_renders_the_contact(tmp_path):
     index = client.get("/").text
     assert "owner@example.com" in index
     assert "__CONTACT__" not in index
+
+
+def test_try_switch_off_refuses_new_jobs_with_503(tmp_path):
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    authority = FakeAuthority()
+    client = _client(tmp_path, store=store, authority=authority,
+                     try_enabled=lambda: False)
+    out = _upload(client)
+    assert out.status_code == 503
+    assert "Try your own is resting; the examples are below" in out.text
+    assert store.job_ids() == []
+    assert authority.admitted == []
+
+
+def test_try_switch_on_serves_jobs_and_off_serves_examples(tmp_path):
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    flag = {"on": True}
+    client = _client(tmp_path, store=store,
+                     runner=lambda ref: "test-receipt",
+                     try_enabled=lambda: flag["on"])
+    assert _upload(client).status_code == 200
+    flag["on"] = False
+    assert _upload(client).status_code == 503
+    assert client.get("/").status_code == 200
+    assert client.get("/examples/de-adriaan/").status_code == 200
+
+
+def test_noindex_header_only_when_enabled(tmp_path):
+    plain = _client(tmp_path)
+    assert "x-robots-tag" not in plain.get("/").headers
+    hidden = _client(tmp_path, noindex=True)
+    for response in (hidden.get("/"), hidden.get("/privacy"),
+                     hidden.get("/examples/de-adriaan/"),
+                     hidden.get("/no-such-page")):
+        assert response.headers["x-robots-tag"] == "noindex"
+    denied = hidden.post("/api/jobs", files={"photo": ("up.jpg", b"x")},
+                         data={"ack": "on"}, headers=ORIGIN)
+    assert denied.headers["x-robots-tag"] == "noindex"
+
+
+def test_robots_txt_disallows_everything(tmp_path):
+    out = _client(tmp_path).get("/robots.txt")
+    assert out.status_code == 200
+    assert "User-agent: *" in out.text
+    assert "Disallow: /" in out.text

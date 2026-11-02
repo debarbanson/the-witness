@@ -1,4 +1,4 @@
-"""The Witness on Modal, private staging.
+"""The Witness on Modal: private staging plus public judge mode.
 
 Allowlisted image: the witness package plus three reviewed example
 films. Never out/, samples/ or .env.local. Keys arrive only as the
@@ -8,7 +8,10 @@ container through a single-container ledger function over a Dict
 container makes it so), and one single-container slot function
 paces Nominatim to the usage policy's one request per second.
 Job state lives in a Dict, job files on a Volume, and an hourly cron
-enforces the 24 h retention rule.
+enforces the 24 h retention rule. Staging (`web`, proxy auth) and
+judge mode (`judge`, public and unlisted) run on fully separate
+state; judge mode serves its examples from a shared Volume and
+gates Try your own behind a hard cap, quotas and an off switch.
 
 Volume protocol: the web container commits before spawning the
 worker, the worker reloads on start and commits when done, and film
@@ -78,6 +81,18 @@ jobs_volume = modal.Volume.from_name("witness-jobs", create_if_missing=True)
 store_dict = modal.Dict.from_name("witness-store", create_if_missing=True)
 ledger_dict = modal.Dict.from_name("witness-ledger", create_if_missing=True)
 nominatim_dict = modal.Dict.from_name("witness-nominatim", create_if_missing=True)
+# Judge mode runs on fully separate state, so staging tests can never
+# spend the judging budget or reset its quotas.
+judge_jobs_volume = modal.Volume.from_name("witness-judge-jobs",
+                                           create_if_missing=True)
+judge_store_dict = modal.Dict.from_name("witness-judge-store",
+                                        create_if_missing=True)
+judge_ledger_dict = modal.Dict.from_name("witness-judge-ledger",
+                                         create_if_missing=True)
+try_flag_dict = modal.Dict.from_name("witness-judge-flag",
+                                     create_if_missing=True)
+examples_volume = modal.Volume.from_name("witness-examples",
+                                         create_if_missing=True)
 
 
 def _apply_ledger_op(data, op):
@@ -181,6 +196,15 @@ def _apply_ledger_op(data, op):
                   "reserved_usd": data["reserved_usd"]}
 
 
+def _ledger_for(backend):
+    """The ledger Dict for a backend, or None for an unknown one."""
+    if backend == "judge":
+        return judge_ledger_dict
+    if backend in (None, "staging"):
+        return ledger_dict
+    return None
+
+
 @app.function(max_containers=1)
 def ledger_op(op):
     """The one budget authority: serialized read-modify-write on the
@@ -188,10 +212,13 @@ def ledger_op(op):
     import json
     from datetime import date
 
+    handle = _ledger_for(op.get("backend", "staging"))
+    if handle is None:
+        return {"ok": False, "error": "unknown backend"}
     name = f"spending-{op.get('day') or date.today().isoformat()}"
     with _LEDGER_LOCK:
         try:
-            raw = ledger_dict.get(name)
+            raw = handle.get(name)
         except OSError:
             return {"ok": False, "error": "accounting unavailable"}
         if raw is None:
@@ -209,7 +236,7 @@ def ledger_op(op):
         if not answer.get("ok"):
             return answer
         try:
-            ledger_dict[name] = json.dumps(data)
+            handle[name] = json.dumps(data)
         except OSError:
             return {"ok": False, "error": "accounting unavailable"}
         return answer
@@ -219,15 +246,19 @@ class ModalAuthority:
     """BudgetAuthority protocol over the ledger function. Any error or
     refusal raises, failing closed."""
 
-    def __init__(self, cap_usd=None, daily_films=None, visitor_films=None):
+    def __init__(self, cap_usd=None, daily_films=None, visitor_films=None,
+                 backend="staging"):
         from witness import models
 
         self._models = models
         self.cap_usd = cap_usd
         self.daily_films = daily_films
         self.visitor_films = visitor_films
+        self.backend = backend
 
     def _call(self, op):
+        op = dict(op)
+        op["backend"] = self.backend
         try:
             answer = ledger_op.remote(op)
         except Exception as exc:
@@ -424,7 +455,9 @@ class DictStore:
                       if key.endswith(":meta"))
 
 
-def _worker_store():
+def _worker_store(backend="staging"):
+    if backend == "judge":
+        return DictStore(modal.Dict.from_name("witness-judge-store"))
     return DictStore(modal.Dict.from_name("witness-store"))
 
 
@@ -449,6 +482,51 @@ def _ip_secret():
     except KeyError:
         raise RuntimeError("WITNESS_IP_SECRET is not set: the page needs "
                            "a shared visitor-hash secret before it goes live")
+
+
+def _judge_cap() -> float:
+    """Judge mode's hard daily spending cap in dollars, from the
+    secret. Refusing to start without a positive number: public
+    generation never runs uncapped."""
+    import math
+
+    try:
+        cap = float(os.environ["WITNESS_JUDGE_CAP_USD"])
+    except (KeyError, ValueError):
+        raise RuntimeError("WITNESS_JUDGE_CAP_USD is not set: judge mode "
+                           "needs a hard daily spending cap before it "
+                           "goes live")
+    if not (math.isfinite(cap) and cap > 0):
+        raise RuntimeError("WITNESS_JUDGE_CAP_USD must be a positive "
+                           "number of dollars")
+    return cap
+
+
+def _try_enabled() -> bool:
+    """The Try-your-own off switch, read live on every upload: the
+    flag is off within a minute of the flip, with no redeploy. An
+    unreadable flag fails open: the spending caps still bound every
+    call, and a sick Dict must not silence judging."""
+    try:
+        return try_flag_dict.get("enabled", True) is not False
+    except Exception:
+        return True
+
+
+def _volume_examples(root):
+    """Example films served from the shared Volume: the reviewed
+    films uploaded once, not baked into the image. Missing ones are
+    skipped with a log line."""
+    catalog = (("de-adriaan", "De Adriaan, Haarlem"),
+               ("major-oak", "The Major Oak, Sherwood Forest"),
+               ("rubjerg-knude", "Rubjerg Knude lighthouse, Denmark"))
+    found = []
+    for slug, name in catalog:
+        if (Path(root) / slug / "film.html").exists():
+            found.append({"slug": slug, "name": name})
+        else:
+            print(f"examples: skipping {slug} (no film at {root}/{slug})")
+    return found
 
 
 def _watch_job(store, job_id, control, stop, poll_s=2.0, heartbeat_s=120,
@@ -504,19 +582,37 @@ def nominatim_slot():
     return True
 
 
-@app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume},
+@app.function(image=image, secrets=[keys],
+             volumes={"/jobs": jobs_volume,
+                     "/judge-jobs": judge_jobs_volume},
              timeout=1800)
 def run_film(ref):
     """One Try-your-own film through the tested runner; a closed tab
     (or DELETE) cancels through the job control. `ref` carries only
-    the job id and folder: the place and location stay in the job's
-    private spec file, never in spawn arguments or logs. The file is
-    scrubbed as soon as it is read, before any paid call."""
+    the job id, folder and backend: the place and location stay in
+    the job's private spec file, never in spawn arguments or logs.
+    The file is scrubbed as soon as it is read, before any paid
+    call. Staging and judge mode run on separate state."""
     from witness.webfilm import load_spec, run_web_film, scrub_hand_off
 
-    jobs_volume.reload()
+    backend = ref.get("backend", "staging")
+    if backend == "judge":
+        volume = judge_jobs_volume
+        cap_usd = _judge_cap()
+    elif backend == "staging":
+        volume = jobs_volume
+        cap_usd = TRY_DAILY_CAP_USD
+    else:
+        store = _worker_store()
+        try:
+            store.end_job(ref["job_id"], "failed",
+                          {"message": "unknown backend"})
+        except KeyError:
+            pass
+        return {"status": "failed"}
+    volume.reload()
     job_id = ref["job_id"]
-    store = _worker_store()
+    store = _worker_store(backend)
     try:
         spec = load_spec(ref["job_dir"])
     except (OSError, ValueError) as exc:
@@ -526,13 +622,14 @@ def run_film(ref):
                 {"message": f"broken job spec: {exc.__class__.__name__}"})
         except KeyError:
             pass
-        jobs_volume.commit()
+        volume.commit()
         return {"status": "failed"}
     scrub_hand_off(ref["job_dir"])
-    jobs_volume.commit()
-    authority = ModalAuthority(cap_usd=TRY_DAILY_CAP_USD,
+    volume.commit()
+    authority = ModalAuthority(cap_usd=cap_usd,
                                daily_films=TRY_DAILY_FILMS,
-                               visitor_films=TRY_VISITOR_FILMS)
+                               visitor_films=TRY_VISITOR_FILMS,
+                               backend=backend)
     stop = threading.Event()
 
     def watch_cancel(control):
@@ -546,7 +643,7 @@ def run_film(ref):
                                authority, nominatim_pace=nominatim_pace)
     finally:
         stop.set()
-    jobs_volume.commit()
+    volume.commit()
     return outcome
 
 
@@ -556,7 +653,8 @@ def prune_hourly():
     """Enforce the 24 h retention rule across job files and records,
     sweep job folders the store no longer knows, and expire visitor
     hashes in the ledger (the totals stay). A failed ledger scrub
-    heals on the next hour."""
+    heals on the next hour. Staging and judge mode are pruned
+    together, from their separate state."""
     import time as _time
     from datetime import date as _date
     from datetime import timedelta as _timedelta
@@ -564,26 +662,42 @@ def prune_hourly():
     from witness.webapp import prune_jobs, sweep_job_dirs
 
     jobs_volume.reload()
-    store = _worker_store()
+    judge_jobs_volume.reload()
     now = _time.time()
-    pruned = prune_jobs(store, now)
-    swept = sweep_job_dirs(store, "/jobs", now)
+    pruned = (prune_jobs(_worker_store("staging"), now)
+              + prune_jobs(_worker_store("judge"), now))
+    swept = (sweep_job_dirs(_worker_store("staging"), "/jobs", now)
+             + sweep_job_dirs(_worker_store("judge"), "/judge-jobs", now))
     jobs_volume.commit()
+    judge_jobs_volume.commit()
     expired = 0
     today = _date.today()
-    for back in range(8):
-        day = (today - _timedelta(days=back)).isoformat()
-        if back < 2:
-            try:
-                answer = ledger_op.remote({"kind": "expire", "now": now,
-                                           "day": day})
-            except Exception:
-                continue
-            if answer.get("ok"):
-                expired += int(answer.get("expired", 0))
-        else:
-            ledger_dict.pop(f"spending-{day}", None)
+    for backend, handle in (("staging", ledger_dict),
+                            ("judge", judge_ledger_dict)):
+        for back in range(8):
+            day = (today - _timedelta(days=back)).isoformat()
+            if back < 2:
+                try:
+                    answer = ledger_op.remote({"kind": "expire", "now": now,
+                                               "day": day,
+                                               "backend": backend})
+                except Exception:
+                    continue
+                if answer.get("ok"):
+                    expired += int(answer.get("expired", 0))
+            else:
+                handle.pop(f"spending-{day}", None)
     return {"pruned": pruned, "swept": swept, "expired": expired}
+
+
+@app.function()
+def try_switch(enable: bool):
+    """Flip judge mode's Try-your-own switch, on or off within a
+    minute, with no redeploy. Run from a shell with Modal access:
+    modal run modal_app.py::try_switch --enable 0. The examples are
+    unaffected either way."""
+    try_flag_dict["enabled"] = bool(enable)
+    return {"enabled": bool(enable)}
 
 
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume})
@@ -596,7 +710,7 @@ def web():
 
     def spawn(ref):
         jobs_volume.commit()
-        return run_film.spawn(ref)
+        return run_film.spawn({**ref, "backend": "staging"})
 
     app = create_app(WebDeps(
         store=DictStore(),
@@ -620,6 +734,57 @@ def web():
         async def __call__(self, scope, receive, send):
             if scope.get("path", "").startswith("/film/"):
                 volume.reload()
+            await self._wrapped(scope, receive, send)
+
+    return _Reload(app)
+
+
+@app.function(image=image, secrets=[keys],
+              volumes={"/judge-jobs": judge_jobs_volume,
+                      "/examples": examples_volume})
+@modal.asgi_app()
+def judge():
+    """Judge mode: the public, unlisted page. No proxy auth; the link
+    is shared only in the submission, and every response carries
+    noindex. Reviewed examples come first; Try your own runs behind
+    the hard daily cap, the per-visitor and global quotas, and the
+    off switch. Separate state from staging throughout, and the
+    abuse reset is never wired here."""
+    from witness.webapp import WebDeps, create_app
+
+    def spawn(ref):
+        judge_jobs_volume.commit()
+        return run_film.spawn({**ref, "backend": "judge"})
+
+    app = create_app(WebDeps(
+        store=DictStore(judge_store_dict),
+        authority=ModalAuthority(cap_usd=_judge_cap(),
+                                 daily_films=TRY_DAILY_FILMS,
+                                 visitor_films=TRY_VISITOR_FILMS,
+                                 backend="judge"),
+        runner=spawn,
+        jobs_root="/judge-jobs", examples_root="/examples",
+        examples=_volume_examples("/examples"),
+        contact=_contact(),
+        secure_cookies=True,
+        ip_secret=_ip_secret(),
+        debug_reset=False,
+        try_enabled=_try_enabled,
+        noindex=True))
+
+    volume = judge_jobs_volume
+    shared = examples_volume
+
+    class _Reload:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+
+        async def __call__(self, scope, receive, send):
+            path = scope.get("path", "")
+            if path.startswith("/film/"):
+                volume.reload()
+            elif path.startswith("/examples/"):
+                shared.reload()
             await self._wrapped(scope, receive, send)
 
     return _Reload(app)

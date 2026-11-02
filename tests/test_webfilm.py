@@ -545,3 +545,72 @@ def test_web_runner_passes_pre_admission_and_browser_location(
     assert seen["pre_admitted"] is True
     assert seen["location"] == (0.5, 0.25)
     assert seen["visitor"] == "visitor-1"
+
+
+def test_scrub_hand_off_removes_location_keys_atomically(tmp_path):
+    import json
+
+    from witness.webfilm import scrub_hand_off
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    full = {"job_id": "job-1", "token": "t", "vid": "v",
+            "job_dir": str(job_dir), "photo": "today.jpg",
+            "place": "SYNTHETIC_PRIVATE_PLACE", "lat": 0.5, "lon": 0.25,
+            "location": [0.5, 0.25]}
+    (job_dir / "spec.json").write_text(json.dumps(full))
+    assert scrub_hand_off(job_dir) is True
+    scrubbed = json.loads((job_dir / "spec.json").read_text())
+    assert scrubbed == {"job_id": "job-1", "token": "t", "vid": "v",
+                        "job_dir": str(job_dir), "photo": "today.jpg"}
+    assert sorted(p.name for p in job_dir.iterdir()) == ["spec.json"]
+    assert scrub_hand_off(job_dir) is False
+
+
+def test_scrub_hand_off_missing_file_is_a_noop(tmp_path):
+    from witness.webfilm import scrub_hand_off
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    assert scrub_hand_off(job_dir) is False
+
+
+def test_scrub_hand_off_deletes_an_unreadable_spec(tmp_path):
+    import pytest
+
+    from witness.webfilm import scrub_hand_off
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "spec.json").write_bytes(b"{not json")
+    with pytest.raises(ValueError):
+        scrub_hand_off(job_dir)
+    assert not (job_dir / "spec.json").exists()
+
+
+def test_run_web_film_scrubs_before_the_first_paid_call(tmp_path,
+                                                        monkeypatch):
+    import json
+
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    spec.update(place="SYNTHETIC_PRIVATE_PLACE", lat=0.5, lon=0.25,
+                location=[0.5, 0.25])
+    job_dir = tmp_path / "job"
+    (job_dir / "spec.json").write_text(json.dumps(spec))
+
+    def run_job(*args, **kwargs):
+        on_disk = json.loads((job_dir / "spec.json").read_text())
+        assert "place" not in on_disk and "location" not in on_disk
+        assert "lat" not in on_disk and "lon" not in on_disk
+        return {"confirmed": False, "identified": False, "cached": False,
+                "error_kind": "quota", "error": "visitor quota spent"}
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", run_job)
+    try:
+        assert run_web_film(spec, store, authority=None) == {
+            "status": "refused"}
+    finally:
+        models.configure_spending(None)

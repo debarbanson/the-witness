@@ -1308,3 +1308,40 @@ def test_r3_17_slow_drip_hits_the_total_deadline_fast(monkeypatch):
     finally:
         one.close()
         thread.join()
+
+
+def test_r3_01_location_leaves_the_spec_on_worker_start(tmp_path,
+                                                        monkeypatch):
+    """Once the worker has started, spec.json has no location keys."""
+    from fastapi.testclient import TestClient
+
+    store = webapp.MemoryStore()
+
+    def worker(ref):
+        full = webfilm.load_spec(ref["job_dir"])
+        webfilm.run_web_film(full, store, None)
+        return "test-receipt"
+
+    deps = webapp.WebDeps(store, None, worker, tmp_path / "jobs",
+                           tmp_path / "examples")
+    client = TestClient(webapp.create_app(deps),
+                        raise_server_exceptions=False)
+    monkeypatch.setattr(cli, "run_job",
+                        lambda *a, **k: {"confirmed": False,
+                                         "identified": False,
+                                         "cached": False,
+                                         "error_kind": "quota",
+                                         "error": "visitor quota spent"})
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="PNG")
+    response = client.post("/api/jobs",
+                           headers={"Origin": "http://testserver"},
+                           files={"photo": ("x.png", buf.getvalue())},
+                           data={"ack": "on", "place": "SYNTHETIC_PLACE",
+                                 "lat": "0.5", "lon": "0.25"})
+    assert response.status_code == 200
+    job = store.get_job(response.json()["job_id"])
+    spec = json.loads((Path(job["job_dir"]) / "spec.json").read_text())
+    assert "place" not in spec and "location" not in spec
+    assert "lat" not in spec and "lon" not in spec
+    models.configure_spending(None)

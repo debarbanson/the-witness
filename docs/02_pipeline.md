@@ -18,7 +18,7 @@ One photo (JPEG/PNG) and a location. The location comes from, in order:
 2. the browser's Geolocation API at upload time, when the photo carries none (web page only, with the user's permission);
 3. a typed place name, as the last resort (and the command line's `--place`).
 
-Privacy: coordinates are used for the lookup in step 0. On the web page they wait in the job's private server folder (spec.json, read only by the worker) and are deleted with the job at the hourly sweep once it ended over 24 h ago; the research keeps only a coarse season zone, and the film, the logs and the job store never carry them. Outputs carry no GPS data: re-encode images, never copy EXIF.
+Privacy: coordinates are used for the lookup in step 0. On the web page they are held in the job's private hand-off file (spec.json) only until the worker reads it, then removed; the research keeps only a coarse season zone, and the film, the logs and the job store never carry them. Outputs carry no GPS data: re-encode images, never copy EXIF.
 
 ## Step 0: Identify the object
 

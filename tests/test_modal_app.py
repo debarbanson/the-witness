@@ -388,3 +388,59 @@ def test_ip_secret_is_required(monkeypatch):
     assert "WITNESS_IP_SECRET" in str(excinfo.value)
     monkeypatch.setenv("WITNESS_IP_SECRET", "test-secret")
     assert modal_app._ip_secret() == "test-secret"
+
+
+def test_run_film_scrubs_and_commits_before_starting_work(tmp_path,
+                                                          monkeypatch):
+    import json
+
+    from witness import webfilm
+
+    job_dir = tmp_path / "job-x"
+    job_dir.mkdir()
+    spec = {"job_id": "j", "token": "t", "vid": "v",
+            "job_dir": str(job_dir), "photo": str(job_dir / "today.jpg"),
+            "place": "Test Town", "lat": None, "lon": None,
+            "location": [12.3457, 65.4321]}
+    (job_dir / "spec.json").write_text(json.dumps(spec))
+    (job_dir / "today.jpg").write_bytes(b"x")
+    store = MemoryStore()
+    store.create_job("j", _record(job_dir=str(job_dir)))
+    seen = []
+
+    def fake_run(full_spec, job_store, authority, nominatim_pace=None):
+        on_disk = json.loads((job_dir / "spec.json").read_text())
+        assert "place" not in on_disk and "location" not in on_disk
+        assert seen == ["committed"]
+        full_spec["on_cancel"](_control())
+        return {"status": "done"}
+
+    class Volume:
+        def reload(self):
+            pass
+
+        def commit(self):
+            seen.append("committed")
+
+    monkeypatch.setattr(modal_app, "jobs_volume", Volume())
+    monkeypatch.setattr(modal_app, "_worker_store", lambda: store)
+    monkeypatch.setattr(webfilm, "run_web_film", fake_run)
+    assert modal_app.run_film.local({"job_id": "j",
+                                     "job_dir": str(job_dir)}) == {
+        "status": "done"}
+
+
+def test_spawn_returns_the_worker_handle():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    web = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+               and n.name == "web")
+    spawn = next(n for n in ast.walk(web) if isinstance(n, ast.FunctionDef)
+                 and n.name == "spawn")
+    returns = [n for n in ast.walk(spawn) if isinstance(n, ast.Return)
+               and isinstance(n.value, ast.Call)
+               and isinstance(n.value.func, ast.Attribute)
+               and n.value.func.attr == "spawn"]
+    assert len(returns) == 1

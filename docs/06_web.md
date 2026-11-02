@@ -25,7 +25,7 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 ## Privacy
 
 - No accounts, no analytics. One `vid` session cookie so a visitor sees only their own jobs, plus a keyed daily hash of the network address for the quota (the raw address is never stored). The server-side records are deleted by an hourly sweep once the job ended over 24 h ago, so within the hour after the deadline. Visitor hashes in the ledger expire the same way; the totals stay.
-- The photo is normalised at upload (orientation applied, metadata stripped) and kept until that sweep, then deleted. Coordinates wait in the job's private folder (spec.json, read only by the worker) and are deleted with it; lookups run in memory and error text carries no query strings.
+- The photo is normalised at upload (orientation applied, metadata stripped) and kept until that sweep, then deleted. Coordinates and the typed place are held in the job's private hand-off file (spec.json) only until the worker reads it, then removed; lookups run in memory and error text carries no query strings.
 - The page says this in one line under the upload button.
 
 ## Out of scope

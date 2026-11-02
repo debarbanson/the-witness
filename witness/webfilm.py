@@ -22,15 +22,58 @@ def public_claims(kept) -> list:
 def load_spec(job_dir):
     """Read the runner spec the upload route wrote to the job's
     private folder. Spawn arguments carry only the job id; the
-    place and location travel in this file, never in logs."""
+    place and location travel in this file, never in logs, and are
+    scrubbed from it as soon as the worker reads it."""
     with open(f"{job_dir}/spec.json", encoding="utf-8") as handle:
         return _json.load(handle)
+
+
+LOCATION_SPEC_KEYS = frozenset({"lat", "lon", "place", "location"})
+
+
+def scrub_hand_off(job_dir) -> bool:
+    """Remove every location key from the job's spec.json, rewritten
+    atomically, so the location rests on disk only until the worker
+    reads it. Returns True when keys were removed. A missing file
+    is a no-op; an unreadable one is deleted and raises, failing
+    closed rather than leaving a possibly locating file."""
+    import os as _os
+    import tempfile as _tempfile
+
+    path = Path(job_dir) / "spec.json"
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False
+    try:
+        spec = _json.loads(raw)
+    except ValueError:
+        path.unlink(missing_ok=True)
+        raise ValueError(f"broken job spec in {job_dir}")
+    if not isinstance(spec, dict) or not (
+            LOCATION_SPEC_KEYS & spec.keys()):
+        return False
+    for key in LOCATION_SPEC_KEYS:
+        spec.pop(key, None)
+    handle, tmp = _tempfile.mkstemp(dir=str(path.parent),
+                                    prefix="spec.json.",
+                                    suffix=".tmp")
+    try:
+        with _os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(_json.dumps(spec))
+        _os.replace(tmp, path)
+    except BaseException:
+        _os.unlink(tmp) if _os.path.exists(tmp) else None
+        raise
+    return True
 
 
 def run_web_film(spec, store, authority, clock=None, nominatim_pace=None):
     """Identify, confirm, research, paint, render under one job
     ledger and control. `spec` carries the in-memory location and
-    place; the store never sees them. Returns a short status."""
+    place; the store never sees them. The on-disk hand-off is
+    scrubbed first, before any paid call. Returns a short status."""
+    scrub_hand_off(spec["job_dir"])
     now = clock or _time.time
     job_id = spec["job_id"]
     models.configure_spending(authority=authority)

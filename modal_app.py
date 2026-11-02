@@ -510,8 +510,9 @@ def run_film(ref):
     """One Try-your-own film through the tested runner; a closed tab
     (or DELETE) cancels through the job control. `ref` carries only
     the job id and folder: the place and location stay in the job's
-    private spec file, never in spawn arguments or logs."""
-    from witness.webfilm import load_spec, run_web_film
+    private spec file, never in spawn arguments or logs. The file is
+    scrubbed as soon as it is read, before any paid call."""
+    from witness.webfilm import load_spec, run_web_film, scrub_hand_off
 
     jobs_volume.reload()
     job_id = ref["job_id"]
@@ -527,6 +528,8 @@ def run_film(ref):
             pass
         jobs_volume.commit()
         return {"status": "failed"}
+    scrub_hand_off(ref["job_dir"])
+    jobs_volume.commit()
     authority = ModalAuthority(cap_usd=TRY_DAILY_CAP_USD,
                                daily_films=TRY_DAILY_FILMS,
                                visitor_films=TRY_VISITOR_FILMS)
@@ -593,7 +596,7 @@ def web():
 
     def spawn(ref):
         jobs_volume.commit()
-        run_film.spawn(ref)
+        return run_film.spawn(ref)
 
     app = create_app(WebDeps(
         store=DictStore(),

@@ -15,7 +15,7 @@ Instructions for any coding agent working in this repository.
 - **No secrets in the repository.** Keys live in `.env.local` (ignored by git). Never print a key.
 - **The object changes only as its sources say.** Paint it in its verified state for each era, and check every painting against that state (pipeline step 5).
 - **No source, no claim.** Never let an unverified claim reach a caption.
-- **Location is personal data.** Use coordinates only to identify the object; never store them, log them or write them into outputs (re-encode images, never copy EXIF).
+- **Location is personal data.** Use coordinates only to identify the object; never store them, log them or write them into outputs (re-encode images, never copy EXIF), except the web hand-off file, which is scrubbed when the worker reads it.
 - **Be polite to OpenStreetMap.** A `User-Agent` naming the app, cached results, no parallel calls, at most 1 Nominatim request per second.
 - **Small steps.** One pipeline step per change, each runnable from the command line on a real photo.
 - **Update the build log** at the end of each working day: what was built, what was proven, what changed.

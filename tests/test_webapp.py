@@ -541,7 +541,8 @@ def test_runner_gets_a_reference_not_the_location(tmp_path):
 
     seen = []
     store = MemoryStore()
-    client = _client(tmp_path, store=store, runner=seen.append)
+    client = _client(tmp_path, store=store,
+                     runner=lambda ref: seen.append(ref) or "test-receipt")
     job_id = _upload(client, place="Haarlem",
                      lat="12.34567", lon="65.43214").json()["job_id"]
     assert set(seen[0]) == {"job_id", "job_dir"}
@@ -724,3 +725,57 @@ def test_upload_form_dependency_is_declared_for_fresh_clones():
         "dependencies"
     ]
     assert any(d.split()[0].split(";")[0] == "python-multipart" for d in deps)
+
+
+def _spec_of(tmp_path, store, job_id):
+    import json
+
+    job_dir = store.get_job(job_id)["job_dir"]
+    return json.loads((tmp_path / "jobs" / job_dir.split("/")[-1]
+                       / "spec.json").read_text())
+
+
+def test_unconfirmed_spawn_scrubs_location_from_spec(tmp_path):
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    client = _client(tmp_path, store=store, runner=lambda ref: None)
+    out = _upload(client, place="SYNTHETIC_PRIVATE_PLACE", lat="0.5",
+                  lon="0.25")
+    assert out.status_code == 200
+    spec = _spec_of(tmp_path, store, out.json()["job_id"])
+    assert "place" not in spec and "location" not in spec
+    assert "lat" not in spec and "lon" not in spec
+    assert spec["photo"].endswith("today.jpg")
+
+
+def test_confirmed_spawn_keeps_the_hand_off_for_the_worker(tmp_path):
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    client = _client(tmp_path, store=store,
+                     runner=lambda ref: "test-receipt")
+    out = _upload(client, place="SYNTHETIC_PRIVATE_PLACE", lat="0.5",
+                  lon="0.25")
+    assert out.status_code == 200
+    spec = _spec_of(tmp_path, store, out.json()["job_id"])
+    assert spec["place"] == "SYNTHETIC_PRIVATE_PLACE"
+    assert spec["lat"] == 0.5 and spec["lon"] == 0.25
+
+
+def test_failed_spawn_scrubs_location_from_spec(tmp_path):
+    from witness.webapp import MemoryStore
+
+    def spawn(ref):
+        raise RuntimeError("synthetic spawn failure")
+
+    store = MemoryStore()
+    client = _client(tmp_path, store=store, runner=spawn)
+    out = _upload(client, place="SYNTHETIC_PRIVATE_PLACE", lat="0.5",
+                  lon="0.25")
+    assert out.status_code == 500
+    job_id = store.job_ids()[0]
+    spec = _spec_of(tmp_path, store, job_id)
+    assert "place" not in spec and "location" not in spec
+    assert "lat" not in spec and "lon" not in spec
+    assert store.get_job(job_id)["status"] == "failed"

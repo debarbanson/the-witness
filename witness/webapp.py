@@ -5,10 +5,10 @@ assets. Everything Modal-specific (spawn, Dict, Volume, cron) lives
 in modal_app.py; this module takes plain dependencies so the whole
 page is testable offline with a fake runner and clock.
 
-Privacy shape: the upload's location and the typed place wait in
-the job's private folder (spec.json, read only by the worker) and
-are deleted with the job at the hourly sweep once it ended over
-24 h ago; they never reach the job store, the film or the logs,
+Privacy shape: the upload's location and the typed place are
+held in the job's private hand-off file (spec.json) only until
+the worker reads it, then removed; they never reach the job
+store, the film or the logs,
 and the research keeps only a coarse season zone. Job films are
 served only through unguessable capability URLs. Nothing request-
 or location-shaped is ever logged here.
@@ -48,7 +48,10 @@ class WebDeps:
 
     store: object
     authority: object
-    runner: object  # callable(spec) -> None; raises only on refused spawn
+    # callable(ref) -> receipt; raises only on refused spawn. A None
+    # return means no worker confirmed, so the upload scrubs the
+    # location from the spec rather than letting it rest unclaimed.
+    runner: object
     jobs_root: object
     examples_root: object
     examples: list = field(default_factory=list)  # [{slug, name}]
@@ -442,7 +445,8 @@ or cancel clicks. Please type public places only.</p>
 <h2>How long it is kept</h2>
 <p>One rule: your photo and every derivative (clean copy, paintings,
 film page) are deleted at the hourly sweep once your job ended over
-24 h ago. No account, no
+24 h ago. Your location and typed place are held only until the
+worker reads them, then removed from the job file. No account, no
 advertising, no sale. To stop one visitor spending the daily budget,
 uploads are counted per visitor: a cookie, plus a keyed hash of the
 network address that rotates daily and is kept 24 h. The raw address
@@ -693,12 +697,25 @@ def create_app(deps: WebDeps) -> FastAPI:
                 "location": ((location.lat, location.lon)
                              if location is not None else None)}
         (directory / "spec.json").write_text(json.dumps(spec))
+        from witness import webfilm as webfilm_module
         try:
-            deps.runner({"job_id": job_id, "job_dir": str(directory)})
+            receipt = deps.runner({"job_id": job_id,
+                                   "job_dir": str(directory)})
         except Exception:
+            try:
+                webfilm_module.scrub_hand_off(directory)
+            except OSError:
+                pass
             store.end_job(job_id, "failed",
                           {"message": "the worker did not start"})
             raise
+        if receipt is None:
+            try:
+                webfilm_module.scrub_hand_off(directory)
+            except OSError:
+                store.drop_job(job_id)
+                shutil.rmtree(directory, ignore_errors=True)
+                return _deny(request, "the worker did not start", 500)
         out = JSONResponse({"job_id": job_id})
         out.set_cookie("vid", vid, httponly=True, samesite="lax",
                        secure=deps.secure_cookies)

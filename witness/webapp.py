@@ -7,7 +7,7 @@ page is testable offline with a fake runner and clock.
 
 Privacy shape: the upload's location and the typed place wait in
 the job's private folder (spec.json, read only by the worker) and
-are deleted with the job at the daily sweep once it ended over
+are deleted with the job at the hourly sweep once it ended over
 24 h ago; they never reach the job store, the film or the logs,
 and the research keeps only a coarse season zone. Job films are
 served only through unguessable capability URLs. Nothing request-
@@ -174,6 +174,18 @@ def prune_jobs(store, now, ttl=RETENTION_SECONDS,
     return pruned
 
 
+def film_expired(job, now, ttl=RETENTION_SECONDS,
+                 max_age=MAX_JOB_AGE_SECONDS) -> bool:
+    """True once the job's film and photo read as gone: ended over
+    `ttl` seconds ago, or never ended and past `max_age` after
+    creation. Mirrors prune_jobs, so reads refuse exactly what the
+    sweep would delete."""
+    ended = job.get("ended_at")
+    if ended is not None:
+        return now - ended >= ttl
+    return now - job.get("started_at", 0) >= max_age
+
+
 def sweep_job_dirs(store, jobs_root, now,
                    max_age=MAX_JOB_AGE_SECONDS) -> int:
     """Delete job folders the store no longer knows (records can
@@ -263,7 +275,7 @@ painting, checks) and Baseten (fact checking), on hosting by Modal.
 Nearby-place lookups go to
 Nominatim, Overpass (including the community mirror), Wikidata and
 Wikipedia. Your photo and everything made from it are deleted at the
-daily sweep once your film ended over 24 h ago. Questions: __CONTACT__.
+hourly sweep once your film ended over 24 h ago. Questions: __CONTACT__.
 <a href="/privacy">Full notice</a></p>
 </section>
 <form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
@@ -429,7 +441,7 @@ or cancel clicks. Please type public places only.</p>
 </ul>
 <h2>How long it is kept</h2>
 <p>One rule: your photo and every derivative (clean copy, paintings,
-film page) are deleted at the daily sweep once your job ended over
+film page) are deleted at the hourly sweep once your job ended over
 24 h ago. No account, no
 advertising, no sale. To stop one visitor spending the daily budget,
 uploads are counted per visitor: a cookie, plus a keyed hash of the
@@ -782,6 +794,8 @@ def create_app(deps: WebDeps) -> FastAPI:
         except KeyError:
             raise HTTPException(status_code=404, detail="no such film")
         if not secrets.compare_digest(token, job["token"]):
+            raise HTTPException(status_code=404, detail="no such film")
+        if film_expired(job, clock()):
             raise HTTPException(status_code=404, detail="no such film")
         return _film_response(request, _film_root(job), asset)
 

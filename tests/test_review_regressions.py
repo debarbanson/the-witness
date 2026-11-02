@@ -466,12 +466,15 @@ def test_n14_spot_accepts_arbitrary_text_with_reused_grounding():
 
 def test_n15_main_film_route_looks_in_wrong_directory(tmp_path):
     """The film route serves the job's nested film directory."""
+    import time as _time
+
     client, store = make_client(tmp_path)
     directory = tmp_path / "private-job"
     film = directory / "synthetic-tower" / "film"
     film.mkdir(parents=True)
     (film / "film.html").write_text("synthetic film")
-    store.create_job("id", new_record(directory))
+    store.create_job("id", new_record(directory,
+                                      started_at=_time.time()))
     served = client.get("/film/id/synthetic-capability/film.html")
     assert served.status_code == 200
     assert "synthetic film" in served.text
@@ -1201,3 +1204,68 @@ def test_r3_07_two_containers_with_the_shared_secret_agree(tmp_path):
     assert authority.total_films() == 2
     assert webapp.visitor_key(secret, "synthetic-client", 7) != \
         webapp.visitor_key(secret, "synthetic-client", 8)
+
+
+def test_r3_15_expired_film_and_photo_reads_refuse(tmp_path):
+    """Past the retention deadline the film and photo read as gone."""
+    import ast
+    from fastapi.testclient import TestClient
+    from pathlib import Path as _Path
+
+    store = webapp.MemoryStore()
+    now = [0.0]
+    deps = webapp.WebDeps(store, None, lambda _: None,
+                           tmp_path / "jobs", tmp_path / "examples",
+                           clock=lambda: now[0])
+    client = TestClient(webapp.create_app(deps),
+                        raise_server_exceptions=False)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="PNG")
+    response = client.post("/api/jobs", headers={"Origin": "http://testserver"},
+                           files={"photo": ("x.png", buf.getvalue())},
+                           data={"ack": "on"})
+    assert response.status_code == 200
+    job = store.get_job(response.json()["job_id"])
+    film = _Path(job["job_dir"]) / "film"
+    film.mkdir()
+    (film / "today.jpg").write_bytes(buf.getvalue())
+    route = f"/film/{response.json()['job_id']}/{job['token']}/today.jpg"
+    assert client.get(route).status_code == 200
+    store.end_job(response.json()["job_id"], "done", {"ended_at": 1})
+    webapp.prune_jobs(store, 24 * 3600)
+    assert (film / "today.jpg").exists()
+    now[0] = 24 * 3600 + 2
+    assert client.get(route).status_code == 404
+    root = _Path(webapp.__file__).resolve().parent.parent
+    assert "modal.Period(hours=1)" in (root / "modal_app.py").read_text()
+
+
+def test_r3_20_ledger_visitor_hashes_expire_totals_stay():
+    """The ledger scrub drops old visitor hashes and keeps the totals."""
+    import ast
+    from pathlib import Path as _Path
+
+    import modal_app
+
+    data = {"visitors": {
+        "vid-old": {"n": 2, "at": 1000.0},
+        "ip:old": {"n": 2, "at": 1000.0},
+        "vid-fresh": {"n": 1, "at": 200000.0},
+        "vid-legacy": 2},
+        "films": 5, "calls": 9, "total_usd": 1.25, "reserved_usd": 0.5,
+        "open": {"t1": 0.5}}
+    data, answer = modal_app._apply_ledger_op(
+        data, {"kind": "expire", "now": 1000.0 + 24 * 3600 + 1})
+    assert answer["ok"] is True
+    assert data["visitors"] == {"vid-fresh": {"n": 1, "at": 200000.0}}
+    assert (data["films"], data["calls"], data["total_usd"],
+            data["reserved_usd"], data["open"]) == (5, 9, 1.25, 0.5,
+                                                   {"t1": 0.5})
+    root = _Path(modal_app.__file__).resolve().parent
+    tree = ast.parse((root / "modal_app.py").read_text())
+    function = next(n for n in tree.body
+                    if isinstance(n, ast.FunctionDef)
+                    and n.name == "prune_hourly")
+    names = {n.id for n in ast.walk(function)
+             if isinstance(n, ast.Name)}
+    assert "ledger_dict" in names

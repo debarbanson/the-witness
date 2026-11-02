@@ -7,7 +7,7 @@ container through a single-container ledger function over a Dict
 (a Dict alone is not atomic for read-modify-write; the single
 container makes it so), and one single-container slot function
 paces Nominatim to the usage policy's one request per second.
-Job state lives in a Dict, job files on a Volume, and a daily cron
+Job state lives in a Dict, job files on a Volume, and an hourly cron
 enforces the 24 h retention rule.
 
 Volume protocol: the web container commits before spawning the
@@ -118,18 +118,56 @@ def _apply_ledger_op(data, op):
         seen = data["visitors"]
         if not isinstance(seen, dict):
             return data, {"ok": False, "error": "accounting corrupt"}
+        try:
+            now = float(op.get("now") or 0.0)
+        except (TypeError, ValueError):
+            now = 0.0
+
+        def _count(key):
+            entry = seen.get(key, 0)
+            if isinstance(entry, dict):
+                return int(entry.get("n", 0))
+            return int(entry)  # legacy plain count
+
+        try:
+            counts = {key: _count(key) for key in keys}
+        except (TypeError, ValueError):
+            return data, {"ok": False, "error": "accounting corrupt"}
         for key in keys:
             if (per_visitor is not None
-                    and seen.get(key, 0) >= per_visitor):
+                    and counts[key] >= per_visitor):
                 return data, {"ok": False, "error": "visitor quota"}
         data["films"] += 1
         for key in keys:
-            seen[key] = seen.get(key, 0) + 1
+            seen[key] = {"n": counts[key] + 1, "at": now}
     elif kind == "total":
         pass
     elif kind == "reset":
         data["films"] = 0
         data["visitors"] = {}
+    elif kind == "expire":
+        try:
+            now = float(op.get("now") or 0.0)
+        except (TypeError, ValueError):
+            return data, {"ok": False, "error": "accounting corrupt"}
+        cutoff = now - 24 * 3600
+        seen = data["visitors"]
+        if not isinstance(seen, dict):
+            return data, {"ok": False, "error": "accounting corrupt"}
+        expired = 0
+        for key in list(seen):
+            entry = seen[key]
+            at = entry.get("at", 0) if isinstance(entry, dict) else 0
+            try:
+                fresh = float(at) > cutoff
+            except (TypeError, ValueError):
+                fresh = False
+            if not fresh:
+                del seen[key]
+                expired += 1
+        return data, {"ok": True, "total_usd": data["total_usd"],
+                      "reserved_usd": data["reserved_usd"],
+                      "expired": expired}
     elif kind == "snapshot":
         seen = data["visitors"]
         return data, {"ok": True, "films": data["films"],
@@ -218,9 +256,12 @@ class ModalAuthority:
                     "actual_usd": actual_usd, "day": day})
 
     def admit(self, visitor, extra=None):
+        import time as _time
+
         self._call({"kind": "admit", "visitor": visitor, "extra": extra,
                     "daily_films": self.daily_films,
-                    "visitor_films": self.visitor_films})
+                    "visitor_films": self.visitor_films,
+                    "now": _time.time()})
 
     def total_usd(self):
         return float(self._call({"kind": "total"})["total_usd"])
@@ -507,20 +548,39 @@ def run_film(ref):
 
 
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume},
-             schedule=modal.Period(days=1))
-def prune_daily():
+             schedule=modal.Period(hours=1))
+def prune_hourly():
     """Enforce the 24 h retention rule across job files and records,
-    and sweep job folders the store no longer knows."""
+    sweep job folders the store no longer knows, and expire visitor
+    hashes in the ledger (the totals stay). A failed ledger scrub
+    heals on the next hour."""
     import time as _time
+    from datetime import date as _date
+    from datetime import timedelta as _timedelta
 
     from witness.webapp import prune_jobs, sweep_job_dirs
 
     jobs_volume.reload()
     store = _worker_store()
-    pruned = prune_jobs(store, _time.time())
-    swept = sweep_job_dirs(store, "/jobs", _time.time())
+    now = _time.time()
+    pruned = prune_jobs(store, now)
+    swept = sweep_job_dirs(store, "/jobs", now)
     jobs_volume.commit()
-    return {"pruned": pruned, "swept": swept}
+    expired = 0
+    today = _date.today()
+    for back in range(8):
+        day = (today - _timedelta(days=back)).isoformat()
+        if back < 2:
+            try:
+                answer = ledger_op.remote({"kind": "expire", "now": now,
+                                           "day": day})
+            except Exception:
+                continue
+            if answer.get("ok"):
+                expired += int(answer.get("expired", 0))
+        else:
+            ledger_dict.pop(f"spending-{day}", None)
+    return {"pruned": pruned, "swept": swept, "expired": expired}
 
 
 @app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume})

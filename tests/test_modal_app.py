@@ -110,7 +110,7 @@ def test_ledger_apply_admits_extra_and_counts_once():
                                            "visitor_films": 2})
     assert answer == {"ok": False, "error": "visitor quota"}
     assert data["films"] == 2
-    assert data["visitors"]["ip:hash-a"] == 2
+    assert data["visitors"]["ip:hash-a"]["n"] == 2
 
 
 def test_ledger_apply_rejects_unknown_schema_and_ops():

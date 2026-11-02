@@ -71,7 +71,7 @@ The same run step by step (the slug is the folder name under
 .venv/bin/python -m witness render <slug> --photo photo.jpg
 ```
 
-Location data identifies the object. On the web page it waits in the job's private server folder while the film is made and is deleted with the job at the daily sweep once it ended over 24 h ago; the research keeps only a coarse season zone (north, south or tropical), and the film, the logs and the job store never carry the location at all.
+Location data identifies the object. On the web page it waits in the job's private server folder while the film is made and is deleted with the job at the hourly sweep once it ended over 24 h ago; the research keeps only a coarse season zone (north, south or tropical), and the film, the logs and the job store never carry the location at all.
 
 ## Cost and speed
 

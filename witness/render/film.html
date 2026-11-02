@@ -41,9 +41,10 @@
   #sources a { color: #fff; }
   #controls { position: absolute; left: 0; right: 0; bottom: 8px;
               text-align: center; display: none; }
-  #controls button { font-size: 30px; margin: 0 12px; padding: 6px 26px;
-                    background: rgba(0,0,0,.55); color: #fff;
-                    border: 1px solid #ffd98a; border-radius: 8px; }
+  #controls button { font-size: 30px; margin: 0 12px; padding: 8px 28px;
+                    background: #211b12; color: #f7f1e3;
+                    border: 1px solid #f7f1e3; border-radius: 999px;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
   .label { font-size: 34px; color: #ffd98a; margin-top: 30px; }
   #credit a { color: #fff; }
   /* Initial state only; the player toggles visibility inline. */
@@ -209,7 +210,9 @@ function render(t) {
     document.getElementById("capsite").textContent = FILM.photo_credit || "";
     showClock(); return;
   }
-  // Era: find scene, push-in plus crossfade plus parallax.
+  // Era: find scene with a slow push-in. Eras cut cleanly so the
+  // caption and the painting switch on the same frame; only the
+  // dissolve into today fades, with the caption hidden.
   const scene = FILM.scenes.find(s => s.year === seg.year);
   const local = t - seg.start, dur = seg.end - seg.start;
   imgA.src = scene.image;
@@ -218,17 +221,12 @@ function render(t) {
   let quiet = false;
   if (local > dur - FADE && idx + 1 < FILM.segments.length) {
     const next = FILM.segments[idx + 1];
-    const f = (local - (dur - FADE)) / FADE;
-    let src = null;
-    if (next.kind === "era") {
-      const ns = FILM.scenes.find(s => s.year === next.year);
-      src = ns.image;
-    } else if (next.kind === "today") src = FILM.photo;
-    if (src) {
-      imgB.src = src; imgB.style.opacity = f;
+    if (next.kind === "today") {
+      const f = (local - (dur - FADE)) / FADE;
+      imgB.src = FILM.photo; imgB.style.opacity = f;
       imgA.style.opacity = 1 - f;
+      quiet = true;
     }
-    quiet = next.kind === "today" && !!src;
   }
   if (!quiet) {
     caption.style.display = "block";

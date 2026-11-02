@@ -63,9 +63,9 @@ sandbox.__DATA__ = {
     { kind: "end", start: 24, end: 30 },
   ],
   scenes: [
-    { year: 1865, image: "era_1865.png", caption: ["a", "b"],
+    { year: 1865, image: "era_1865.png", caption: ["1865", "first era"],
       site: "W", ready_at: 0 },
-    { year: 1920, image: "era_1920.png", caption: ["a", "b"],
+    { year: 1920, image: "era_1920.png", caption: ["1920", "second era"],
       site: "W", ready_at: 0 },
   ],
 };
@@ -93,9 +93,24 @@ for (const t of [5.0, 8.5, 11.9]) {
   render(t);
   assert.strictEqual(imgA().src, "era_1865.png", `painting up at t=${t}`);
   assert.strictEqual(sandbox.document.getElementById("cap1").textContent,
-    "a", `stamp shown at t=${t}`);
+    "1865", `stamp shown at t=${t}`);
 }
 assert.ok(!seenIds.includes("layers"), "no layers element touched");
+
+// Caption and image switch on the same frame: no early dissolve
+// shows the next painting under the old caption.
+const imgB = () => sandbox.document.getElementById("imgB");
+const cap1 = () => sandbox.document.getElementById("cap1").textContent;
+render(11.9);
+assert.strictEqual(imgA().src, "era_1865.png", "old painting up to the cut");
+assert.strictEqual(cap1(), "1865", "old caption up to the cut");
+assert.strictEqual(imgB().style.opacity, 0, "no early dissolve into next era");
+render(12.0);
+assert.strictEqual(imgA().src, "era_1920.png", "new painting on the cut");
+assert.strictEqual(cap1(), "1920", "new caption on the cut");
+render(12.1);
+assert.strictEqual(imgA().src, "era_1920.png", "new painting after the cut");
+assert.strictEqual(cap1(), "1920", "new caption after the cut");
 
 // Every painted scene carries a visible AI label while on screen;
 // the photo and the cards never do.
@@ -115,10 +130,10 @@ render(26.0);
 assert.strictEqual(badge().style.display, "none",
   "no label on the end card");
 
-// Dissolving into today hides the era caption; era-to-era keeps it.
+// Dissolving into today hides the era caption; eras cut cleanly.
 render(11.5);
 assert.strictEqual(sandbox.document.getElementById("caption").style.display,
-  "block", "era caption stays during era dissolves");
+  "block", "era caption stays up to the cut");
 render(18.5);
 assert.strictEqual(sandbox.document.getElementById("caption").style.display,
   "none", "no stamp rides onto the photo");

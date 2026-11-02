@@ -10,7 +10,7 @@ from witness.webapp import MemoryStore, WebDeps, create_app
 ORIGIN = {"Origin": "http://testserver"}
 REFUSED = ("Not in the film: in July 2020 the tree was reported as "
            "vandalised, with a three-foot section of bark fallen off. "
-           "No source said so.")
+           "No fetched source confirmed it.")
 
 
 def _deps(tmp_path, **overrides):
@@ -55,7 +55,8 @@ def _page(tmp_path, **overrides):
 
 def test_hero_says_what_it_does_with_a_preview(tmp_path):
     page = _page(tmp_path)
-    assert "<h1>Your photo, painted through the centuries.</h1>" in page
+    assert "Every era it lived through, painted from your photo." in page
+    assert '<h1 class="hero-title">' in page
     assert "every fact sourced" in page.lower()
     assert re.search(r'<video[^>]*muted[^>]*loop[^>]*playsinline', page)
     assert "/assets/landing/hero.mp4" in page
@@ -88,8 +89,7 @@ def test_how_it_works_has_three_steps_with_real_frames(tmp_path):
     assert "sourced history" in page
     assert "Painted eras" in page
     assert "returns to your photo" in page
-    for src in ("/assets/landing/step1.jpg", "/assets/landing/step2.jpg",
-                "/assets/landing/step3.webp"):
+    for src in ("/assets/landing/step1.jpg", "/assets/landing/step3.webp"):
         assert src in page
         assert client.get(src).status_code == 200
 
@@ -136,6 +136,83 @@ def test_try_your_own_says_what_works_and_how_long(tmp_path):
     assert 'href="/privacy"' in page
 
 
+def test_phone_hero_shows_the_film_first(tmp_path):
+    page = _page(tmp_path)
+    assert '<h1 class="hero-title">' in page
+    assert 'class="hero-media"' in page
+    assert 'class="lede"' in page
+    assert ".hero-left{display:contents}" in page
+    assert ".hero-title{" in page and "order:1" in page
+    assert ".hero-media{" in page and "order:2" in page
+    assert ".hero-body{" in page and "order:3" in page
+    assert "max-width:240px" in page or "max-width:220px" in page
+
+
+def test_top_nav_stays_on_one_line(tmp_path):
+    page = _page(tmp_path)
+    assert 'class="only-wide"' in page
+    assert ".only-wide" in page
+    assert "flex-wrap:nowrap" in page or "white-space:nowrap" in page
+    assert page.count('href="/privacy"') >= 2
+
+
+def test_desktop_hero_centres_and_follows_the_loop(tmp_path):
+    page = _page(tmp_path)
+    assert "align-items:center" in page
+    assert ".hero-left{display:flex" in page
+    assert "justify-content:center" in page
+    assert ".years li.playing" in page
+    assert "timeupdate" in page
+    assert "hero-facts" in page
+    assert "painted era" in page
+    assert "every fact linked to its source" in page
+
+
+def test_how_it_works_is_three_equal_panels(tmp_path):
+    client = _client(tmp_path)
+    page = client.get("/").text
+    assert "repeat(3" in page
+    assert "De Adriaan was officially opened on May 19, 1779." in page
+    assert "1779" in page
+    assert "en.wikipedia.org/wiki/De_Adriaan" in page
+    assert "/assets/landing/step1.jpg" in page
+    assert "/assets/landing/step3.webp" in page
+    assert "/assets/landing/step2.jpg" not in page
+    assert client.get("/assets/landing/step1.jpg").status_code == 200
+
+
+def test_try_your_own_has_a_styled_picker_with_preview(tmp_path):
+    page = _page(tmp_path)
+    assert "Take or choose a photo" in page
+    assert 'id="preview"' in page
+    assert "createObjectURL" in page
+    assert "#preview.hidden" in page
+    csp = _client(tmp_path).get("/").headers["Content-Security-Policy"]
+    assert "img-src 'self' blob:" in csp
+
+
+def test_try_your_own_privacy_is_three_bullets(tmp_path):
+    import re as _re
+
+    page = _page(tmp_path)
+    notice = _re.search(r'<section id="notice">(.*?)</section>', page,
+                        _re.S).group(1)
+    assert notice.count("<li>") == 3
+    assert "Full notice" in notice
+    assert 'name="ack"' in page
+    for name in ("Meta", "Baseten", "Modal", "Nominatim", "Overpass",
+                 "Wikidata", "Wikipedia"):
+        assert name in notice
+
+
+def test_try_your_own_progress_is_a_step_list(tmp_path):
+    page = _page(tmp_path)
+    for step in ("Identify", "Research", "Check", "Paint", "Film"):
+        assert step in page
+    assert 'data-step="identify"' in page
+    assert ".done::before" in page or ".step-done" in page
+
+
 def test_try_your_own_off_hides_the_form(tmp_path):
     page = _page(tmp_path, try_enabled=lambda: False)
     assert "Try your own is resting" in page
@@ -177,8 +254,10 @@ def test_landing_keeps_the_strict_csp(tmp_path):
     assert "<script" in out.text and out.text.count("<script") == 1
     assert 'nonce="' in out.text
     assert "__NONCE__" not in out.text
-    assert "https://" not in out.text.replace(
-        "https://github.com/debarbanson/the-witness", "")
+    cleaned = out.text.replace(
+        "https://github.com/debarbanson/the-witness", "").replace(
+        "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem", "")
+    assert "https://" not in cleaned
 
 
 def test_landing_is_shaped_for_phones_and_keyboards(tmp_path):

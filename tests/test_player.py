@@ -105,6 +105,13 @@ def test_spot_page_labels_the_painted_era():
     assert "AI-painted" in page
 
 
+def test_controls_match_the_landing_page():
+    template = TEMPLATE.read_text()
+    assert "border-radius: 999px" in template
+    assert "#f7f1e3" in template
+    assert "#211b12" in template
+
+
 def test_player_behavior_in_node():
     node = shutil.which("node")
     if node is None:

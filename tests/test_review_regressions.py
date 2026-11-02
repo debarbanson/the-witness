@@ -890,7 +890,7 @@ async function fetch(url) {
   if (mode === "http500") { return {ok: false, status: 500, json: async () => ({error: "boom"})}; }
   return {json: async () => statuses.shift()};
 }
-const context = {document: {getElementById: el, createElement: () => ({})}, navigator: {}, window: {addEventListener() {}},
+const context = {document: {getElementById: el, createElement: () => ({}), querySelector: () => null, querySelectorAll: () => []}, navigator: {}, window: {addEventListener() {}},
   FormData: class {}, Date, setInterval: () => 1, clearInterval() {}, setTimeout: fn => fn(), alert: () => {}, fetch,
   console};
 vm.createContext(context); vm.runInContext(SOURCE, context);

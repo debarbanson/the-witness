@@ -277,27 +277,37 @@ h1{font-size:clamp(34px,6vw,54px);margin:0 0 12px}
 h2{font-size:clamp(24px,4vw,32px);margin:0 0 12px}
 a{color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-header.top{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:20px 0;border-bottom:1px solid var(--line);margin-bottom:36px}
-.wordmark{font-family:var(--serif);font-weight:600;font-size:20px;margin:0}
-nav.top a{margin-left:16px;font-size:15px}
-.hero{display:grid;gap:28px;margin-bottom:56px}
-.years{list-style:none;display:flex;margin:0 0 16px;padding:14px 0 0;border-top:2px solid var(--line)}
+header.top{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:nowrap;padding:20px 0;border-bottom:1px solid var(--line);margin-bottom:36px}
+.wordmark{font-family:var(--serif);font-weight:600;font-size:20px;margin:0;white-space:nowrap}
+nav.top{display:flex;gap:16px;white-space:nowrap}
+nav.top a{margin-left:0;font-size:15px;white-space:nowrap}
+.hero{display:grid;gap:20px;margin-bottom:56px}
+.hero-left{display:contents}
+.hero-title{margin:0 0 12px;order:1}
+.hero-body{min-width:0;order:3}
+.years{list-style:none;display:flex;margin:0 0 12px;padding:14px 0 0;border-top:2px solid var(--line)}
 .years li{position:relative;flex:1;min-width:0;font-size:14px;color:var(--muted)}
 .years li::before{content:"";position:absolute;top:-15px;left:2px;width:2px;height:8px;background:var(--accent)}
+.years li.playing{color:var(--ink);font-weight:700}
+.hero-facts{margin:0;color:var(--muted);font-size:15px}
 .lede{font-size:19px;max-width:34em;margin:0 0 20px}
 .actions{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 28px}
 .btn{display:inline-block;background:var(--ink);color:var(--paper);text-decoration:none;padding:11px 22px;border-radius:999px;font-size:16px}
 .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--ink)}
-.hero-media{min-width:0}
-.hero-video,.hero-still{width:100%;max-width:320px;height:auto;border-radius:10px;background:#000}
+.hero-media{min-width:0;justify-self:start;order:2}
+.hero-video,.hero-still{width:100%;max-width:240px;height:auto;border-radius:10px;background:#000}
 .hero-still{display:none}
 section.block{margin-bottom:56px}
-.steps{display:grid;gap:36px}
-.step{display:grid;gap:16px;align-items:start}
-.step img{width:100%;max-width:280px;height:auto;border-radius:8px}
+.steps{display:grid;gap:20px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;min-width:0}
+.step-media{height:200px;overflow:hidden;border-radius:8px;margin-bottom:12px}
+.step-media img{width:100%;height:100%;object-fit:cover;display:block}
 .step h3{margin:0 0 8px;font-size:21px}
 .step p{margin:0 0 8px;color:var(--muted)}
 .step .fine{font-size:13px}
+.fact{margin:12px 0 0;border-top:1px solid var(--line);padding-top:12px}
+.fact blockquote{margin:0 0 8px;font-family:var(--serif);font-size:17px;line-height:1.5}
+.fact figcaption{font-size:14px;color:var(--muted)}
 .promise{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px}
 .promise ul{margin:0 0 20px;padding-left:22px}
 .promise li{margin-bottom:8px}
@@ -315,26 +325,39 @@ section.block{margin-bottom:56px}
 .pill{border:1px solid var(--accent);border-radius:999px;padding:2px 12px;text-decoration:none;font-size:14px}
 .try{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px}
 .try .fine{font-size:15px;color:var(--muted)}
+#notice ul{margin:0 0 12px;padding-left:22px}
+#notice li{margin-bottom:6px}
 form p{margin:0 0 12px}
-input[type="text"],input[type="file"]{font:inherit;max-width:100%}
+input[type="text"]{font:inherit;max-width:100%}
+.file-btn{display:inline-block;background:var(--ink);color:var(--paper);border-radius:999px;padding:10px 22px;cursor:pointer}
+.file-btn input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+#preview{max-width:200px;height:auto;border-radius:8px;margin-top:4px}#preview.hidden{display:none}
+#steps{list-style:none;margin:12px 0;padding:0;display:grid;gap:6px}
+#steps li{position:relative;padding-left:24px;color:var(--muted)}
+#steps li::before{content:"";position:absolute;left:0;top:6px;width:12px;height:12px;border-radius:50%;border:2px solid var(--line);background:transparent}
+#steps li.done{color:var(--ink)}
+#steps li.done::before{background:var(--accent);border-color:var(--accent)}
+#steps li.current{color:var(--ink);font-weight:700}
+#steps li.current::before{border-color:var(--accent)}
 button{font:inherit;cursor:pointer;background:var(--ink);color:var(--paper);border:none;border-radius:999px;padding:10px 22px}
 button#geo,button#yes,button#no{background:transparent;color:var(--ink);border:1px solid var(--ink);padding:6px 16px;font-size:15px}
 footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;color:var(--muted)}
 .hidden{display:none}
 @media (prefers-reduced-motion:reduce){.hero-video{display:none}.hero-still{display:block}}
-@media (max-width:520px){header.top{flex-wrap:wrap;row-gap:8px}nav.top a{margin-left:0;margin-right:16px}}
-@media (min-width:760px){.hero{grid-template-columns:minmax(0,1fr) 320px;align-items:start}.step{grid-template-columns:280px minmax(0,1fr)}.step:nth-child(even){grid-template-columns:minmax(0,1fr) 280px}.step:nth-child(even) .step-media{order:2}.gallery{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
+@media (max-width:520px){header.top{flex-wrap:nowrap;gap:12px}.wordmark{font-size:18px}nav.top{gap:12px}nav.top a{font-size:14px}.only-wide{display:none}}
+@media (min-width:760px){.hero{grid-template-columns:minmax(0,1fr) 320px;align-items:center;column-gap:28px}.hero-left{display:flex;flex-direction:column;justify-content:center;min-width:0}.hero-video,.hero-still{max-width:320px}.steps{grid-template-columns:repeat(3,minmax(0,1fr))}.gallery{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header class="top">
 <p class="wordmark">The Witness</p>
-<nav class="top" aria-label="Page"><a href="#examples">Examples</a><a href="#try">Try your own</a><a href="/privacy">Privacy</a></nav>
+<nav class="top" aria-label="Page"><a href="#examples">Examples</a><a href="#try">Try your own</a><a class="only-wide" href="/privacy">Privacy</a></nav>
 </header>
 <section class="hero" aria-label="Introduction">
-<div>
-<h1>Your photo, painted through the centuries.</h1>
+<div class="hero-left">
+<h1 class="hero-title">Every era it lived through, painted from your photo.</h1>
+<div class="hero-body">
 <p class="lede">Your landmark, researched and painted back through time, every fact sourced.</p>
 <p class="actions"><a class="btn" href="#examples">Watch the examples</a> <a class="btn ghost" href="#try">Try your own photo</a></p>
 <ol class="years" aria-label="De Adriaan through time">
@@ -343,6 +366,8 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <li>2002</li>
 <li>today</li>
 </ol>
+<p class="hero-facts">__HERO_FACTS__</p>
+</div>
 </div>
 <div class="hero-media">
 <video class="hero-video" autoplay muted loop playsinline preload="metadata" poster="/assets/landing/hero-poster.jpg" aria-label="Preview of the De Adriaan film: the painted mill in 1779"><source src="/assets/landing/hero.mp4" type="video/mp4"></video>
@@ -357,8 +382,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <div><h3>1. Your photo</h3><p>Start with any photo of a landmark, old or new.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
 </article>
 <article class="step">
-<div class="step-media"><img src="/assets/landing/step2.jpg" width="960" height="720" loading="lazy" alt="A film frame showing the painted mill captioned 1779: I was opened, sourced from Wikipedia"></div>
-<div><h3>2. Its sourced history</h3><p>We research what happened here, and check every claim against its sources.</p></div>
+<div><h3>2. Its sourced history</h3><p>We research what happened here, and check every claim against its sources.</p><figure class="fact"><blockquote>De Adriaan was officially opened on May 19, 1779.</blockquote><figcaption>1779 · <a href="https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem">Wikipedia: De Adriaan, Haarlem</a></figcaption></figure></div>
 </article>
 <article class="step">
 <div class="step-media"><img src="/assets/landing/step3.webp" width="1280" height="1920" loading="lazy" alt="De Adriaan painted in 1932, the year it burnt down"></div>
@@ -373,7 +397,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <li>Claims without a source are left out of the film.</li>
 </ul>
 <figure>
-<blockquote>Not in the film: in July 2020 the tree was reported as vandalised, with a three-foot section of bark fallen off. No source said so.</blockquote>
+<blockquote>Not in the film: in July 2020 the tree was reported as vandalised, with a three-foot section of bark fallen off. No fetched source confirmed it.</blockquote>
 <figcaption>From the Major Oak research. The claim was checked and left out.</figcaption>
 </figure>
 </section>
@@ -405,6 +429,25 @@ document.getElementById("geo").onclick = () => {
     document.getElementById("lon").value = pos.coords.longitude;
   });
 };
+const photoInput = document.querySelector('input[name="photo"]');
+const preview = document.getElementById("preview");
+if (photoInput && preview) {
+  photoInput.addEventListener("change", () => {
+    const picked = photoInput.files && photoInput.files[0];
+    if (picked) {
+      preview.src = URL.createObjectURL(picked);
+      preview.classList.remove("hidden");
+    }
+  });
+}
+const heroVid = document.querySelector(".hero-video");
+const yearItems = [...document.querySelectorAll(".years li")];
+if (heroVid && yearItems.length) {
+  heroVid.addEventListener("timeupdate", () => {
+    const idx = heroVid.currentTime < 3 ? 0 : 1;
+    yearItems.forEach((li, i) => li.classList.toggle("playing", i === idx));
+  });
+}
 const form = document.getElementById("upload");
 const PHASES = {
   identifying: "Finding your object…",
@@ -421,6 +464,17 @@ const PHASES = {
 function phaseWords(name) {
   if (Object.prototype.hasOwnProperty.call(PHASES, name)) { return PHASES[name]; }
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ") + "…";
+}
+const STEP_FOR = {identifying: 0, identified: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, captions: 3, painting: 3, render: 4, children: 4, spot: 4};
+function updateSteps(name) {
+  const items = document.querySelectorAll("#steps li");
+  if (!items.length) { return; }
+  const cur = STEP_FOR[name];
+  if (cur === undefined) { return; }
+  items.forEach((li, i) => {
+    li.classList.toggle("done", i < cur);
+    li.classList.toggle("current", i === cur);
+  });
 }
 function showResult(box, st) {
   const r = st.result || {};
@@ -484,6 +538,7 @@ form.onsubmit = async ev => {
     const evs = st.events || [];
     const last = evs.length ? evs[evs.length - 1].event : st.status;
     document.getElementById("events").textContent = phaseWords(last);
+    updateSteps(last);
     const box = document.getElementById("confirm");
     if (st.confirm && st.decision === null) {
       box.style.display = "block";
@@ -523,17 +578,16 @@ TRY_DURATION_LINE = ("Films usually take a few minutes, and the page "
                      "shows each step as it happens.")
 
 TRY_FORM = """<section id="notice">
-<p><strong>Before you upload:</strong> your photo is processed to find and
-tell the story of the landmark it shows. It is sent to Meta (recognition,
-painting, checks) and Baseten (fact checking), on hosting by Modal.
-Nearby-place lookups go to
-Nominatim, Overpass (including the community mirror), Wikidata and
-Wikipedia. Your photo and everything made from it are deleted at the
-hourly sweep once your film ended over 24 h ago. Questions: __CONTACT__.
-<a href="/privacy">Full notice</a></p>
+<p><strong>Before you upload:</strong></p>
+<ul>
+<li>Your photo is processed to find and tell the story of the landmark it shows.</li>
+<li>It is sent to Meta (recognition, painting, checks) and Baseten (fact checking), on hosting by Modal. Nearby-place lookups go to Nominatim, Overpass (including the community mirror), Wikidata and Wikipedia.</li>
+<li>Your photo and everything made from it are deleted at the hourly sweep once your film ended over 24 h ago. Questions: __CONTACT__. <a href="/privacy">Full notice</a></li>
+</ul>
 </section>
 <form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
-<p><input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></p>
+<p><label class="file-btn">Take or choose a photo<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></p>
+<p><img id="preview" class="hidden" alt="Preview of your chosen photo"></p>
 <p><label><input type="checkbox" name="ack" value="on" required>
 I understand the notice above.</label></p>
 <p>No location in your photo?
@@ -544,6 +598,7 @@ or type public places only: <input type="text" name="place" autocomplete="off"><
 </form>
 <div id="job" class="hidden">
 <p>Working: <span id="clock">0</span> s</p>
+<ol id="steps"><li data-step="identify">Identify</li><li data-step="research">Research</li><li data-step="check">Check</li><li data-step="paint">Paint</li><li data-step="film">Film</li></ol>
 <div id="confirm" class="hidden">
 <p>Is this <strong id="confirm-name"></strong> (<span id="confirm-kind"></span>)?</p>
 <p><button id="yes">Yes</button> <button id="no">No</button></p>
@@ -629,6 +684,36 @@ def _gallery_cards(examples_root, examples) -> str:
     return "\n".join(cards)
 
 
+def _hero_facts(examples_root, examples) -> str:
+    """One line of true numbers under the hero timeline: how many
+    reviewed landmarks and painted eras the page shows. Counts come
+    from each film's own film.json at request time, so the line is
+    true wherever the page runs."""
+    shown = [entry for entry in examples if entry.get("slug")]
+    eras = 0
+    for entry in shown:
+        slug = entry.get("slug", "")
+        if not slug or "/" in slug or slug.startswith("."):
+            continue
+        try:
+            film = json.loads(
+                (Path(examples_root) / slug / "film.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(film, dict):
+            continue
+        eras += len({scene.get("year")
+                     for scene in film.get("segments", [])
+                     if isinstance(scene, dict)
+                     and isinstance(scene.get("year"), int)})
+    if not shown:
+        return "Every fact linked to its source."
+    landmark = "landmark" if len(shown) == 1 else "landmarks"
+    era_word = "painted era" if eras == 1 else "painted eras"
+    return (f"{len(shown)} {landmark}, {eras} {era_word}, "
+            "every fact linked to its source")
+
+
 PRIVACY_PAGE = """<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Privacy notice: The Witness</title></head>
@@ -690,9 +775,9 @@ def _style_hashes(page: str) -> list:
 def _csp(nonce: str, style_hashes=()) -> str:
     styles = " ".join(["'self'", *style_hashes])
     return ("default-src 'self'; script-src 'nonce-" + nonce + "'; "
-            f"style-src {styles}; img-src 'self'; connect-src 'self'; "
-            "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; "
-            "form-action 'self'")
+            f"style-src {styles}; img-src 'self' blob:; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+            "object-src 'none'; form-action 'self'")
 
 
 class BodyCapMiddleware:
@@ -847,6 +932,8 @@ def create_app(deps: WebDeps) -> FastAPI:
         page = page.replace("__TRY_BLOCK__",
                             TRY_RESTING if resting else TRY_FORM)
         page = page.replace("__TRY_DURATION__", TRY_DURATION_LINE)
+        page = page.replace("__HERO_FACTS__",
+                            _hero_facts(deps.examples_root, deps.examples))
         page = page.replace("__CONTACT__", deps.contact)
         page = page.replace("__NONCE__", request.state.nonce)
         request.state.style_hashes = _style_hashes(page)

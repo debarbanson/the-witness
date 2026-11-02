@@ -502,6 +502,26 @@ def test_judge_wiring_pins_safety_flags():
     assert ast.literal_eval(auth_flags["backend"]) == "judge"
 
 
+def test_both_apps_render_the_secret_contact():
+    import ast
+    from pathlib import Path
+
+    src = Path(modal_app.__file__).read_text()
+    assert "owner@example.com" not in src
+    assert "example.com" not in src
+    tree = ast.parse(src)
+    for name in ("web", "judge"):
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name == name)
+        calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)]
+        deps = next(n for n in calls
+                    if isinstance(n.func, ast.Name)
+                    and n.func.id == "WebDeps")
+        contact = next(k.value for k in deps.keywords if k.arg == "contact")
+        assert isinstance(contact, ast.Call)
+        assert contact.func.id == "_contact"
+
+
 def test_judge_cap_requires_a_positive_number(monkeypatch):
     monkeypatch.delenv("WITNESS_JUDGE_CAP_USD", raising=False)
     with pytest.raises(RuntimeError):

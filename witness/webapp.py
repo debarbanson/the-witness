@@ -289,10 +289,52 @@ document.getElementById("geo").onclick = () => {
   });
 };
 const form = document.getElementById("upload");
+const PHASES = {
+  identifying: "Finding your object…",
+  researched: "Researching its history…",
+  verifying: "Checking the facts…",
+  captions: "Writing captions…",
+  painting: "Painting the eras…",
+  children: "Writing the children's version…",
+  spot: "Making spot-the-difference…",
+  render: "Cutting the film…",
+  confirmed: "Confirmed.",
+  working: "Working…"
+};
+function phaseWords(name) {
+  if (Object.prototype.hasOwnProperty.call(PHASES, name)) { return PHASES[name]; }
+  return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ") + "…";
+}
+function showResult(box, st) {
+  const r = st.result || {};
+  const parts = [r.film_url ? "Ready." : (r.message || st.status)];
+  for (const c of r.claims || []) {
+    parts.push((c.year ? c.year + ": " : "") + c.claim);
+  }
+  box.textContent = parts.join(" ");
+  if (r.film_url) {
+    const a = document.createElement("a");
+    a.href = r.film_url; a.textContent = "Watch your film.";
+    box.appendChild(a);
+  }
+  for (const c of r.claims || []) {
+    if (typeof c.url === "string" && /^https?:\/\//.test(c.url)) {
+      const a = document.createElement("a");
+      a.href = c.url; a.textContent = " (source)";
+      box.appendChild(a);
+    }
+  }
+}
 form.onsubmit = async ev => {
   ev.preventDefault();
-  const started = await (await fetch("/api/jobs", {
-    method: "POST", body: new FormData(form)})).json();
+  let started;
+  try {
+    started = await (await fetch("/api/jobs", {
+      method: "POST", body: new FormData(form)})).json();
+  } catch (err) {
+    alert("Upload failed. Check your connection and try again.");
+    return;
+  }
   if (started.error) { alert(started.error); return; }
   const id = started.job_id;
   document.getElementById("job").style.display = "block";
@@ -301,8 +343,29 @@ form.onsubmit = async ev => {
   const timer = setInterval(() => {
     document.getElementById("clock").textContent = Math.floor((Date.now() - t0) / 1000);
   }, 500);
+  let missed = 0;
   while (true) {
-    const st = await (await fetch("/api/jobs/" + id)).json();
+    let st;
+    try {
+      const resp = await fetch("/api/jobs/" + id);
+      if (resp.ok === false) { throw new Error("HTTP " + resp.status); }
+      st = await resp.json();
+    } catch (err) {
+      missed += 1;
+      if (missed >= 3) {
+        clearInterval(timer);
+        document.getElementById("job").dataset.finished = "yes";
+        document.getElementById("result").textContent =
+          "Lost contact with the server (" + err.message + "). Reload to try again.";
+        break;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
+    }
+    missed = 0;
+    const evs = st.events || [];
+    const last = evs.length ? evs[evs.length - 1].event : st.status;
+    document.getElementById("events").textContent = phaseWords(last);
     const box = document.getElementById("confirm");
     if (st.confirm && st.decision === null) {
       box.style.display = "block";
@@ -312,14 +375,7 @@ form.onsubmit = async ev => {
     if (["done", "cancelled", "failed", "expired"].includes(st.status)) {
       clearInterval(timer);
       document.getElementById("job").dataset.finished = "yes";
-      const r = st.result || {};
-      document.getElementById("result").textContent =
-        r.film_url ? "Ready." : (r.message || st.status);
-      if (r.film_url) {
-        const a = document.createElement("a");
-        a.href = r.film_url; a.textContent = "Watch your film.";
-        document.getElementById("result").appendChild(a);
-      }
+      showResult(document.getElementById("result"), st);
       break;
     }
     await new Promise(r => setTimeout(r, 2000));

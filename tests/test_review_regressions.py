@@ -8,6 +8,9 @@ and now tests the real record() command.
 import io
 import json
 import os
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -863,3 +866,66 @@ def test_r3_09_child_budget_failure_discards_ready_adult_result(tmp_path, monkey
     assert finished["result"]["film_url"].endswith("/film.html")
     assert finished["result"]["audiences"] == "adult"
     assert finished["result"]["unavailable"] == ["children"]
+
+
+R3_14_HARNESS = r"""
+const vm = require("vm");
+const mode = process.argv[2];
+const elements = {};
+function el(id) { return elements[id] || (elements[id] = {style: {}, dataset: {}, textContent: "", children: [], appendChild(x) { this.children.push(x); }}); }
+const statuses = [{status: "working", events: [{event: "painting", data: {}}], confirm: null},
+  {status: "done", result: {message: "Facts below", claims: [{year: 1900, claim: "SYNTHETIC_FACT", url: "https://example.org/"}]}}];
+let calls = 0;
+async function fetch(url) {
+  calls += 1;
+  if (url === "/api/jobs") { return {json: async () => ({job_id: "id"})}; }
+  if (mode === "flaky" && calls === 2) { throw new Error("synthetic network drop"); }
+  if (mode === "http500") { return {ok: false, status: 500, json: async () => ({error: "boom"})}; }
+  return {json: async () => statuses.shift()};
+}
+const context = {document: {getElementById: el, createElement: () => ({})}, navigator: {}, window: {addEventListener() {}},
+  FormData: class {}, Date, setInterval: () => 1, clearInterval() {}, setTimeout: fn => fn(), alert: () => {}, fetch,
+  console};
+vm.createContext(context); vm.runInContext(SOURCE, context);
+const phases = [];
+{
+  const box = el("events");
+  let current = "";
+  Object.defineProperty(box, "textContent", {get: () => current, set: v => { current = v; phases.push(v); }});
+}
+(async () => {
+  await elements.upload.onsubmit({preventDefault() {}});
+  const result = elements.result || {textContent: "", children: []};
+  const links = (result.children || []).map(c => c.href || null);
+  process.stdout.write(JSON.stringify({facts: result.textContent, phases, links}));
+})().catch(e => { process.stderr.write(String(e)); process.exit(1); });
+"""
+
+
+def _run_r3_14_harness(tmp_path, mode):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    script = re.search(r'<script nonce="__NONCE__">(.*?)</script>', webapp.INDEX_PAGE, re.S).group(1)
+    assert "innerHTML" not in script
+    path = tmp_path / "ui.cjs"
+    path.write_text("const SOURCE=" + json.dumps(script) + ";\n" + R3_14_HARNESS)
+    result = subprocess.run([node, str(path), mode], capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
+
+
+def test_r3_14_ui_hides_facts_and_progress_in_real_dom(tmp_path):
+    """The page shows the phase words, the facts and their source links."""
+    rendered = _run_r3_14_harness(tmp_path, "ok")
+    assert "SYNTHETIC_FACT" in rendered["facts"]
+    assert rendered["phases"]
+    assert any("painting" in phase.lower() for phase in rendered["phases"])
+    assert "https://example.org/" in rendered["links"]
+
+
+def test_r3_14_failed_poll_recovers_and_http_error_shows(tmp_path):
+    """A dropped poll is retried; a 500 shows a clear message."""
+    recovered = _run_r3_14_harness(tmp_path, "flaky")
+    assert "SYNTHETIC_FACT" in recovered["facts"]
+    failed = _run_r3_14_harness(tmp_path, "http500")
+    assert "500" in failed["facts"] or "went wrong" in failed["facts"]

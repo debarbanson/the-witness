@@ -41,3 +41,27 @@ def test_staging_uploads_send_an_origin():
     module = _load()
     homologous = inspect.getsource(module._start)
     assert "Origin" in homologous
+
+
+def test_client_sends_proxy_auth_from_the_environment():
+    import os
+
+    module = _load()
+    old = {key: os.environ.get(key)
+           for key in ("MODAL_PROXY_KEY", "MODAL_PROXY_SECRET")}
+    try:
+        os.environ.pop("MODAL_PROXY_KEY", None)
+        os.environ.pop("MODAL_PROXY_SECRET", None)
+        bare = module._client("https://staging.example.modal.run")
+        assert "modal-key" not in bare.headers
+        os.environ["MODAL_PROXY_KEY"] = "wk-test-id"
+        os.environ["MODAL_PROXY_SECRET"] = "ws-test-secret"
+        authed = module._client("https://staging.example.modal.run")
+        assert authed.headers["modal-key"] == "wk-test-id"
+        assert authed.headers["modal-secret"] == "ws-test-secret"
+    finally:
+        for key, value in old.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

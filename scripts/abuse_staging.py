@@ -6,7 +6,11 @@ environment.
 
 Staging also needs WITNESS_ABUSE_RESET=1 so the script can reset the
 film and visitor quotas between cases; without it the script refuses
-to run. Spend totals are never reset.
+to run. Spend totals are never reset. Staging sits behind proxy auth,
+so export MODAL_PROXY_KEY and MODAL_PROXY_SECRET (a Token ID/Secret
+pair from the dashboard) before running.
+
+Usage: python scripts/abuse_staging.py <staging-url>
 
 Every check asserts on effects, not on status labels: ledger counts
 (films admitted, paid reconciliations) through /api/debug/ledger,
@@ -17,6 +21,7 @@ when to stop waiting.
 """
 
 import io
+import os
 import sys
 import time
 from pathlib import Path
@@ -48,8 +53,16 @@ def _origin(base):
 
 
 def _client(base):
-    return httpx.Client(base_url=base, timeout=30.0,
-                        headers={"Origin": _origin(base)})
+    # Staging sits behind proxy auth (Modal proxy-auth docs), so the
+    # run reads a Token ID/Secret pair from the environment. Names
+    # only here; the values stay in the owner's shell.
+    headers = {"Origin": _origin(base)}
+    key = os.environ.get("MODAL_PROXY_KEY")
+    secret = os.environ.get("MODAL_PROXY_SECRET")
+    if key and secret:
+        headers["Modal-Key"] = key
+        headers["Modal-Secret"] = secret
+    return httpx.Client(base_url=base, timeout=30.0, headers=headers)
 
 
 def _photo(color="blue", fmt="JPEG", **save_kwargs):

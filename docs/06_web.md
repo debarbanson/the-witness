@@ -64,10 +64,17 @@ Judge mode deploys with the same command; there is no separate build. Before sha
 
 ### Smoke checks
 
-Run these on staging first, then on the judge URL:
+Run these on staging first, then on the judge URL. Staging sits behind proxy auth: create a Token ID/Secret pair in the dashboard (Settings, proxy-auth tokens) and pass it on staging requests:
 
-1. The page: `curl -s -o /dev/null -w "%{http_code}\n" <url>/` answers 200.
-2. One example film: `curl -s -o /dev/null -w "%{http_code}\n" <url>/examples/<slug>/` answers 200, and its page assets load.
+```bash
+export MODAL_PROXY_KEY=<token-id> MODAL_PROXY_SECRET=<token-secret>
+auth=(-H "Modal-Key: $MODAL_PROXY_KEY" -H "Modal-Secret: $MODAL_PROXY_SECRET")
+```
+
+The judge URL needs no auth headers.
+
+1. The page: `curl "${auth[@]}" -s -o /dev/null -w "%{http_code}\n" <url>/` answers 200.
+2. One example film: `curl "${auth[@]}" -s -o /dev/null -w "%{http_code}\n" <url>/examples/<slug>/` answers 200, and its page assets load.
 3. Security headers: the response carries `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options` and `Referrer-Policy`. On judge mode it also carries `X-Robots-Tag: noindex`, and `<url>/robots.txt` disallows everything.
 4. The off switch: `modal run modal_app.py::try_switch --no-enable` turns Try your own off within a minute; `POST /api/jobs` then answers 503 with the resting line while the examples keep serving. `modal run modal_app.py::try_switch --enable` turns it back on.
 5. One capped request: submit one Try-your-own photo on staging and watch it finish inside the staging cap, or be refused with a quota error when the cap is spent.
@@ -83,7 +90,18 @@ Off means: new `POST /api/jobs` on judge mode answers 503 ("Try your own is rest
 
 ### Costs and caps
 
-The staging measurement (one full Try-your-own run plus the abuse script) sets the numbers; until then the README and this page carry no cost claims. The judge cap must cover judging (5 to 8 Nov) and the community vote (until 16 Nov) within the remaining credits; the proposal goes in the Block N report.
+The staging measurement sets the numbers; until then the README and this page carry no cost claims. The owner-side run, on a machine with Modal access:
+
+```bash
+modal deploy modal_app.py
+# upload the reviewed examples, set WITNESS_JUDGE_CAP_USD last
+export MODAL_PROXY_KEY=<token-id> MODAL_PROXY_SECRET=<token-secret>
+.venv/bin/python scripts/abuse_staging.py <staging-url>
+```
+
+1. One full Try-your-own film on staging, on a well-documented object: submit through the staging page, record the wall time per phase from the progress events and the total cost from the ledger (`GET /api/debug/ledger`, `total_usd` delta).
+2. The abuse script above (16 checks, each asserting on effects; it refuses unless `WITNESS_ABUSE_RESET=1` is in the staging secret).
+3. Put the dated numbers in the README and here, and set `WITNESS_JUDGE_CAP_USD` so judging (5 to 8 Nov) plus the community vote (until 16 Nov) fits the remaining credits.
 
 ## Out of scope
 

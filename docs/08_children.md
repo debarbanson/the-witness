@@ -1,6 +1,6 @@
 # 08 For children
 
-Every film can be made for two audiences: adults, and children aged 8 and up. Same object, same verified facts, told differently. This is part of the product, not an extra: families, schools and museum visitors are a large part of who stands in front of old objects.
+A film with enough verified material can be made for two audiences: adults, and children aged 8 and up. Same object, same verified facts, told differently. Films that lack the material ship without the children's version, the game, or both. This is part of the product, not an extra: families, schools and museum visitors are a large part of who stands in front of old objects.
 
 ## The rule that does not change
 

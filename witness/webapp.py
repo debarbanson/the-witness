@@ -7,11 +7,11 @@ page is testable offline with a fake runner and clock.
 
 Privacy shape: the upload's location and the typed place wait in
 the job's private folder (spec.json, read only by the worker) and
-are deleted with the job 24 h after it ends; they never reach the
-job store, the film or the logs, and the research keeps only a
-coarse season zone. Job films are served only through unguessable
-capability URLs. Nothing request- or location-shaped is ever logged
-here.
+are deleted with the job at the daily sweep once it ended over
+24 h ago; they never reach the job store, the film or the logs,
+and the research keeps only a coarse season zone. Job films are
+served only through unguessable capability URLs. Nothing request-
+or location-shaped is ever logged here.
 """
 
 import hashlib
@@ -255,10 +255,11 @@ __EXAMPLES__
 <section id="notice">
 <p><strong>Before you upload:</strong> your photo is processed to find and
 tell the story of the landmark it shows. It is sent to Meta (recognition,
-painting, checks) and Baseten (fact checking). Nearby-place lookups go to
+painting, checks) and Baseten (fact checking), on hosting by Modal.
+Nearby-place lookups go to
 Nominatim, Overpass (including the community mirror), Wikidata and
-Wikipedia. Your photo and everything made from it are deleted 24 h after
-your film ends. Questions: __CONTACT__.
+Wikipedia. Your photo and everything made from it are deleted at the
+daily sweep once your film ended over 24 h ago. Questions: __CONTACT__.
 <a href="/privacy">Full notice</a></p>
 </section>
 <form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
@@ -424,7 +425,8 @@ or cancel clicks. Please type public places only.</p>
 </ul>
 <h2>How long it is kept</h2>
 <p>One rule: your photo and every derivative (clean copy, paintings,
-film page) are deleted 24 h after your job ends. No account, no
+film page) are deleted at the daily sweep once your job ended over
+24 h ago. No account, no
 advertising, no sale. To stop one visitor spending the daily budget,
 uploads are counted per visitor: a cookie, plus a keyed hash of the
 network address that rotates daily and is kept 24 h. The raw address

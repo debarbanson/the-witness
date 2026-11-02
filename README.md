@@ -24,7 +24,7 @@ Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/0
 
 ## For adults and for children
 
-Every film has a children's version (8+): the same verified facts in simpler words, rechecked against the same sources, with picture-book paintings from the same anchor and a "spot the difference" game between a painted era and your photo of today. See [docs/08_children.md](docs/08_children.md).
+Films that earn them get a children's version (8+) and a game: the same verified facts in simpler words, rechecked against the same sources, with picture-book paintings from the same anchor and a "spot the difference" game between a painted era and your photo of today. Both need enough verified material, so some films ship without one or both. See [docs/08_children.md](docs/08_children.md).
 
 ## Principles
 
@@ -71,7 +71,7 @@ The same run step by step (the slug is the folder name under
 .venv/bin/python -m witness render <slug> --photo photo.jpg
 ```
 
-Location data identifies the object. On the web page it waits in the job's private server folder while the film is made and is deleted with the job 24 h after it ends; the research keeps only a coarse season zone (north, south or tropical), and the film, the logs and the job store never carry the location at all.
+Location data identifies the object. On the web page it waits in the job's private server folder while the film is made and is deleted with the job at the daily sweep once it ended over 24 h ago; the research keeps only a coarse season zone (north, south or tropical), and the film, the logs and the job store never carry the location at all.
 
 ## Cost and speed
 
@@ -89,7 +89,7 @@ Period-figure layers, live streaming playback, captions in languages other than 
 
 ## Built during the hackathon
 
-Everything in this repository was written between the kickoff on 26 October and 4 November 2026. The day-by-day record is in [docs/05_build_log.md](docs/05_build_log.md).
+The git history runs from the kickoff on 26 October 2026 (first commit 17:41 Dutch time) to 4 November 2026. Cited third-party words (source quotes, package pins) excepted, everything in this repository was written in that window. The day-by-day record is in [docs/05_build_log.md](docs/05_build_log.md).
 
 ## Licence
 

@@ -18,7 +18,7 @@ One photo (JPEG/PNG) and a location. The location comes from, in order:
 2. the browser's Geolocation API at upload time, when the photo carries none (web page only, with the user's permission);
 3. a typed place name, as the last resort (and the command line's `--place`).
 
-Privacy: coordinates are used for the lookup in step 0. On the web page they wait in the job's private server folder (spec.json, read only by the worker) and are deleted with the job 24 h after it ends; the research keeps only a coarse season zone, and the film, the logs and the job store never carry them. Outputs carry no GPS data: re-encode images, never copy EXIF.
+Privacy: coordinates are used for the lookup in step 0. On the web page they wait in the job's private server folder (spec.json, read only by the worker) and are deleted with the job at the daily sweep once it ended over 24 h ago; the research keeps only a coarse season zone, and the film, the logs and the job store never carry them. Outputs carry no GPS data: re-encode images, never copy EXIF.
 
 ## Step 0: Identify the object
 
@@ -159,14 +159,14 @@ The finished film plays with honest progress and a timer while it is made. Targe
 |---|---|---|
 | Object recognised | "Is this De Adriaan, Haarlem?" | within 15 s |
 | The film | Plays in the browser | within a few minutes of confirming |
-| Any moment | Honest progress with a timer, never more than 10 to 15 s without it | always |
+| Any moment | Honest progress with a timer: a live clock with phase words that change as each step lands (a long painting or vote can run quiet between them) | always |
 
 How the budget is met:
 
 - **Verify in parallel:** the first two votes run together, a third only on disagreement; claims verify in film order (steps 3 and 3a).
 - **Paint in parallel:** all eras branch from the anchor at once (step 4), checks run together (step 5).
 - **No rendering wait:** the film plays in the browser; MP4 from the command line only (step 7).
-- **Cache per object:** reviewed research and paintings are kept by Wikidata id, so a known object opens at once.
+- **Cache per object:** on the command line, reviewed research and paintings are kept by Wikidata id, so a known object opens at once. The web page has no shared cache and researches every upload fresh.
 
 Measured 30 Oct: one Baseten support vote takes 15 s on average (12-case eval, votes=1). At about 2 votes per claim over a dozen claims, verification alone is a few minutes; staging measures the whole.
 

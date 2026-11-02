@@ -26,7 +26,7 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 
 ## Two audiences
 
-Every film comes in a version for adults and one for children aged 8 and up: the same verified facts, told in simpler words with picture-book paintings, and ending in a "spot the difference" game between a painted era and today's photo. Simple, but still true: every children's caption is verified again. Details: [08_children.md](08_children.md).
+Films that earn them come in a version for adults and one for children aged 8 and up: the same verified facts, told in simpler words with picture-book paintings, and ending in a "spot the difference" game between a painted era and today's photo. Both need enough verified material, so some films ship without one or both. Simple, but still true: every children's caption is verified again. Details: [08_children.md](08_children.md).
 
 ## Out of scope for the hackathon
 

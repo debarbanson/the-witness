@@ -108,9 +108,40 @@ def test_ledger_apply_admits_extra_and_counts_once():
                                            "extra": "ip:hash-a",
                                            "daily_films": 10,
                                            "visitor_films": 2})
-    assert answer == {"ok": False, "error": "visitor quota"}
+    assert answer == {"ok": False, "error": "network quota"}
     assert data["films"] == 2
     assert data["visitors"]["ip:hash-a"]["n"] == 2
+
+
+def test_ledger_counts_browser_and_network_separately():
+    from modal_app import _apply_ledger_op
+
+    data = {}
+    for visitor in ("vid-a", "vid-b", "vid-c"):
+        data, answer = _apply_ledger_op(data, {"kind": "admit",
+                                               "visitor": visitor,
+                                               "extra": "ip:office",
+                                               "daily_films": 10,
+                                               "visitor_films": 3,
+                                               "network_films": 6,
+                                               "now": 1000.0})
+        assert answer["ok"] is True
+    data, answer = _apply_ledger_op(data, {"kind": "admit",
+                                           "visitor": "vid-a",
+                                           "extra": "ip:office",
+                                           "daily_films": 10,
+                                           "visitor_films": 1,
+                                           "network_films": 6,
+                                           "now": 1000.0})
+    assert answer == {"ok": False, "error": "visitor quota"}
+    data, answer = _apply_ledger_op(data, {"kind": "admit",
+                                           "visitor": "vid-z",
+                                           "extra": "ip:office",
+                                           "daily_films": 10,
+                                           "visitor_films": 3,
+                                           "network_films": 3,
+                                           "now": 1000.0})
+    assert answer == {"ok": False, "error": "network quota"}
 
 
 def test_ledger_apply_rejects_unknown_schema_and_ops():
@@ -160,6 +191,25 @@ def test_ledger_reset_clears_films_and_visitors_keeps_spend():
         data, {"kind": "admit", "visitor": "vid-a", "extra": "ip:h",
                "daily_films": 10, "visitor_films": 1})
     assert answer["ok"] is True
+
+
+def test_ledger_release_refunds_one_admission():
+    from modal_app import _apply_ledger_op
+
+    data, _ = _apply_ledger_op(
+        {}, {"kind": "admit", "visitor": "vid-a", "extra": "ip:h",
+             "daily_films": 10, "visitor_films": 2, "now": 1000.0})
+    data, answer = _apply_ledger_op(
+        data, {"kind": "release", "visitor": "vid-a", "extra": "ip:h"})
+    assert answer["ok"] is True
+    assert data["films"] == 0
+    assert data["visitors"]["vid-a"]["n"] == 0
+    assert data["visitors"]["ip:h"]["n"] == 0
+    data, answer = _apply_ledger_op(
+        data, {"kind": "admit", "visitor": "vid-a", "extra": "ip:h",
+             "daily_films": 10, "visitor_films": 2, "now": 1000.0})
+    assert answer["ok"] is True
+    assert data["films"] == 1
 
 
 def test_ledger_snapshot_reports_counts_not_keys():
@@ -221,8 +271,24 @@ def test_nominatim_slot_runs_single_flight():
     from pathlib import Path
 
     src = Path(modal_app.__file__).read_text()
-    assert re.search(r"@app\.function\(max_containers=1\)\n"
+    assert re.search(r"@app\.function\(image=image, max_containers=1\)\n"
                      r"def nominatim_slot", src)
+
+
+def test_every_function_uses_the_app_image():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for deco in node.decorator_list:
+            target = deco.func if isinstance(deco, ast.Call) else deco
+            if (isinstance(target, ast.Attribute)
+                    and target.attr == "function"):
+                assert isinstance(deco, ast.Call), node.name
+                assert any(k.arg == "image" for k in deco.keywords), node.name
 
 
 def test_contact_is_required(monkeypatch):
@@ -239,6 +305,7 @@ def test_try_limits_match_the_page():
 
     assert modal_app.TRY_DAILY_FILMS == webapp.MAX_FILMS_PER_DAY
     assert modal_app.TRY_VISITOR_FILMS == webapp.MAX_VISITOR_FILMS_PER_DAY
+    assert modal_app.TRY_NETWORK_FILMS == webapp.MAX_NETWORK_FILMS_PER_DAY
 
 
 def test_watch_job_cancels_on_flag_and_stale_heartbeat():
@@ -520,6 +587,25 @@ def test_both_apps_render_the_secret_contact():
         contact = next(k.value for k in deps.keywords if k.arg == "contact")
         assert isinstance(contact, ast.Call)
         assert contact.func.id == "_contact"
+
+
+def test_film_limits_default_and_refuse_bad_values(monkeypatch):
+    for name in ("WITNESS_DAILY_FILMS", "WITNESS_VISITOR_FILMS",
+                 "WITNESS_NETWORK_FILMS"):
+        monkeypatch.delenv(name, raising=False)
+    assert modal_app._daily_films() == 10
+    assert modal_app._visitor_films() == 2
+    assert modal_app._network_films() == 2
+    for bad in ("", "  ", "0", "-3", "2.5", "many"):
+        monkeypatch.setenv("WITNESS_VISITOR_FILMS", bad)
+        with pytest.raises(RuntimeError):
+            modal_app._visitor_films()
+    monkeypatch.setenv("WITNESS_VISITOR_FILMS", "3")
+    monkeypatch.setenv("WITNESS_NETWORK_FILMS", "6")
+    monkeypatch.setenv("WITNESS_DAILY_FILMS", "25")
+    assert modal_app._visitor_films() == 3
+    assert modal_app._network_films() == 6
+    assert modal_app._daily_films() == 25
 
 
 def test_judge_cap_requires_a_positive_number(monkeypatch):

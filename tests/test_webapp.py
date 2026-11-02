@@ -74,9 +74,13 @@ def test_debug_reset_requires_origin(tmp_path):
 class FakeAuthority:
     def __init__(self):
         self.admitted = []
+        self.released = []
 
     def admit(self, visitor, extra=None):
         self.admitted.append((visitor, extra))
+
+    def release(self, visitor, extra=None):
+        self.released.append((visitor, extra))
 
     def reserve(self, ceiling_usd):
         return models.BudgetTicket(ceiling_usd)
@@ -350,6 +354,26 @@ def test_spawn_failure_ends_the_job_with_headers(tmp_path):
     assert job["ended_at"] is not None
 
 
+def test_failed_spawn_refunds_the_quota_but_a_start_counts(tmp_path):
+    def boom(spec):
+        raise RuntimeError("spawn refused")
+
+    authority = FakeAuthority()
+    store = MemoryStore()
+    client = _client(tmp_path, store=store, authority=authority,
+                     runner=boom)
+    assert _upload(client).status_code == 500
+    assert len(authority.admitted) == 1
+    assert authority.released == authority.admitted
+    good = FakeAuthority()
+    store2 = MemoryStore()
+    client2 = _client(tmp_path, store=store2, authority=good,
+                      runner=lambda spec: "receipt")
+    assert _upload(client2).status_code == 200
+    assert len(good.admitted) == 1
+    assert good.released == []
+
+
 def test_unfinished_jobs_prune_by_maximum_age(tmp_path):
     from witness import webapp
 
@@ -425,9 +449,29 @@ def test_admission_runs_before_any_file_or_record(tmp_path):
                      authority=Full())
     out = _upload(client)
     assert out.status_code == 429
-    assert "daily quota" in out.json()["error"]
+    error = out.json()["error"]
+    assert "Daily limit" in error
+    assert "Resets tomorrow" in error
+    assert "examples" in error.lower()
     assert store.job_ids() == []
     assert list((tmp_path / "jobs").glob("job-*")) == []
+
+
+def test_quota_errors_name_the_limit_and_point_to_examples(tmp_path):
+    from witness import models
+
+    for quota, needle in (("visitor quota", "Browser limit"),
+                          ("network quota", "Network limit")):
+        class Full(FakeAuthority):
+            def admit(self, visitor, extra=None):
+                raise models.SpendingCapExceeded(quota)
+
+        client = _client(tmp_path, store=MemoryStore(),
+                         runner=lambda spec: None, authority=Full())
+        error = _upload(client).json()["error"]
+        assert needle in error
+        assert "Resets tomorrow" in error
+        assert "examples" in error.lower()
 
 
 def test_origin_must_match_exactly(tmp_path):

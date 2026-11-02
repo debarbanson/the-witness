@@ -716,7 +716,7 @@ class BudgetAuthority:
     unreadable accounting fails closed: no reservation, no call."""
 
     def __init__(self, path, daily_cap_usd=None, daily_films=None,
-                 visitor_films=None):
+                 visitor_films=None, network_films=None):
         import threading
 
         self.dir = Path(path)
@@ -724,6 +724,8 @@ class BudgetAuthority:
         self.cap_usd = daily_cap_usd
         self.daily_films = daily_films
         self.visitor_films = visitor_films
+        self.network_films = (network_films if network_films is not None
+                              else visitor_films)
         self._mutex = threading.Lock()
         self._open = set()
 
@@ -852,31 +854,54 @@ class BudgetAuthority:
             data["calls"] = int(data.get("calls", 0)) + 1
 
     def admit(self, visitor: str, extra=None) -> None:
-        """Admit one film for a visitor under the daily and per-visitor
-        quotas. A None quota means unlimited (the CLI default). `extra`
-        is a second visitor key (the network hash) checked under the
-        same per-visitor quota; the film is counted once."""
+        """Admit one film under the daily, per-browser and per-network
+        quotas. A None quota means unlimited (the CLI default). The
+        browser cookie and the network hash are counted separately;
+        the film is counted once."""
         with self._account() as data:
             films = int(data.get("films", 0))
             if self.daily_films is not None and films >= self.daily_films:
-                raise SpendingCapExceeded(
-                    "today's film quota is spent; try again tomorrow")
+                raise SpendingCapExceeded("daily quota")
             seen = data.get("visitors", {})
             if not isinstance(seen, dict):
                 raise AccountingError(
                     "spending accounting is corrupt; refusing to spend")
-            keys = [visitor] + ([extra] if extra else [])
-            for key in keys:
-                count = int(seen.get(key, 0))
-                if (self.visitor_films is not None
-                        and count >= self.visitor_films):
-                    raise SpendingCapExceeded(
-                        "this visitor's film quota is spent; "
-                        "try again tomorrow")
+            if (self.visitor_films is not None
+                    and int(seen.get(visitor, 0)) >= self.visitor_films):
+                raise SpendingCapExceeded("visitor quota")
+            if (extra and self.network_films is not None
+                    and int(seen.get(extra, 0)) >= self.network_films):
+                raise SpendingCapExceeded("network quota")
             data["films"] = films + 1
-            for key in keys:
+            for key in [visitor] + ([extra] if extra else []):
                 seen[key] = int(seen.get(key, 0)) + 1
             data["visitors"] = seen
+
+    def release(self, visitor: str, extra=None) -> None:
+        """Refund one admission after a spawn that never started its
+        job. Best effort and never below zero."""
+        try:
+            with self._account() as data:
+                data["films"] = max(0, int(data.get("films", 0)) - 1)
+                seen = data.get("visitors", {})
+                if not isinstance(seen, dict):
+                    return
+                for key in [visitor] + ([extra] if extra else []):
+                    if key in seen:
+                        seen[key] = max(0, int(seen[key]) - 1)
+                data["visitors"] = seen
+        except Exception:
+            pass
+
+    def quota(self, visitor: str, extra=None) -> dict:
+        """Used counts for one visitor's own keys."""
+        with self._account() as data:
+            seen = data.get("visitors", {})
+            if not isinstance(seen, dict):
+                seen = {}
+            return {"films": int(data.get("films", 0)),
+                    "visitor": int(seen.get(visitor, 0)),
+                    "network": int(seen.get(extra, 0)) if extra else 0}
 
     def reset_quotas(self) -> None:
         """Clear the film and visitor counters, keeping spend. Only the

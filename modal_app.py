@@ -31,11 +31,13 @@ from pathlib import Path
 
 import modal
 
-from witness.webapp import MAX_FILMS_PER_DAY, MAX_VISITOR_FILMS_PER_DAY
+from witness.webapp import (MAX_FILMS_PER_DAY, MAX_NETWORK_FILMS_PER_DAY,
+                            MAX_VISITOR_FILMS_PER_DAY)
 
 TRY_DAILY_CAP_USD = 5.0
 TRY_DAILY_FILMS = MAX_FILMS_PER_DAY
 TRY_VISITOR_FILMS = MAX_VISITOR_FILMS_PER_DAY
+TRY_NETWORK_FILMS = MAX_NETWORK_FILMS_PER_DAY
 
 LEDGER_SCHEMA = 1
 
@@ -46,8 +48,8 @@ app = modal.App("the-witness")
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install_from_requirements("requirements-lock.txt")
-    .add_local_dir("witness", remote_path="/app/witness")
     .env({"PYTHONPATH": "/app"})
+    .add_local_dir("witness", remote_path="/app/witness")
 )
 
 keys = modal.Secret.from_name("the-witness-keys")
@@ -100,7 +102,9 @@ def _apply_ledger_op(data, op):
         data["total_usd"] += float(op["actual_usd"])
         data["calls"] += 1
     elif kind == "admit":
-        daily, per_visitor = op.get("daily_films"), op.get("visitor_films")
+        daily = op.get("daily_films")
+        per_visitor = op.get("visitor_films")
+        per_network = op.get("network_films", per_visitor)
         keys = [op["visitor"]] + ([op["extra"]] if op.get("extra") else [])
         if daily is not None and data["films"] >= daily:
             return data, {"ok": False, "error": "daily quota"}
@@ -122,15 +126,59 @@ def _apply_ledger_op(data, op):
             counts = {key: _count(key) for key in keys}
         except (TypeError, ValueError):
             return data, {"ok": False, "error": "accounting corrupt"}
-        for key in keys:
-            if (per_visitor is not None
-                    and counts[key] >= per_visitor):
-                return data, {"ok": False, "error": "visitor quota"}
+        if (per_visitor is not None
+                and counts[op["visitor"]] >= per_visitor):
+            return data, {"ok": False, "error": "visitor quota"}
+        if (op.get("extra") and per_network is not None
+                and counts[op["extra"]] >= per_network):
+            return data, {"ok": False, "error": "network quota"}
         data["films"] += 1
         for key in keys:
             seen[key] = {"n": counts[key] + 1, "at": now}
+    elif kind == "release":
+        keys = [op["visitor"]] + ([op["extra"]] if op.get("extra") else [])
+        seen = data["visitors"]
+        if not isinstance(seen, dict):
+            return data, {"ok": False, "error": "accounting corrupt"}
+        data["films"] = max(0, int(data.get("films", 0)) - 1)
+        for key in keys:
+            entry = seen.get(key)
+            if entry is None:
+                continue
+            if isinstance(entry, dict):
+                try:
+                    n = int(entry.get("n", 0))
+                except (TypeError, ValueError):
+                    return data, {"ok": False, "error": "accounting corrupt"}
+                seen[key] = {"n": max(0, n - 1),
+                             "at": entry.get("at", 0)}
+            else:
+                try:
+                    n = int(entry)
+                except (TypeError, ValueError):
+                    return data, {"ok": False, "error": "accounting corrupt"}
+                seen[key] = max(0, n - 1)
     elif kind == "total":
         pass
+    elif kind == "quota":
+        seen = data["visitors"]
+        if not isinstance(seen, dict):
+            return data, {"ok": False, "error": "accounting corrupt"}
+
+        def _count(key):
+            entry = seen.get(key, 0)
+            if isinstance(entry, dict):
+                return int(entry.get("n", 0))
+            return int(entry)
+
+        try:
+            visitor_used = _count(op.get("visitor", ""))
+            extra = op.get("extra")
+            network_used = _count(extra) if extra else 0
+        except (TypeError, ValueError):
+            return data, {"ok": False, "error": "accounting corrupt"}
+        return data, {"ok": True, "films": int(data.get("films", 0)),
+                      "visitor": visitor_used, "network": network_used}
     elif kind == "reset":
         data["films"] = 0
         data["visitors"] = {}
@@ -179,7 +227,7 @@ def _ledger_for(backend):
     return None
 
 
-@app.function(max_containers=1)
+@app.function(image=image, max_containers=1)
 def ledger_op(op):
     """The one budget authority: serialized read-modify-write on the
     shared ledger record. Every failure mode refuses (fail closed)."""
@@ -221,13 +269,15 @@ class ModalAuthority:
     refusal raises, failing closed."""
 
     def __init__(self, cap_usd=None, daily_films=None, visitor_films=None,
-                 backend="staging"):
+                 backend="staging", network_films=None):
         from witness import models
 
         self._models = models
         self.cap_usd = cap_usd
         self.daily_films = daily_films
         self.visitor_films = visitor_films
+        self.network_films = (network_films if network_films is not None
+                              else visitor_films)
         self.backend = backend
 
     def _call(self, op):
@@ -239,7 +289,8 @@ class ModalAuthority:
             raise self._models.AccountingError(
                 f"budget authority unreachable: {exc}")
         if not answer.get("ok"):
-            if answer.get("error") in ("cap", "daily quota", "visitor quota"):
+            if answer.get("error") in ("cap", "daily quota", "visitor quota",
+                                       "network quota"):
                 raise self._models.SpendingCapExceeded(answer["error"])
             raise self._models.AccountingError(answer.get("error", "?"))
         return answer
@@ -266,7 +317,28 @@ class ModalAuthority:
         self._call({"kind": "admit", "visitor": visitor, "extra": extra,
                     "daily_films": self.daily_films,
                     "visitor_films": self.visitor_films,
+                    "network_films": self.network_films,
                     "now": _time.time()})
+
+    def release(self, visitor, extra=None):
+        """Refund one admission after a spawn that never started its
+        job. Best effort: a failed refund keeps the quota spent
+        rather than risking double spend."""
+        try:
+            self._call({"kind": "release", "visitor": visitor,
+                        "extra": extra})
+        except Exception:
+            pass
+
+    def quota(self, visitor, extra=None):
+        """Used counts for one visitor's own keys: total films today
+        plus the browser and network counts. Only the caller's own
+        keys, never the whole table."""
+        answer = self._call({"kind": "quota", "visitor": visitor,
+                             "extra": extra})
+        return {"films": int(answer.get("films", 0)),
+                "visitor": int(answer.get("visitor", 0)),
+                "network": int(answer.get("network", 0))}
 
     def total_usd(self):
         return float(self._call({"kind": "total"})["total_usd"])
@@ -485,6 +557,36 @@ def _judge_cap() -> float:
     return cap
 
 
+def _limit_setting(name: str, default: int) -> int:
+    """One film limit from the secret, or the default when unset. A
+    present but blank, zero, negative or non-integer value refuses
+    startup, the same as the other secrets."""
+    if name not in os.environ:
+        return default
+    raw = os.environ[name].strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        raise RuntimeError(f"{name} must be a positive whole number "
+                           "of films")
+    if not raw.isdigit() or value <= 0:
+        raise RuntimeError(f"{name} must be a positive whole number "
+                           "of films")
+    return value
+
+
+def _daily_films() -> int:
+    return _limit_setting("WITNESS_DAILY_FILMS", TRY_DAILY_FILMS)
+
+
+def _visitor_films() -> int:
+    return _limit_setting("WITNESS_VISITOR_FILMS", TRY_VISITOR_FILMS)
+
+
+def _network_films() -> int:
+    return _limit_setting("WITNESS_NETWORK_FILMS", TRY_NETWORK_FILMS)
+
+
 def _check_judge_flags() -> None:
     """Refuse test flags on judge mode. The staging abuse run sets
     them in the shared secret, which the shared worker also reads,
@@ -557,7 +659,7 @@ def _nominatim_wait(last_fired, now) -> float:
 _NOMINATIM_LOCK = threading.Lock()
 
 
-@app.function(max_containers=1)
+@app.function(image=image, max_containers=1)
 def nominatim_slot():
     """One limiter shared across containers: a single container plus
     a lock and the last-fired timestamp in the Dict paces every
@@ -631,9 +733,10 @@ def run_film(ref):
     scrub_hand_off(ref["job_dir"])
     volume.commit()
     authority = ModalAuthority(cap_usd=cap_usd,
-                               daily_films=TRY_DAILY_FILMS,
-                               visitor_films=TRY_VISITOR_FILMS,
-                               backend=backend)
+                               daily_films=_daily_films(),
+                               visitor_films=_visitor_films(),
+                               backend=backend,
+                               network_films=_network_films())
     stop = threading.Event()
 
     def watch_cancel(control):
@@ -695,7 +798,7 @@ def prune_hourly():
     return {"pruned": pruned, "swept": swept, "expired": expired}
 
 
-@app.function()
+@app.function(image=image)
 def try_switch(enable: bool):
     """Flip judge mode's Try-your-own switch, on or off within a
     minute, with no redeploy. Run from a shell with Modal access:
@@ -724,8 +827,9 @@ def web():
     app = create_app(WebDeps(
         store=DictStore(),
         authority=ModalAuthority(cap_usd=TRY_DAILY_CAP_USD,
-                                 daily_films=TRY_DAILY_FILMS,
-                                 visitor_films=TRY_VISITOR_FILMS),
+                                 daily_films=_daily_films(),
+                                 visitor_films=_visitor_films(),
+                                 network_films=_network_films()),
         runner=spawn,
         jobs_root="/jobs", examples_root="/examples",
         examples=_volume_examples("/examples"),
@@ -773,9 +877,10 @@ def judge():
     app = create_app(WebDeps(
         store=DictStore(judge_store_dict),
         authority=ModalAuthority(cap_usd=_judge_cap(),
-                                 daily_films=TRY_DAILY_FILMS,
-                                 visitor_films=TRY_VISITOR_FILMS,
-                                 backend="judge"),
+                                 daily_films=_daily_films(),
+                                 visitor_films=_visitor_films(),
+                                 backend="judge",
+                                 network_films=_network_films()),
         runner=spawn,
         jobs_root="/judge-jobs", examples_root="/examples",
         examples=_volume_examples("/examples"),

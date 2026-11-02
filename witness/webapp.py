@@ -39,6 +39,7 @@ DECIDE_TIMEOUT_SECONDS = 5 * 60
 HEARTBEAT_TIMEOUT_SECONDS = 120
 MAX_FILMS_PER_DAY = 10
 MAX_VISITOR_FILMS_PER_DAY = 2
+MAX_NETWORK_FILMS_PER_DAY = 2
 FORM_SLACK_BYTES = 65536
 
 
@@ -236,7 +237,8 @@ def visitor_key(ip_secret, client_ip, day) -> str:
 def admit_upload(deps, vid, vkey, now) -> None:
     """Refuse an upload past the daily film quota or the visitor's
     own quota (cookie and network hash alike), before any file is
-    written or job created. Raises SpendingCapExceeded."""
+    written or job created. Raises SpendingCapExceeded. Jobs whose
+    worker never started do not count."""
     if deps.authority is not None:
         deps.authority.admit(vid, extra=("ip:" + vkey) if vkey else None)
         return
@@ -249,6 +251,10 @@ def admit_upload(deps, vid, vkey, now) -> None:
             continue
         if job.get("started_at", 0) <= cutoff:
             continue
+        if ((job.get("status") == "failed")
+                and (job.get("result") or {}).get("message")
+                == "the worker did not start"):
+            continue
         total += 1
         if job.get("vid") == vid:
             mine += 1
@@ -256,8 +262,101 @@ def admit_upload(deps, vid, vkey, now) -> None:
             keyed += 1
     if total >= MAX_FILMS_PER_DAY:
         raise models.SpendingCapExceeded("daily quota")
-    if mine >= MAX_VISITOR_FILMS_PER_DAY or keyed >= MAX_VISITOR_FILMS_PER_DAY:
+    if mine >= MAX_VISITOR_FILMS_PER_DAY:
         raise models.SpendingCapExceeded("visitor quota")
+    if keyed >= MAX_NETWORK_FILMS_PER_DAY:
+        raise models.SpendingCapExceeded("network quota")
+
+
+def release_upload(deps, vid, vkey) -> None:
+    """Refund one admission after a spawn that never started its job.
+    Best effort; a failed refund keeps the quota spent."""
+    authority = deps.authority
+    if authority is None:
+        return
+    release = getattr(authority, "release", None)
+    if release is None:
+        return
+    try:
+        release(vid, extra=("ip:" + vkey) if vkey else None)
+    except Exception:
+        pass
+
+
+def _film_limits(deps):
+    """The three film limits in force: daily total, per browser and
+    per network. From the authority when it names them, else the
+    built-in defaults."""
+    authority = deps.authority
+    if authority is not None:
+        daily = getattr(authority, "daily_films", None)
+        visitor = getattr(authority, "visitor_films", None)
+        network = getattr(authority, "network_films", None)
+        if daily is not None and visitor is not None:
+            return (daily, visitor,
+                    network if network is not None else visitor)
+    return (MAX_FILMS_PER_DAY, MAX_VISITOR_FILMS_PER_DAY,
+            MAX_NETWORK_FILMS_PER_DAY)
+
+
+def _quota_refusal(deps, quota: str) -> str:
+    """Plain-words refusal naming which limit was reached, when it
+    resets and where to watch instead."""
+    daily, visitor, network = _film_limits(deps)
+    tail = "Resets tomorrow. Meanwhile, the examples below still play."
+    if quota == "daily quota":
+        return (f"Daily limit reached ({daily} films a day for "
+                f"everyone). {tail}")
+    if quota == "network quota":
+        return (f"Network limit reached ({network} films a day for "
+                f"this network). {tail}")
+    return (f"Browser limit reached ({visitor} films a day in this "
+            f"browser). {tail}")
+
+
+def _quota_used(deps, vid, vkey, now) -> dict:
+    """Films used today overall and by this visitor's own keys."""
+    authority = deps.authority
+    quota = getattr(authority, "quota", None) if authority else None
+    if callable(quota):
+        try:
+            return quota(vid or "",
+                         extra=("ip:" + vkey) if vkey else None)
+        except Exception:
+            pass
+    cutoff = now - 24 * 3600
+    used = {"films": 0, "visitor": 0, "network": 0}
+    for job_id in deps.store.job_ids():
+        try:
+            job = deps.store.get_job(job_id)
+        except KeyError:
+            continue
+        if job.get("started_at", 0) <= cutoff:
+            continue
+        if ((job.get("status") == "failed")
+                and (job.get("result") or {}).get("message")
+                == "the worker did not start"):
+            continue
+        used["films"] += 1
+        if vid and job.get("vid") == vid:
+            used["visitor"] += 1
+        if vkey and job.get("vkey") == vkey:
+            used["network"] += 1
+    return used
+
+
+def _quota_line(deps, vid, vkey, now) -> str:
+    """Plain-words tries before upload: each limit and how many are
+    left for this visitor today."""
+    daily, visitor, network = _film_limits(deps)
+    used = _quota_used(deps, vid, vkey, now)
+    daily_left = max(0, daily - used["films"])
+    visitor_left = max(0, visitor - used["visitor"])
+    network_left = max(0, network - used["network"])
+    return (f"{visitor} tries a day in this browser ({visitor_left} "
+            f"left today), {network} per network ({network_left} "
+            f"left), {daily} total a day ({daily_left} left). "
+            "Resets tomorrow.")
 
 
 INDEX_PAGE = """<!doctype html>
@@ -413,6 +512,7 @@ __EXAMPLES__
 <p>Works best with old, well-documented landmarks: a tower, windmill, lighthouse, old tree or bridge.</p>
 <p>__TRY_DURATION__</p>
 <p>Sometimes the sources are thin. Then you get the verified facts instead of a film. That is by design.</p>
+<p>__QUOTA_LINE__</p>
 __TRY_BLOCK__
 <p class="fine">Your photo is deleted after your film. Read the <a href="/privacy">privacy notice</a>.</p>
 </section>
@@ -934,6 +1034,18 @@ def create_app(deps: WebDeps) -> FastAPI:
         page = page.replace("__TRY_DURATION__", TRY_DURATION_LINE)
         page = page.replace("__HERO_FACTS__",
                             _hero_facts(deps.examples_root, deps.examples))
+        import time as _time
+
+        vid = request.cookies.get("vid")
+        addr = request.client.host if request.client else None
+        now = (deps.clock or _time.time)()
+        if addr and deps.ip_secret:
+            vkey = visitor_key(deps.ip_secret, addr,
+                               int(now // (24 * 3600)))
+        else:
+            vkey = None
+        page = page.replace("__QUOTA_LINE__",
+                            _quota_line(deps, vid, vkey, now))
         page = page.replace("__CONTACT__", deps.contact)
         page = page.replace("__NONCE__", request.state.nonce)
         request.state.style_hashes = _style_hashes(page)
@@ -1012,7 +1124,7 @@ def create_app(deps: WebDeps) -> FastAPI:
             admit_upload(deps, vid, vkey, day)
         except models.SpendingCapExceeded as exc:
             shutil.rmtree(directory, ignore_errors=True)
-            return _deny(request, f"{exc} spent; try again tomorrow", 429)
+            return _deny(request, _quota_refusal(deps, str(exc)), 429)
         started = clock()
         store.create_job(job_id, {
             "vid": vid, "vkey": vkey, "token": token,
@@ -1035,6 +1147,7 @@ def create_app(deps: WebDeps) -> FastAPI:
                 webfilm_module.scrub_hand_off(directory)
             except OSError:
                 pass
+            release_upload(deps, vid, vkey)
             store.end_job(job_id, "failed",
                           {"message": "the worker did not start"})
             raise
@@ -1042,6 +1155,7 @@ def create_app(deps: WebDeps) -> FastAPI:
             try:
                 webfilm_module.scrub_hand_off(directory)
             except OSError:
+                release_upload(deps, vid, vkey)
                 store.drop_job(job_id)
                 shutil.rmtree(directory, ignore_errors=True)
                 return _deny(request, "the worker did not start", 500)

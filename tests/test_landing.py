@@ -205,6 +205,13 @@ def test_try_your_own_privacy_is_three_bullets(tmp_path):
         assert name in notice
 
 
+def test_try_your_own_shows_tries_and_left(tmp_path):
+    page = _page(tmp_path)
+    assert "tries a day" in page
+    assert "left today" in page
+    assert "Resets tomorrow" in page
+
+
 def test_try_your_own_progress_is_a_step_list(tmp_path):
     page = _page(tmp_path)
     for step in ("Identify", "Research", "Check", "Paint", "Film"):

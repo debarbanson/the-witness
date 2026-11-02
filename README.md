@@ -93,4 +93,4 @@ The git history runs from the kickoff on 26 October 2026 (first commit 17:41 Dut
 
 ## Licence
 
-The licence choice waits for the owner's decision.
+MIT. See [LICENSE](LICENSE).

@@ -1345,3 +1345,13 @@ def test_r3_01_location_leaves_the_spec_on_worker_start(tmp_path,
     assert "place" not in spec and "location" not in spec
     assert "lat" not in spec and "lon" not in spec
     models.configure_spending(None)
+
+
+def test_r3_13_repository_carries_its_licence():
+    """The repo ships the MIT licence with the right holder and year."""
+    from pathlib import Path as _Path
+
+    root = _Path(webapp.__file__).resolve().parent.parent
+    text = (root / "LICENSE").read_text()
+    assert "MIT License" in text
+    assert "2026 De Barbanson Data Solutions" in text

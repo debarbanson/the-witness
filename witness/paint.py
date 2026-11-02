@@ -118,14 +118,14 @@ def describe_state(object_name, state) -> str:
     description = (state.get("description") or "").strip()
     degree = state.get("degree") or ""
     scope = state.get("scope") or ""
-    if condition in REMAINS_CONDITIONS:
-        return f"Only the remains of {object_name} stand: {description}"
     if condition in ("standing", "rebuilt") and not description:
         return f"The {object_name} stands whole."
     if scope == "part":
         return f"Part of {object_name} is {condition}: {description}"
     if degree == "partial":
         return f"{object_name} is partly {condition}: {description}"
+    if condition in REMAINS_CONDITIONS:
+        return f"Only the remains of {object_name} stand: {description}"
     if condition in ("standing", "rebuilt"):
         return f"The {object_name} stands {condition}: {description}"
     return f"The {object_name} is {condition}: {description}"

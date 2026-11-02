@@ -1444,3 +1444,33 @@ def test_r4_02_optional_deadline_keeps_the_published_adult(tmp_path,
     kept = store.get_job("id").get("result") or {}
     assert kept.get("film_url")
     assert "children" in kept.get("unavailable", [])
+
+
+def test_r4_03_partial_damage_stays_partial():
+    """Part-burnt evidence never paints as total destruction."""
+    from witness import paint, states
+
+    words = ("one wing of the tower was partly burnt in 1995; the rest "
+             "survived. one wing was partly burnt in 1995, and the rest "
+             "survived")
+    assert states.traced_state("burnt", "total", "whole", words) == (
+        "burnt", "partial", "part")
+    prompt = paint.describe_state(
+        "tower", {"condition": "burnt", "degree": "partial",
+                  "scope": "part",
+                  "description": "one wing blackened by fire"})
+    assert "only the remains" not in prompt.lower()
+    assert "part of tower is burnt" in prompt.lower()
+
+
+def test_r4_03_supported_destruction_stays_total():
+    """A claim of entire destruction keeps total and whole."""
+    from witness import paint, states
+
+    words = "the mill was destroyed entirely by fire"
+    assert states.traced_state("burnt", "total", "whole", words) == (
+        "burnt", "total", "whole")
+    prompt = paint.describe_state(
+        "mill", {"condition": "burnt", "degree": "total",
+                 "scope": "whole", "description": "a burnt shell"})
+    assert "only the remains" in prompt.lower()

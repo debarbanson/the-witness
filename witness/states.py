@@ -170,24 +170,36 @@ CONDITION_WORDS = {
 
 
 def traced_state(condition, degree, scope, text):
-    """The state the accepted words support. A condition, degree or
-    scope with no trace in the cited claim and quote resets to the
-    default; standing is the default, so it always traces."""
+    """The state the accepted words support. A condition with no
+    trace in the cited claim and quote resets to standing. Degree
+    and scope are read from the words too: total and whole need an
+    uncontradicted entirety word, anything less is partial and part,
+    so partial damage is never painted as total destruction."""
     lowered = (text or "").lower()
     keep = (condition or "") == "standing"
     if not keep and condition in CONDITION_WORDS:
         found = _has(lowered, CONDITION_WORDS[condition])
         keep = found is not None and not _negated(lowered, found)
     kept_condition = condition if keep else "standing"
-    if (degree or "") == "partial" and not (
-            _has(lowered, PARTIAL_WORDS) or _nearly_destroyed(lowered)):
+    partial_found = _has(lowered, PARTIAL_WORDS)
+    partial_trace = _nearly_destroyed(lowered) or (
+        partial_found is not None
+        and not _negated(lowered, partial_found))
+    total_found = _has(lowered, TOTAL_WORDS)
+    total_trace = (total_found is not None
+                   and not _negated(lowered, total_found))
+    if total_trace and not partial_trace:
         kept_degree = "total"
     else:
-        kept_degree = degree if degree in DEGREES else "total"
-    if (scope or "") == "part" and not _has(lowered, ATTACHED_PART):
+        kept_degree = "partial"
+    survived_found = _has(lowered, SURVIVED_WORDS)
+    part_trace = _has(lowered, ATTACHED_PART) is not None or (
+        survived_found is not None
+        and not _negated(lowered, survived_found))
+    if total_trace and not part_trace:
         kept_scope = "whole"
     else:
-        kept_scope = scope if scope in SCOPES else "whole"
+        kept_scope = "part"
     return kept_condition, kept_degree, kept_scope
 
 

@@ -373,13 +373,18 @@ def test_paint_scene_drops_era_on_repeated_model_error():
 def test_describe_state_frames_destroyed_as_remains():
     assert paint.describe_state(
         "De Adriaan",
-        {"condition": "burnt", "degree": "partial", "scope": "whole",
+        {"condition": "burnt", "degree": "total", "scope": "whole",
          "description": "Only the brick base is left."}) == (
         "Only the remains of De Adriaan stand: Only the brick base is left.")
     assert paint.describe_state(
         "Mill",
         {"condition": "ruin", "degree": "total", "scope": "whole",
          "description": "Bare walls."}).startswith("Only the remains")
+    assert paint.describe_state(
+        "De Adriaan",
+        {"condition": "burnt", "degree": "partial", "scope": "whole",
+         "description": "One wing blackened."}) == (
+        "De Adriaan is partly burnt: One wing blackened.")
 
 
 def test_describe_state_words_partial_scope_plainly():

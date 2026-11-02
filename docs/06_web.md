@@ -28,6 +28,63 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 - The photo is normalised at upload (orientation applied, metadata stripped) and kept until that sweep, then deleted. Coordinates and the typed place are held in the job's private hand-off file (spec.json) only until the worker reads it, then removed; lookups run in memory and error text carries no query strings.
 - The page says this in one line under the upload button.
 
+## Deploy runbook
+
+One deploy carries both surfaces: the staging page (`web`, behind proxy auth) and judge mode (`judge`, public and unlisted, no proxy auth, noindex on every response). The deploy prints both URLs; share the judge URL only in the submission.
+
+### Before the first deploy
+
+1. The owner runs `modal token new` on their own machine (Modal credentials live outside the repo).
+2. The owner creates the secret `the-witness-keys` in the Modal dashboard, never from the command line, with these names (no values anywhere in the repo or the shell history):
+   - `MODEL_API_KEY` (Meta calls: research, verify, paint, children),
+   - `BASETEN_API_KEY` (open-weights support votes),
+   - `WITNESS_CONTACT` (the notice address),
+   - `WITNESS_IP_SECRET` (at least 32 characters of randomness, shared by every container for the visitor hash),
+   - `WITNESS_JUDGE_CAP_USD` (judge mode's hard daily spending cap; the owner sets the number after the staging measurement).
+3. Staging test flags live in the same secret only for abuse runs: `WITNESS_ABUSE_RESET=1` (lets the staging abuse script reset quotas between cases; never set on judge mode) and `WITNESS_FAKE_PROVIDER=1` with `WITNESS_FAKE_DELAY_S=2` (cancel-path cases without paid calls).
+
+### Staging
+
+```bash
+modal deploy modal_app.py
+```
+
+This deploys staging (`web`) and judge mode together; test on the staging URL first. Upload each reviewed example film to the shared Volume (the app discovers them at request time and skips missing ones with a log line):
+
+```bash
+modal volume put witness-examples out/de-adriaan/film de-adriaan
+modal volume ls witness-examples
+```
+
+One `put` per reviewed example, one slug per film directory.
+
+### Production (judge mode)
+
+Judge mode deploys with the same command; there is no separate build. Before sharing its URL: the examples are uploaded, `WITNESS_JUDGE_CAP_USD` is set, `WITNESS_ABUSE_RESET` is not set on the judge path, and the smoke checks below pass on the judge URL. Tag `v1.0-submission` only on the owner's go, after those checks.
+
+### Smoke checks
+
+Run these on staging first, then on the judge URL:
+
+1. The page: `curl -s -o /dev/null -w "%{http_code}\n" <url>/` answers 200.
+2. One example film: `curl -s -o /dev/null -w "%{http_code}\n" <url>/examples/<slug>/` answers 200, and its page assets load.
+3. Security headers: the response carries `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options` and `Referrer-Policy`. On judge mode it also carries `X-Robots-Tag: noindex`, and `<url>/robots.txt` disallows everything.
+4. The off switch: `modal run modal_app.py::try_switch --no-enable` turns Try your own off within a minute; `POST /api/jobs` then answers 503 with the resting line while the examples keep serving. `modal run modal_app.py::try_switch --enable` turns it back on.
+5. One capped request: submit one Try-your-own photo on staging and watch it finish inside the staging cap, or be refused with a quota error when the cap is spent.
+
+### Turning Try your own off and on
+
+```bash
+modal run modal_app.py::try_switch --no-enable   # off within a minute, no redeploy
+modal run modal_app.py::try_switch --enable      # back on
+```
+
+Off means: new `POST /api/jobs` on judge mode answers 503 ("Try your own is resting; the examples are below"). In-flight jobs finish; the examples and everything else keep working. Staging has no off switch: proxy auth keeps it private.
+
+### Costs and caps
+
+The staging measurement (one full Try-your-own run plus the abuse script) sets the numbers; until then the README and this page carry no cost claims. The judge cap must cover judging (5 to 8 Nov) and the community vote (until 16 Nov) within the remaining credits; the proposal goes in the Block N report.
+
 ## Out of scope
 
 Sharing links, galleries, user history, payments.

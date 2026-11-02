@@ -467,6 +467,61 @@ def _csp(nonce: str, style_hashes=()) -> str:
             "form-action 'self'")
 
 
+class BodyCapMiddleware:
+    """Refuse an over-cap upload body at the ASGI receive level.
+
+    The content-length guard only sees a declared length, and the
+    form parser below would otherwise drink a chunked body in full
+    before the handler's spool gate runs. So for uploads this
+    middleware counts the raw request bytes itself: past the cap it
+    answers 400 at once and never reads the rest. Bodies within the
+    cap are replayed to the app untouched. The cap is read per
+    request so tests can shrink it."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (scope.get("type") != "http" or scope.get("method") != "POST"
+                or scope.get("path") != "/api/jobs"):
+            await self.app(scope, receive, send)
+            return
+        cap = photo_module.MAX_UPLOAD_BYTES + FORM_SLACK_BYTES
+        buffered = []
+        total = 0
+        capped = False
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                buffered.append(message)
+                break
+            total += len(message.get("body", b""))
+            if total > cap:
+                capped = True
+                break
+            buffered.append(message)
+            if not message.get("more_body"):
+                break
+        if capped:
+            payload = b'{"error":"bad photo: upload too large"}'
+            await send({"type": "http.response.start", "status": 400,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"content-length",
+                                     str(len(payload)).encode()),
+                                    (b"x-content-type-options", b"nosniff")]})
+            await send({"type": "http.response.body", "body": payload})
+            return
+        buffered_iter = iter(buffered)
+
+        async def replay():
+            try:
+                return next(buffered_iter)
+            except StopIteration:
+                return await receive()
+
+        await self.app(scope, replay, send)
+
+
 def create_app(deps: WebDeps) -> FastAPI:
     """Build the page. No global state: every dependency is injected."""
     import time as _time
@@ -474,6 +529,7 @@ def create_app(deps: WebDeps) -> FastAPI:
     clock = deps.clock or _time.time
     store = deps.store
     app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+    app.add_middleware(BodyCapMiddleware)
 
     def _head(response, request, nonce, correlation):
         response.headers["Strict-Transport-Security"] = (
@@ -590,10 +646,6 @@ def create_app(deps: WebDeps) -> FastAPI:
             photo_module.check_upload_header(data)
         except photo_module.PhotoError as exc:
             return _deny(request, f"bad photo: {exc}", 400)
-        try:
-            admit_upload(deps, vid, vkey, day)
-        except models.SpendingCapExceeded as exc:
-            return _deny(request, f"{exc} spent; try again tomorrow", 429)
         job_id = uuid.uuid4().hex
         token = secrets.token_hex(16)
         directory = job_dir(deps.jobs_root)
@@ -607,6 +659,11 @@ def create_app(deps: WebDeps) -> FastAPI:
         except photo_module.PhotoError as exc:
             shutil.rmtree(directory, ignore_errors=True)
             return _deny(request, f"bad photo: {exc}", 400)
+        try:
+            admit_upload(deps, vid, vkey, day)
+        except models.SpendingCapExceeded as exc:
+            shutil.rmtree(directory, ignore_errors=True)
+            return _deny(request, f"{exc} spent; try again tomorrow", 429)
         started = clock()
         store.create_job(job_id, {
             "vid": vid, "vkey": vkey, "token": token,

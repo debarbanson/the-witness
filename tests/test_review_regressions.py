@@ -1067,3 +1067,73 @@ def test_r3_22_real_looking_coordinate_literals_remain_in_tracked_tests():
                     and isinstance(value.value, float)):
                 assert not (abs(value.value) > 1 and len(
                     str(value.value).split(".")[-1]) >= 3)
+
+
+def test_r3_06_chunked_upload_stops_at_the_receive_cap(tmp_path, monkeypatch):
+    """A chunked body past the cap is refused before it is fully read."""
+    import asyncio
+
+    from fastapi.testclient import TestClient  # noqa: F401 (client parity)
+
+    monkeypatch.setattr(photo, "MAX_UPLOAD_BYTES", 8)
+    deps = webapp.WebDeps(webapp.MemoryStore(), None, lambda _: None,
+                           tmp_path / "jobs", tmp_path / "examples")
+    app = webapp.create_app(deps)
+    body = (b'--probe\r\nContent-Disposition: form-data; name="ack"\r\n\r\non\r\n'
+            b'--probe\r\nContent-Disposition: form-data; name="photo"; filename="x.png"\r\n'
+            b'Content-Type: image/png\r\n\r\n' + b'X' * 131072 + b'\r\n--probe--\r\n')
+    chunks = [body[i:i + 4096] for i in range(0, len(body), 4096)]
+    count = [0]
+    sent = []
+
+    async def receive():
+        if count[0] < len(chunks):
+            part = chunks[count[0]]
+            count[0] += 1
+            return {"type": "http.request", "body": part,
+                    "more_body": count[0] < len(chunks)}
+        await asyncio.sleep(.01)
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+             "method": "POST", "scheme": "http", "path": "/api/jobs",
+             "raw_path": b"/api/jobs", "query_string": b"",
+             "headers": [(b"host", b"testserver"), (b"origin", b"http://testserver"),
+                         (b"content-type", b"multipart/form-data; boundary=probe")],
+             "server": ("testserver", 80), "client": ("synthetic-client", 1),
+             "root_path": ""}
+    asyncio.run(app(scope, receive, send))
+    assert count[0] < len(chunks)
+    assert next(m["status"] for m in sent
+                if m["type"] == "http.response.start") == 400
+
+
+def test_r3_18_broken_image_spends_no_quota(tmp_path):
+    """A file that fails the full decode is refused before admission."""
+    from fastapi.testclient import TestClient
+
+    authority = models.BudgetAuthority(tmp_path / "budget", daily_films=10,
+                                       visitor_films=2)
+    deps = webapp.WebDeps(webapp.MemoryStore(), authority, lambda _: None,
+                           tmp_path / "jobs", tmp_path / "examples")
+    client = TestClient(webapp.create_app(deps),
+                        raise_server_exceptions=False)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="PNG")
+    damaged = buf.getvalue()[:45]
+    photo.check_upload_header(damaged)
+    for _ in range(2):
+        response = client.post("/api/jobs", headers={"Origin": "http://testserver"},
+                               files={"photo": ("x.png", damaged)},
+                               data={"ack": "on"})
+        assert response.status_code == 400
+    assert authority.total_films() == 0
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="PNG")
+    good = client.post("/api/jobs", headers={"Origin": "http://testserver"},
+                       files={"photo": ("x.png", buf.getvalue())},
+                       data={"ack": "on"})
+    assert good.status_code == 200

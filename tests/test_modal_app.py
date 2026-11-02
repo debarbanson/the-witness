@@ -574,6 +574,109 @@ def test_modal_authority_carries_its_backend(monkeypatch):
     assert ops[1]["backend"] == "staging"
 
 
+def test_judge_refuses_test_flags(monkeypatch):
+    monkeypatch.delenv("WITNESS_FAKE_PROVIDER", raising=False)
+    monkeypatch.delenv("WITNESS_ABUSE_RESET", raising=False)
+    modal_app._check_judge_flags()
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    with pytest.raises(RuntimeError):
+        modal_app._check_judge_flags()
+    monkeypatch.delenv("WITNESS_FAKE_PROVIDER", raising=False)
+    monkeypatch.setenv("WITNESS_ABUSE_RESET", "1")
+    with pytest.raises(RuntimeError):
+        modal_app._check_judge_flags()
+
+
+def test_judge_calls_the_flag_check():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    judge = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                 and n.name == "judge")
+    calls = [n for n in ast.walk(judge)
+             if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Name)
+             and n.func.id == "_check_judge_flags"]
+    assert len(calls) == 1
+
+
+def test_run_film_refuses_fake_for_judge(tmp_path, monkeypatch):
+    import json
+
+    from witness import webfilm
+
+    monkeypatch.setenv("WITNESS_JUDGE_CAP_USD", "12.5")
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    job_dir = tmp_path / "job-x"
+    job_dir.mkdir()
+    spec = {"job_id": "j", "token": "t", "vid": "v",
+            "job_dir": str(job_dir), "photo": str(job_dir / "today.jpg"),
+            "place": "", "lat": None, "lon": None, "location": None}
+    (job_dir / "spec.json").write_text(json.dumps(spec))
+    (job_dir / "today.jpg").write_bytes(b"x")
+    store = MemoryStore()
+    store.create_job("j", _record(job_dir=str(job_dir)))
+
+    def boom(*args, **kwargs):
+        raise AssertionError("fake judge film must not start")
+
+    class Volume:
+        def reload(self):
+            pass
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(modal_app, "judge_jobs_volume", Volume())
+    monkeypatch.setattr(modal_app, "_worker_store",
+                        lambda backend="staging": store)
+    monkeypatch.setattr(webfilm, "run_web_film", boom)
+    assert modal_app.run_film.local({"job_id": "j",
+                                     "job_dir": str(job_dir),
+                                     "backend": "judge"}) == {
+        "status": "failed"}
+    assert store.get_job("j")["status"] == "failed"
+
+
+def test_run_film_allows_fake_for_staging(tmp_path, monkeypatch):
+    import json
+
+    from witness import webfilm
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    job_dir = tmp_path / "job-x"
+    job_dir.mkdir()
+    spec = {"job_id": "j", "token": "t", "vid": "v",
+            "job_dir": str(job_dir), "photo": str(job_dir / "today.jpg"),
+            "place": "", "lat": None, "lon": None, "location": None}
+    (job_dir / "spec.json").write_text(json.dumps(spec))
+    (job_dir / "today.jpg").write_bytes(b"x")
+    store = MemoryStore()
+    store.create_job("j", _record(job_dir=str(job_dir)))
+
+    def fake_run(full_spec, job_store, authority, nominatim_pace=None,
+                 commit=None):
+        full_spec["on_cancel"](_control())
+        return {"status": "done"}
+
+    class Volume:
+        def reload(self):
+            pass
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(modal_app, "jobs_volume", Volume())
+    monkeypatch.setattr(modal_app, "_worker_store",
+                        lambda backend="staging": store)
+    monkeypatch.setattr(webfilm, "run_web_film", fake_run)
+    assert modal_app.run_film.local({"job_id": "j",
+                                     "job_dir": str(job_dir),
+                                     "backend": "staging"}) == {
+        "status": "done"}
+
+
 def test_run_film_routes_by_backend(tmp_path, monkeypatch):
     import json
 

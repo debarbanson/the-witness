@@ -485,6 +485,18 @@ def _judge_cap() -> float:
     return cap
 
 
+def _check_judge_flags() -> None:
+    """Refuse test flags on judge mode. The staging abuse run sets
+    them in the shared secret, which the shared worker also reads,
+    so judge mode refuses to start while either is set."""
+    if os.environ.get("WITNESS_FAKE_PROVIDER"):
+        raise RuntimeError("WITNESS_FAKE_PROVIDER is set: judge mode "
+                           "never runs with test providers")
+    if os.environ.get("WITNESS_ABUSE_RESET"):
+        raise RuntimeError("WITNESS_ABUSE_RESET is set: judge mode "
+                           "never runs with test flags")
+
+
 def _try_enabled() -> bool:
     """The Try-your-own off switch, read live on every upload: the
     flag is off within a minute of the flip, with no redeploy. An
@@ -580,6 +592,15 @@ def run_film(ref):
 
     backend = ref.get("backend", "staging")
     if backend == "judge":
+        if os.environ.get("WITNESS_FAKE_PROVIDER"):
+            store = _worker_store("judge")
+            try:
+                store.end_job(ref["job_id"], "failed",
+                              {"message": "judge mode never runs "
+                                          "with test providers"})
+            except KeyError:
+                pass
+            return {"status": "failed"}
         volume = judge_jobs_volume
         cap_usd = _judge_cap()
     elif backend == "staging":
@@ -742,6 +763,7 @@ def judge():
     the hard daily cap, the per-visitor and global quotas, and the
     off switch. Separate state from staging throughout, and the
     abuse reset is never wired here."""
+    _check_judge_flags()
     from witness.webapp import WebDeps, create_app
 
     def spawn(ref):

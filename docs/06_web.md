@@ -60,7 +60,7 @@ One `put` per reviewed example, one slug per film directory.
 
 ### Production (judge mode)
 
-Judge mode deploys with the same command; there is no separate build. Before sharing its URL: the examples are uploaded, `WITNESS_JUDGE_CAP_USD` is set, `WITNESS_ABUSE_RESET` is not set on the judge path, and the smoke checks below pass on the judge URL. Tag `v1.0-submission` only on the owner's go, after those checks.
+Judge mode deploys with the same command; there is no separate build. Before sharing its URL: the examples are uploaded, `WITNESS_JUDGE_CAP_USD` is set, neither `WITNESS_ABUSE_RESET` nor `WITNESS_FAKE_PROVIDER` is set, and the smoke checks below pass on the judge URL. Tag `v1.0-submission` only on the owner's go, after those checks.
 
 ### Smoke checks
 
@@ -101,7 +101,8 @@ export MODAL_PROXY_KEY=<token-id> MODAL_PROXY_SECRET=<token-secret>
 
 1. One full Try-your-own film on staging, on a well-documented object: submit through the staging page, record the wall time per phase from the progress events and the total cost from the ledger (`GET /api/debug/ledger`, `total_usd` delta).
 2. The abuse script above (16 checks, each asserting on effects; it refuses unless `WITNESS_ABUSE_RESET=1` is in the staging secret).
-3. Put the dated numbers in the README and here, and set `WITNESS_JUDGE_CAP_USD` so judging (5 to 8 Nov) plus the community vote (until 16 Nov) fits the remaining credits.
+3. After the abuse run, remove the three test flags from the secret (`WITNESS_ABUSE_RESET`, `WITNESS_FAKE_PROVIDER`, `WITNESS_FAKE_DELAY_S`), redeploy, and confirm judge mode starts: the judge URL answers 200 and serves an example film. Judge mode refuses to start while either of the first two flags is set, and its worker refuses fake films.
+4. Put the dated numbers in the README and here, and set `WITNESS_JUDGE_CAP_USD` so judging (5 to 8 Nov) plus the community vote (until 16 Nov) fits the remaining credits.
 
 ## Out of scope
 

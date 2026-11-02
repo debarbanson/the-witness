@@ -397,6 +397,19 @@ def _contact():
                            "a real contact before it goes live")
 
 
+def _ip_secret():
+    """The shared visitor-hash secret, from the secret. One value for
+    every container, derived per day in visitor_key, so every
+    container hashes an address the same way. Refusing to start
+    without it: a per-container secret would let a fresh cookie
+    bypass the visitor quota."""
+    try:
+        return os.environ["WITNESS_IP_SECRET"]
+    except KeyError:
+        raise RuntimeError("WITNESS_IP_SECRET is not set: the page needs "
+                           "a shared visitor-hash secret before it goes live")
+
+
 def _watch_job(store, job_id, control, stop, poll_s=2.0, heartbeat_s=120,
                now=None):
     """Cancel the job when the visitor cancels or the tab goes quiet:
@@ -532,6 +545,7 @@ def web():
         examples=[{"slug": ex["slug"], "name": ex["name"]} for ex in EXAMPLES],
         contact=_contact(),
         secure_cookies=True,
+        ip_secret=_ip_secret(),
         debug_reset=os.environ.get("WITNESS_ABUSE_RESET") == "1"))
 
     volume = jobs_volume

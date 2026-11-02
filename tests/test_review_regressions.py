@@ -1167,3 +1167,37 @@ def test_r3_08_missing_usage_charges_the_reserved_ceiling(tmp_path):
                                        "completion_tokens": 0}}))
     models.respond(zero, models.VERIFY, input="synthetic")
     assert authority.total_usd() == pytest.approx(5 * one)
+
+
+def test_r3_07_two_containers_with_the_shared_secret_agree(tmp_path):
+    """Same shared secret on two instances: the visitor quota holds."""
+    from fastapi.testclient import TestClient
+
+    authority = models.BudgetAuthority(tmp_path / "budget", daily_films=10,
+                                       visitor_films=2)
+    secret = "shared-test-secret"
+    one = TestClient(webapp.create_app(webapp.WebDeps(
+        webapp.MemoryStore(), authority, lambda _: None,
+        tmp_path / "one" / "jobs", tmp_path / "one" / "examples",
+        ip_secret=secret)), raise_server_exceptions=False)
+    two = TestClient(webapp.create_app(webapp.WebDeps(
+        webapp.MemoryStore(), authority, lambda _: None,
+        tmp_path / "two" / "jobs", tmp_path / "two" / "examples",
+        ip_secret=secret)), raise_server_exceptions=False)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="PNG")
+    shot = buf.getvalue()
+
+    def upload(client):
+        return client.post("/api/jobs",
+                           headers={"Origin": "http://testserver"},
+                           files={"photo": ("x.png", shot)},
+                           data={"ack": "on"})
+
+    assert upload(one).status_code == 200
+    assert upload(one).status_code == 200
+    assert upload(one).status_code == 429
+    assert upload(two).status_code == 429
+    assert authority.total_films() == 2
+    assert webapp.visitor_key(secret, "synthetic-client", 7) != \
+        webapp.visitor_key(secret, "synthetic-client", 8)

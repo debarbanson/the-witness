@@ -200,12 +200,16 @@ def sweep_job_dirs(store, jobs_root, now,
 
 def visitor_key(ip_secret, client_ip, day) -> str:
     """A keyed daily hash of the visitor's network address for the
-    cookieless quota. The raw address is never stored; the hash
-    rotates every day and dies with the job record."""
+    cookieless quota. The day's key is derived from the shared
+    secret first, then the address is hashed under it. The raw
+    address is never stored; the hash rotates every day and dies
+    with the job record."""
+    day_key = hashlib.sha256()
+    day_key.update(ip_secret.encode("utf-8"))
+    day_key.update(b"\0")
+    day_key.update(str(day).encode("utf-8"))
     digest = hashlib.sha256()
-    digest.update(ip_secret.encode("utf-8"))
-    digest.update(b"\0")
-    digest.update(str(day).encode("utf-8"))
+    digest.update(day_key.digest())
     digest.update(b"\0")
     digest.update(str(client_ip).encode("utf-8"))
     return digest.hexdigest()

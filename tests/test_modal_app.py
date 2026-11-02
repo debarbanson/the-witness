@@ -379,3 +379,12 @@ def test_install_instructions_name_the_lockfile():
     assert "requirements-lock.txt" in readme
     assert "playwright install chromium" in readme
     assert "ffmpeg" in readme
+
+
+def test_ip_secret_is_required(monkeypatch):
+    monkeypatch.delenv("WITNESS_IP_SECRET", raising=False)
+    with pytest.raises(RuntimeError) as excinfo:
+        modal_app._ip_secret()
+    assert "WITNESS_IP_SECRET" in str(excinfo.value)
+    monkeypatch.setenv("WITNESS_IP_SECRET", "test-secret")
+    assert modal_app._ip_secret() == "test-secret"

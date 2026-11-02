@@ -347,7 +347,9 @@ def test_pinned_send_normalises_a_tuple_timeout(monkeypatch):
     fetched = web.fetch_public("https://example.org/a", timeout=(5, 10))
     assert fetched.body == b"ok"
     assert seen["connect"] == 5
-    assert seen["read"] == [10]
+    assert seen["read"][0] == 10
+    assert seen["read"][1:] and all(
+        0 < call <= 30 for call in seen["read"][1:])
 
 
 def test_web_error_strips_query_strings():

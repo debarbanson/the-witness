@@ -1269,3 +1269,42 @@ def test_r3_20_ledger_visitor_hashes_expire_totals_stay():
     names = {n.id for n in ast.walk(function)
              if isinstance(n, ast.Name)}
     assert "ledger_dict" in names
+
+
+def test_r3_17_slow_drip_hits_the_total_deadline_fast(monkeypatch):
+    """A dripping body fails at the deadline, not at the last byte."""
+    import http.client
+    import socket
+    import threading
+    import time as _time
+
+    one, two = socket.socketpair()
+    one.settimeout(.5)
+
+    def server():
+        with two:
+            two.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\n")
+            for _ in range(12):
+                _time.sleep(.02)
+                try:
+                    two.sendall(b"x")
+                except OSError:
+                    break
+
+    thread = threading.Thread(target=server)
+    thread.start()
+    raw = http.client.HTTPResponse(one)
+    raw.begin()
+    response = web._PinnedResponse(SimpleNamespace(close=one.close), raw,
+                                   "https://example.org/history")
+    monkeypatch.setattr(web, "assert_public_url", lambda _: None)
+    started = _time.monotonic()
+    try:
+        with pytest.raises(web.WebError):
+            web.fetch_public("https://example.org/history",
+                             sender=lambda *a, **kw: response,
+                             total_timeout=.03)
+        assert _time.monotonic() - started < .15
+    finally:
+        one.close()
+        thread.join()

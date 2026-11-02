@@ -137,7 +137,10 @@ def _read_capped(resp, max_bytes: int, deadline=None) -> bytes:
     chunks, size = [], 0
     try:
         if hasattr(resp, "iter_content"):
-            pieces = resp.iter_content(65536)
+            try:
+                pieces = resp.iter_content(65536, deadline=deadline)
+            except TypeError:
+                pieces = resp.iter_content(65536)
         elif hasattr(resp, "read"):
             pieces = iter(lambda: resp.read(65536), b"")
         elif hasattr(resp, "content"):
@@ -173,12 +176,37 @@ class _PinnedResponse:
         self.status_code = http_resp.status
         self.headers = dict(http_resp.getheaders())
 
-    def iter_content(self, chunk_size=65536):
+    def iter_content(self, chunk_size=65536, deadline=None):
         while True:
-            piece = self._http_resp.read(chunk_size)
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise _refuse("fetch exceeded its total time",
+                                  limit="time")
+                self._arm_timeout(remaining)
+            try:
+                piece = self._http_resp.read1(chunk_size)
+            except socket.timeout:
+                raise _refuse("fetch exceeded its total time",
+                              limit="time")
             if not piece:
                 return
             yield piece
+
+    def _arm_timeout(self, seconds):
+        """Bound this read by the remaining total time. The socket is
+        single-use (closed after the read), so the timeout is not
+        restored."""
+        fp = getattr(self._http_resp, "fp", None)
+        for target in (getattr(self._conn, "sock", None),
+                       getattr(fp, "raw", None)):
+            setter = getattr(target, "settimeout", None)
+            if callable(setter):
+                try:
+                    setter(seconds)
+                except (OSError, ValueError):
+                    pass
+                return
 
     def close(self):
         self._conn.close()

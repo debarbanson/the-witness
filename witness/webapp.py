@@ -674,7 +674,7 @@ window.addEventListener("pagehide", () => {
 </html>
 """
 
-TRY_DURATION_LINE = ("Films usually take a few minutes, and the page "
+TRY_DURATION_LINE = ("Films usually take about 8 minutes, and the page "
                      "shows each step as it happens.")
 
 TRY_FORM = """<section id="notice">

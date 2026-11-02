@@ -128,7 +128,7 @@ def test_gallery_without_a_child_hides_the_pill(tmp_path):
 def test_try_your_own_says_what_works_and_how_long(tmp_path):
     page = _page(tmp_path)
     assert "tower, windmill, lighthouse, old tree or bridge" in page
-    assert "few minutes" in page
+    assert "about 8 minutes" in page
     assert "facts instead of a film" in page
     assert "by design" in page
     assert 'id="upload"' in page

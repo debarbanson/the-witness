@@ -91,7 +91,9 @@ Off means: new `POST /api/jobs` on judge mode answers 503 ("Try your own is rest
 
 ### Costs and caps
 
-The staging measurement sets the numbers; until then the README and this page carry no cost claims. The owner-side run, on a machine with Modal access:
+Measured 2 Nov on staging (De Adriaan, one full Try-your-own, paid): Identify 33 s, Research 49 s, Check 91 s, Paint 272 s (captions 47 s, painting 225 s), Film 3 s; 454 s wall to the adult film (about 8 minutes). Model-API ledger delta $1.03 (56 paid calls; adult job ledger $0.52, extras started). Modal compute about $0.005 for the film (`modal billing report --for today`; $0.01 metered for the whole staging session, $0.00 billed after credits).
+
+The owner-side run, on a machine with Modal access:
 
 ```bash
 modal deploy modal_app.py

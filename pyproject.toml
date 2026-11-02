@@ -8,6 +8,7 @@ dependencies = [
     "Pillow",
     "httpx",
     "fastapi",
+    "python-multipart",
     "modal",
     "playwright",
 ]

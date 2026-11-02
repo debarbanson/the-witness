@@ -713,3 +713,13 @@ def test_job_status_reports_its_end(tmp_path):
     assert client.get(f"/api/jobs/{job_id}").json()["ended_at"] is None
     client.delete(f"/api/jobs/{job_id}", headers=ORIGIN)
     assert client.get(f"/api/jobs/{job_id}").json()["ended_at"] == 1000.0
+
+
+def test_upload_form_dependency_is_declared_for_fresh_clones():
+    import tomllib
+
+    root = Path(__file__).resolve().parent.parent
+    deps = tomllib.loads((root / "pyproject.toml").read_text())["project"][
+        "dependencies"
+    ]
+    assert any(d.split()[0].split(";")[0] == "python-multipart" for d in deps)

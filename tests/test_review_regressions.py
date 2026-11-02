@@ -1397,3 +1397,50 @@ def test_r4_05_remote_example_layout_is_discovered(tmp_path):
         for asset in ("film.html", "film.json", "today.jpg"):
             out = client.get(f"/examples/{slug}/{asset}")
             assert out.status_code == 200, (slug, asset)
+
+
+def test_r4_02_optional_deadline_keeps_the_published_adult(tmp_path,
+                                                           monkeypatch):
+    """A deadline in the extras keeps the published adult film."""
+    from types import SimpleNamespace as _NS
+
+    store = webapp.MemoryStore(clock=lambda: 1000)
+    spec = {"job_id": "id", "token": "cap", "vid": "vid",
+            "job_dir": str(tmp_path), "photo": "synthetic", "place": "",
+            "location": None, "lat": None, "lon": None}
+    store.create_job("id", {"vid": "vid", "job_dir": str(tmp_path),
+                            "status": "started", "started_at": 1000,
+                            "last_poll": 1000})
+    result = {"identified": True, "confirmed": True, "slug": "tower",
+              "found": _NS(name="Tower"), "order": [], "kept": [],
+              "timeline": [], "chosen": [],
+              "result": {"outcome": "full_film"}, "timings": {},
+              "failures": [], "comparison": None, "tokens": {},
+              "cost_usd": 0}
+    monkeypatch.setattr(cli, "run_job", lambda *a, **kw: result)
+    monkeypatch.setattr(cli, "report_and_save", lambda *a, **kw: None)
+    monkeypatch.setattr(cli, "cmd_captions", lambda *a, **kw: 0)
+    monkeypatch.setattr(cli, "cmd_paint", lambda *a, **kw: 0)
+    film = tmp_path / "tower" / "film" / "film.html"
+
+    def render(*a, **kw):
+        film.parent.mkdir(parents=True, exist_ok=True)
+        film.write_text("<html>Synthetic adult film</html>")
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_render", render)
+    seen = []
+
+    def extras(*a, **kw):
+        seen.append((film.exists(),
+                     bool((store.get_job("id").get("result") or {}).get(
+                         "film_url"))))
+        raise models.JobDeadlineExceeded("synthetic optional deadline")
+
+    monkeypatch.setattr(cli, "cmd_children", extras)
+    answer = webfilm.run_web_film(spec, store, None, clock=lambda: 1000)
+    assert seen == [(True, True)]
+    assert answer["status"] == "film"
+    kept = store.get_job("id").get("result") or {}
+    assert kept.get("film_url")
+    assert "children" in kept.get("unavailable", [])

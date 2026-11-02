@@ -614,7 +614,8 @@ def run_film(ref):
 
     try:
         outcome = run_web_film({**spec, "on_cancel": watch_cancel}, store,
-                               authority, nominatim_pace=nominatim_pace)
+                               authority, nominatim_pace=nominatim_pace,
+                               commit=volume.commit)
     finally:
         stop.set()
     volume.commit()

@@ -287,7 +287,8 @@ def test_run_film_loads_the_spec_from_the_job_folder(tmp_path, monkeypatch):
     store.create_job("j", _record(job_dir=str(job_dir)))
     seen = {}
 
-    def fake_run(full_spec, job_store, authority, nominatim_pace=None):
+    def fake_run(full_spec, job_store, authority, nominatim_pace=None,
+                 commit=None):
         seen.update(full_spec)
         assert job_store is store
         assert callable(nominatim_pace)
@@ -400,7 +401,8 @@ def test_run_film_scrubs_and_commits_before_starting_work(tmp_path,
     store.create_job("j", _record(job_dir=str(job_dir)))
     seen = []
 
-    def fake_run(full_spec, job_store, authority, nominatim_pace=None):
+    def fake_run(full_spec, job_store, authority, nominatim_pace=None,
+                 commit=None):
         on_disk = json.loads((job_dir / "spec.json").read_text())
         assert "place" not in on_disk and "location" not in on_disk
         assert seen == ["committed"]
@@ -589,7 +591,8 @@ def test_run_film_routes_by_backend(tmp_path, monkeypatch):
     store.create_job("j", _record(job_dir=str(job_dir)))
     seen = []
 
-    def fake_run(full_spec, job_store, authority, nominatim_pace=None):
+    def fake_run(full_spec, job_store, authority, nominatim_pace=None,
+                 commit=None):
         full_spec["on_cancel"](_control())
         return {"status": "done"}
 

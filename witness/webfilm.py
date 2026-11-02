@@ -68,11 +68,15 @@ def scrub_hand_off(job_dir) -> bool:
     return True
 
 
-def run_web_film(spec, store, authority, clock=None, nominatim_pace=None):
+def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
+                 commit=None):
     """Identify, confirm, research, paint, render under one job
     ledger and control. `spec` carries the in-memory location and
     place; the store never sees them. The on-disk hand-off is
-    scrubbed first, before any paid call. Returns a short status."""
+    scrubbed first, before any paid call. The adult film is
+    published (and `commit` run, when given) before the optional
+    extras start, so a deadline, cap or crash in an extra never
+    loses it. Returns a short status."""
     scrub_hand_off(spec["job_dir"])
     now = clock or _time.time
     job_id = spec["job_id"]
@@ -202,6 +206,11 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None):
                         "film_dir": str(Path(spec["job_dir"]) / slug / "film"),
                         "outcome": outcome, "audiences": "adult",
                         "unavailable": []}
+                film["cost_usd"] = total_cost()
+                finish(dict(film), "film")
+                if commit is not None:
+                    commit()
+                children_done = False
                 try:
                     progress("children", {"slug": slug})
                     children_ok = cli.cmd_children(
@@ -231,6 +240,17 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None):
                             film["unavailable"].append("children")
                         else:
                             film["audiences"] = "both"
+                            children_done = True
+                except models.JobDeadlineExceeded:
+                    if children_done:
+                        if "spot" not in film["unavailable"]:
+                            film["unavailable"].append("spot")
+                        progress("extra_unavailable", {"extra": "spot"})
+                    else:
+                        if "children" not in film["unavailable"]:
+                            film["unavailable"].append("children")
+                        progress("extra_unavailable",
+                                 {"extra": "children"})
                 except Exception:
                     if "children" not in film["unavailable"]:
                         film["unavailable"].append("children")

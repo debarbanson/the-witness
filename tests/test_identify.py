@@ -261,7 +261,7 @@ def test_identify_end_to_end_with_fakes(tmp_path):
 
 
 def test_coordinates_round_to_4_decimals_at_entry():
-    assert identify.checked_location((52.123456, 4.987654)) == (52.1235, 4.9877)
+    assert identify.checked_location((12.345678, 65.432164)) == (12.3457, 65.4322)
     payload = [{"display_name": "X", "lat": "50.234567", "lon": "4.111111",
                 "importance": 1,
                 "address": {"country_code": "be", "city": "Brussels"}}]

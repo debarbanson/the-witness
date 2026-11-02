@@ -196,12 +196,12 @@ def test_location_never_reaches_the_store(tmp_path):
     client = _client(tmp_path, store=store, runner=lambda spec: None)
     out = client.post("/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
                       data={"ack": "on", "place": "Synthetic Private Place",
-                            "lat": "52.123456", "lon": "4.987654"})
+                            "lat": "12.345678", "lon": "65.432164"})
     assert out.status_code == 200
     dump = repr(store.jobs)
     assert "Synthetic Private Place" not in dump
-    assert "52.123456" not in dump
-    assert "52.1235" not in dump
+    assert "12.345678" not in dump
+    assert "12.3457" not in dump
 
 
 def test_job_status_needs_its_visitor(tmp_path):
@@ -486,7 +486,7 @@ def test_bad_lat_lon_rejected_before_any_file(tmp_path):
         assert out.status_code == 400
     assert store.job_ids() == []
     assert list((tmp_path / "jobs").glob("job-*")) == []
-    out = _upload(client, lat="52.12346", lon="4.56784")
+    out = _upload(client, lat="12.34567", lon="65.43214")
     assert out.status_code == 200
 
 
@@ -543,15 +543,15 @@ def test_runner_gets_a_reference_not_the_location(tmp_path):
     store = MemoryStore()
     client = _client(tmp_path, store=store, runner=seen.append)
     job_id = _upload(client, place="Haarlem",
-                     lat="52.12346", lon="4.56784").json()["job_id"]
+                     lat="12.34567", lon="65.43214").json()["job_id"]
     assert set(seen[0]) == {"job_id", "job_dir"}
     assert seen[0]["job_id"] == job_id
     job_dir = store.get_job(job_id)["job_dir"]
     spec = json.loads((tmp_path / "jobs" / job_dir.split("/")[-1]
                        / "spec.json").read_text())
     assert spec["place"] == "Haarlem"
-    assert spec["lat"] == 52.1235
-    assert spec["lon"] == 4.5678
+    assert spec["lat"] == 12.3457
+    assert spec["lon"] == 65.4321
     assert "Haarlem" not in str(store.get_job(job_id))
 
 

@@ -280,7 +280,7 @@ def test_run_film_loads_the_spec_from_the_job_folder(tmp_path, monkeypatch):
     spec = {"job_id": "j", "token": "t", "vid": "v",
             "job_dir": str(job_dir), "photo": str(job_dir / "today.jpg"),
             "place": "Test Town", "lat": None, "lon": None,
-            "location": [52.1235, 4.5678]}
+            "location": [12.3457, 65.4321]}
     (job_dir / "spec.json").write_text(json.dumps(spec))
     (job_dir / "today.jpg").write_bytes(b"x")
     store = MemoryStore()
@@ -308,7 +308,7 @@ def test_run_film_loads_the_spec_from_the_job_folder(tmp_path, monkeypatch):
                                      "job_dir": str(job_dir)}) == {
         "status": "done"}
     assert seen["place"] == "Test Town"
-    assert seen["location"] == [52.1235, 4.5678]
+    assert seen["location"] == [12.3457, 65.4321]
     assert seen["reloaded"] and seen["committed"]
 
 

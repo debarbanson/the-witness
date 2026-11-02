@@ -530,7 +530,7 @@ def test_web_runner_passes_pre_admission_and_browser_location(
     import witness.webfilm as webfilm_module
 
     store, spec = _store(), _spec(tmp_path)
-    spec.update({"lat": 52.1235, "lon": 4.5678})
+    spec.update({"lat": 0.5, "lon": 0.25})
     seen = {}
 
     def fake_run(*args, **kwargs):
@@ -543,5 +543,5 @@ def test_web_runner_passes_pre_admission_and_browser_location(
     finally:
         models.configure_spending(None)
     assert seen["pre_admitted"] is True
-    assert seen["location"] == (52.1235, 4.5678)
+    assert seen["location"] == (0.5, 0.25)
     assert seen["visitor"] == "visitor-1"

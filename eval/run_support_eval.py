@@ -80,32 +80,33 @@ def run_arm(cases, vote, label):
 
 
 def summarize(cases, results):
-    right = {model: 0 for model in ("open", "meta")}
-    accepts = {model: 0 for model in ("open", "meta")}
-    true_total = sum(1 for c in cases if c["expected"] == "accept")
-    seconds = {"open": [], "meta": []}
-    for case in cases:
-        for model in ("open", "meta"):
-            verdict = results[case["id"]][model]["verdict"]
-            accepted = verdict == "supported"
-            if accepted:
-                accepts[model] += 1
-            if accepted == (case["expected"] == "accept"):
-                right[model] += 1
-            seconds[model].append(results[case["id"]][model]["seconds"])
+    """Per-arm hits, precision and recall over valid votes. Errors (a
+    refused passage, a failed vote) fail closed and are counted
+    separately; they are never correct rejections."""
     out = {}
     for model in ("open", "meta"):
-        caught = sum(1 for c in cases
-                     if c["expected"] == "accept"
-                     and results[c["id"]][model]["verdict"] == "supported")
+        right = errors = accepts = caught = valid_true = 0
+        seconds = []
+        for case in cases:
+            vote = results[case["id"]][model]
+            if str(vote.get("verdict", "")).startswith("error"):
+                errors += 1
+                continue
+            accepted = vote["verdict"] == "supported"
+            expected = case["expected"] == "accept"
+            accepts += accepted
+            caught += accepted and expected
+            valid_true += expected
+            right += accepted == expected
+            seconds.append(vote["seconds"])
         out[model] = {
             "cases": len(cases),
-            "right": right[model],
-            "precision": round(caught / accepts[model], 3)
-            if accepts[model] else 1.0,
-            "recall": round(caught / true_total, 3) if true_total else 1.0,
-            "mean_s": round(sum(seconds[model]) / len(seconds[model]), 1)
-            if seconds[model] else 0.0,
+            "right": right,
+            "errors": errors,
+            "precision": round(caught / accepts, 3) if accepts else 1.0,
+            "recall": round(caught / valid_true, 3) if valid_true else 1.0,
+            "mean_s": round(sum(seconds) / len(seconds), 1)
+            if seconds else 0.0,
         }
     return out
 

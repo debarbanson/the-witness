@@ -121,6 +121,29 @@ def test_runner_results_path_names_set():
     assert support.parent == hard.parent == EVAL
 
 
+def test_runner_summarize_counts_errors_separately():
+    runner = _runner()
+    cases = [{"id": "T01", "expected": "accept"},
+             {"id": "N01", "expected": "reject"},
+             {"id": "W06", "expected": "reject"}]
+    results = {
+        "T01": {"open": {"verdict": "supported", "seconds": 1.0},
+                "meta": {"verdict": "supported", "seconds": 1.0}},
+        "N01": {"open": {"verdict": "unsupported", "seconds": 1.0},
+                "meta": {"verdict": "unsupported", "seconds": 1.0}},
+        "W06": {"open": {"verdict": "unsupported", "seconds": 1.0},
+                "meta": {"verdict": "error: VerifyError", "seconds": 1.0}},
+    }
+    summary = runner.summarize(cases, results)
+    assert summary["meta"]["cases"] == 3
+    assert summary["meta"]["right"] == 2
+    assert summary["meta"]["errors"] == 1
+    assert summary["meta"]["precision"] == 1.0
+    assert summary["meta"]["recall"] == 1.0
+    assert summary["open"]["right"] == 3
+    assert summary["open"]["errors"] == 0
+
+
 def test_true_cases_come_from_kept_research():
     kept = _kept_quotes()
     assert kept

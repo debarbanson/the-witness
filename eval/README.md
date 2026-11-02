@@ -23,7 +23,10 @@ One support vote per case per model: the production Baseten path
 - `run_support_eval.py`: runs both arms (6 workers each) under a $3
   spending cap and writes `<set>_results_<date>.json`.
 - `support_results_*.json`, `hard_results_*.json`: raw per-case
-  verdicts, latency and cost.
+  verdicts, latency and cost. Summaries count errors (refused
+  votes) separately; they are never correct rejections. The eval
+  tests isolated support votes only, not anchors, captions, state,
+  painting or rendering.
 
 Run: `.venv/bin/python eval/run_support_eval.py --set support|hard`
 (keys from `.env.local`, like the CLI). Smoke: `EVAL_SMOKE=1` runs

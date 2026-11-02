@@ -1005,3 +1005,12 @@ def test_r3_16_matching_binding_keeps_painting(tmp_path):
     assert cli.recheck_paintings(root, data, fail) == [(1900, True)]
     manifest = json.loads((root / "paint_test.json").read_text())
     assert manifest["eras"][0]["verdict"] == "matches"
+
+
+def test_r3_10_eval_counts_errors_as_correct_rejects():
+    """The recorded Meta summary counts its five errors separately."""
+    recorded = json.loads((Path(__file__).resolve().parent.parent / "eval" /
+                           "support_results_2026-10-30.json").read_text())
+    summary = recorded["summary"]["meta"]
+    assert summary["errors"] == 5
+    assert summary["right"] == 47

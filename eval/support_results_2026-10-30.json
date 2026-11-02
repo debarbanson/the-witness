@@ -696,6 +696,7 @@
   "open": {
    "cases": 53,
    "right": 52,
+   "errors": 0,
    "precision": 1.0,
    "recall": 0.947,
    "mean_s": 9.4,
@@ -704,10 +705,11 @@
   },
   "meta": {
    "cases": 53,
-   "right": 52,
+   "right": 47,
+   "errors": 5,
    "precision": 1.0,
    "recall": 0.947,
-   "mean_s": 7.1,
+   "mean_s": 6.5,
    "cost_usd": 0.294
   }
  },

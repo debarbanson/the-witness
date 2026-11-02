@@ -371,6 +371,7 @@
   "open": {
    "cases": 28,
    "right": 28,
+   "errors": 0,
    "precision": 1.0,
    "recall": 1.0,
    "mean_s": 9.8,
@@ -379,10 +380,11 @@
   },
   "meta": {
    "cases": 28,
-   "right": 28,
+   "right": 25,
+   "errors": 3,
    "precision": 1.0,
    "recall": 1.0,
-   "mean_s": 5.7,
+   "mean_s": 5.2,
    "cost_usd": 0.1481
   }
  },

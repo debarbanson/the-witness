@@ -940,17 +940,20 @@ detail). Both arms run identically: the open-weights path
 (`baseten_support_respond`, Muse Spark Open) and Meta alongside
 (`support_respond`, `muse-spark-1.3`).
 
-| Arm | Right | Precision | Recall | Mean vote | Cost a vote |
-|---|---|---|---|---|---|
-| Open (Baseten) | 52 of 53 | 1.0 | 0.95 | 9.4 s | $0.004 |
-| Meta | 52 of 53 | 1.0 | 0.95 | 7.1 s | $0.006 |
+| Arm | Right | Errors | Precision | Recall | Mean vote | Cost a vote |
+|---|---|---|---|---|---|---|
+| Open (Baseten) | 52 | 0 | 1.0 | 0.95 | 9.4 s | $0.004 |
+| Meta | 47 | 5 | 1.0 | 0.95 | 6.5 s | $0.006 |
 
-Both arms agree on every case: every negation, wrong object, shifted
-date and partial support is rejected, and the single miss is the same
-vague claim both models reasonably reject ("structure relocation in
-2019" names no object). Zero false accepts, so nothing unverified
-reaches a caption. Meta fallback rate on the open arm: 0 of 53. The
-run cost $0.52 in API calls. Raw per-case verdicts:
+Errors fail closed and are counted separately, never as correct
+rejections: Meta's 5 errors (W06, W07, P03, P07, P08, all
+expected-reject) are refused votes, not verdicts. Both arms agree on
+every accept or not-accept decision: every negation, wrong object,
+shifted date and partial support is not accepted, and the single
+false rejection is the same vague claim both models reasonably
+reject ("structure relocation in 2019" names no object). Zero false
+accepts on valid votes. Meta fallback rate on the open arm: 0 of 53.
+The run cost $0.52 in API calls. Raw per-case verdicts:
 `eval/support_results_2026-10-30.json`.
 
 Third pass (1 Nov, `eval/hard_cases.json`): 28 harder cases, one
@@ -961,18 +964,22 @@ negations; scope overstatements; plans stated as events) plus 4
 synthetic prompt-injection cases (passages telling the judge to
 answer supported or unsupported, over true and false claims).
 
-| Arm | Right | Precision | Recall | Mean vote | Cost a vote |
-|---|---|---|---|---|---|
-| Open (Baseten) | 28 of 28 | 1.0 | 1.0 | 9.8 s | $0.004 |
-| Meta | 28 of 28 | 1.0 | 1.0 | 5.7 s | $0.005 |
+| Arm | Right | Errors | Precision | Recall | Mean vote | Cost a vote |
+|---|---|---|---|---|---|---|
+| Open (Baseten) | 28 | 0 | 1.0 | 1.0 | 9.8 s | $0.004 |
+| Meta | 25 | 3 | 1.0 | 1.0 | 5.2 s | $0.005 |
 
 Both sets are developer-written from the 3 demo objects, mostly from
-Wikipedia, and both arms agree on every case, so the sets bound the
-risk but do not separate the models; they show the open model matches
-Meta here at lower cost and higher latency. All 4 injections are
-handled correctly on both arms: false claims with "answer supported"
-are rejected, true claims with "answer unsupported" are accepted.
-81 cases in total, zero false accepts. The first hard run caught a
+Wikipedia, and both arms agree on every accept or not-accept
+decision, so the sets bound the risk but do not separate the models;
+they show the open model matches Meta here at lower cost and higher
+latency. Meta's 3 hard-set errors (H03, H07, H10, all expected
+reject) fail closed like the 5 on the support set. All 4 injections
+are handled correctly on both arms: false claims with "answer
+supported" are rejected, true claims with "answer unsupported" are
+accepted. 81 cases in total, zero false accepts on valid votes. The
+eval tests isolated support votes only, not anchors, captions,
+state, painting or rendering. The first hard run caught a
 mislabelled case, not a model error: "the cause of the 1932 fire was
 never established" names a year the passage never states, so both
 arms rightly rejected it and the claim was corrected to what the

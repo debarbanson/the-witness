@@ -15,7 +15,7 @@ The submission needs a 3-minute video showing only what was built during the hac
 | 2:30 to 2:45 | Who it is for, and what's next: a heritage plaque with a QR code; the witness hunt, a family walk collecting the films of nearby objects | Impact (30%) |
 | 2:45 to 3:00 | End card: sources, AI label, repo link | Honesty, and what was built |
 
-Delivery numbers: the finished film plays with honest progress and a timer while it is made. Both eval sets are developer-written from the 3 demo films, mostly from Wikipedia, and both arms agree on every case, so they bound the risk but do not separate the models: one Baseten support vote takes 9.8 s on average ($0.004), one Meta vote 5.7 s ($0.005); both accept nothing wrong. End-to-end upload-to-film time will be measured on staging after the deploy. (The 27 Oct streaming numbers, opening card 21.5 s and first painted scene 54.4 s, belong to the cut streaming build.)
+Delivery numbers: the finished film plays with honest progress and a timer while it is made. Both eval sets are developer-written from the 3 demo films, mostly from Wikipedia, and both arms agree on every accept or not-accept decision, so they bound the risk but do not separate the models: one Baseten support vote takes 9.8 s on average ($0.004), one Meta vote 5.2 s ($0.005); neither accepts anything wrong on a valid vote. End-to-end upload-to-film time will be measured on staging after the deploy. (The 27 Oct streaming numbers, opening card 21.5 s and first painted scene 54.4 s, belong to the cut streaming build.)
 
 ## Rules the video must follow
 

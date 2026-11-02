@@ -779,3 +779,13 @@ def test_failed_spawn_scrubs_location_from_spec(tmp_path):
     assert "place" not in spec and "location" not in spec
     assert "lat" not in spec and "lon" not in spec
     assert store.get_job(job_id)["status"] == "failed"
+
+
+def test_privacy_notice_renders_the_contact(tmp_path):
+    client = _client(tmp_path)
+    notice = client.get("/privacy").text
+    assert "owner@example.com" in notice
+    assert "__CONTACT__" not in notice
+    index = client.get("/").text
+    assert "owner@example.com" in index
+    assert "__CONTACT__" not in index

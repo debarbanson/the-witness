@@ -2774,7 +2774,8 @@ def test_film_save_records_real_job_cost(tmp_path, monkeypatch):
     @models.with_job_ledger
     def fake_run(*args, **kwargs):
         models.current_ledger().note("meta", "muse-spark-1.3",
-                                    {"input_tokens": 1000})
+                                    {"input_tokens": 1000,
+                                     "output_tokens": 0})
         return {"identified": True, "confirmed": True, "cached": False,
                 "slug": "q1-test", "found": SimpleNamespace(name="Mill"),
                 "order": [], "kept": [], "timeline": [], "chosen": [],

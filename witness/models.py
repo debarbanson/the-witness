@@ -914,16 +914,35 @@ def configure_spending(path=None, daily_cap_usd=None, daily_films=None,
 
 
 def _usage_dict(usage) -> dict:
+    """Token counts from a response's usage, or {} when it is not a
+    bill: both token fields must be present, integer and zero or
+    more. Anything else is priced at the reserved ceiling by the
+    caller. Explicit valid zeros stay zero."""
     if usage is None or isinstance(usage, str):
         return {}
     if isinstance(usage, dict):
-        prompt = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-        completion = usage.get("completion_tokens", usage.get("output_tokens", 0))
+        if ("prompt_tokens" not in usage and "input_tokens" not in usage):
+            return {}
+        if ("completion_tokens" not in usage
+                and "output_tokens" not in usage):
+            return {}
+        prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
+        completion = usage.get("completion_tokens",
+                               usage.get("output_tokens"))
     else:
-        prompt = getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", 0))
-        completion = getattr(usage, "completion_tokens", getattr(usage, "output_tokens", 0))
+        prompt = getattr(usage, "prompt_tokens",
+                         getattr(usage, "input_tokens", None))
+        completion = getattr(usage, "completion_tokens",
+                             getattr(usage, "output_tokens", None))
+        if prompt is None or completion is None:
+            return {}
+    if isinstance(prompt, bool) or isinstance(completion, bool):
+        return {}
     try:
-        return {"prompt_tokens": int(prompt or 0), "completion_tokens": int(completion or 0),
-                "total_tokens": int(prompt or 0) + int(completion or 0)}
+        prompt, completion = int(prompt), int(completion)
     except (TypeError, ValueError):
         return {}
+    if prompt < 0 or completion < 0:
+        return {}
+    return {"prompt_tokens": prompt, "completion_tokens": completion,
+            "total_tokens": prompt + completion}

@@ -293,7 +293,9 @@ def test_film_save_uses_restored_outer_ledger(monkeypatch):
     models.reset_usage()
     @models.with_job_ledger
     def fake_run(*args, **kwargs):
-        models.current_ledger().note("meta", "muse-spark-1.3", {"input_tokens": 1000})
+        models.current_ledger().note("meta", "muse-spark-1.3",
+                                       {"input_tokens": 1000,
+                                        "output_tokens": 0})
         return {"identified": True, "confirmed": True, "cached": False,
             "chosen": [], "order": [], "kept": [], "timeline": [], "result": {},
             "timings": {"total_s": 1}, "failures": [],
@@ -1474,3 +1476,32 @@ def test_r4_03_supported_destruction_stays_total():
         "mill", {"condition": "burnt", "degree": "total",
                  "scope": "whole", "description": "a burnt shell"})
     assert "only the remains" in prompt.lower()
+
+
+def test_r4_01_invalid_usage_is_priced_at_the_ceiling(tmp_path):
+    """Usage with missing fields or negative counts pays the ceiling."""
+    authority = models.BudgetAuthority(tmp_path / "budget",
+                                       daily_cap_usd=10.0)
+    models.configure_spending(authority=authority)
+    try:
+        calls = []
+
+        def fake(usage):
+            return SimpleNamespace(responses=SimpleNamespace(
+                create=lambda **kw: calls.append(kw) or {"output": [],
+                                                         "usage": usage}))
+
+        for usage in ({}, {"prompt": 100},
+                      {"prompt_tokens": -5, "completion_tokens": 3}):
+            models.respond(fake(usage), models.VERIFY, input="synthetic")
+        payload = dict(calls[0])
+        payload.pop("model", None)
+        one = models.call_ceiling(
+            models.VERIFY, models.estimate_input_tokens(payload))
+        assert authority.total_usd() == pytest.approx(3 * one)
+        assert authority.reserved_usd() == 0
+        models.respond(fake({"prompt_tokens": 0, "completion_tokens": 0}),
+                       models.VERIFY, input="synthetic")
+        assert authority.total_usd() == pytest.approx(3 * one)
+    finally:
+        models.configure_spending(None)

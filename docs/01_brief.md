@@ -22,7 +22,7 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 2. **The object's own history is shown truthfully:** built, extended, burnt, rebuilt, each state is a sourced claim, and every painted era is checked against it.
 3. **A consistent series:** every era branches in parallel from one anchor turn on the user's photo, so the film feels like one place through time, ending on the real photo as "today". Parallel beat the serial chain on De Adriaan (6 of 6 eras in 79 s against 5 of 6 in 195 s, 0.3% framing drift against 3.6%).
 4. **Open knowledge, worldwide and free:** the object is found through OpenStreetMap and Wikidata, and its dated facts come from Wikidata and Wikipedia in any language. Sources may be in any language; captions are English only. (Automatic reference photos from Commons or Europeana are planned, not built.)
-5. **A finished film:** first-person captions and citations in a browser player with pause and replay, ready to share. (MP4 export runs from the command line; a download button on the page is planned, not built.)
+5. **A finished film:** first-person captions and citations in a browser player with pause and replay, shared as an unlisted public page on Modal plus this repo. (MP4 export runs from the command line; a download button on the page is planned, not built.)
 
 ## Two audiences
 
@@ -31,7 +31,7 @@ Films that earn them come in a version for adults and one for children aged 8 an
 ## Out of scope for the hackathon
 
 - Voice narration (no Meta text-to-speech model; captions carry the story).
-- Accounts, hosting, payments.
+- Accounts, payments. (Hosting is in scope: the submission is an unlisted public page on Modal.)
 - Objects whose history is mainly war or politics (excluded by rule and by design).
 - Figure layers, streaming playback, non-English captions, reference images, longer films: see "Planned, not built" in the README.
 

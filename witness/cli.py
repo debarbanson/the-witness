@@ -1476,8 +1476,8 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     """Paint an object's eras from its research, checked per era. The
     location in the prompts is the canonical municipality from the
     research, never typed text. The children run paints a second set
-    in picture-book style from the same anchor, checked against the
-    children's sentences."""
+    in picture-book style from a separate anchor made from the same
+    anchor photo, checked against the children's sentences."""
     out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():

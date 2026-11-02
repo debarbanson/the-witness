@@ -2,8 +2,8 @@
 
 ## No source, no claim
 
-1. Every caption in a film comes from a claim with at least one `url_citation`.
-2. Every claim passes the verification step: the source text must support the complete claim. Unsupported and partly supported claims are dropped; "partly" means no. Every accepted claim rests on a literal quote inside a page we fetched, bound to that page's URL. Search snippets are never evidence.
+1. Every caption in a film comes from a claim checked against a fetched page.
+2. Every claim passes the verification step: the source text must support the complete claim. Unsupported and partly supported claims are dropped; "partly" means no. Every accepted claim rests on a literal quote inside a page we fetched, bound to that page's URL. Search snippets are never evidence. Changes are shown only where an accepted, sourced claim supports them; that is what the sources support, not a guarantee of historical truth.
 3. **Source quality.** Encyclopedias (Wikipedia, Wikidata), heritage registers, official sites of the object or its owner or municipality, newspapers, archives and books count as sources. User-written and aggregator sites (review sites such as Tripadvisor, place and booking aggregators such as AroundUs and GetYourGuide, forums, social media) may confirm a claim but never stand alone as its only source.
    - **Quality is judged on the sources that support the claim,** not on every source listed. A claim whose supporting text is found only on a weak source (for example the water tower's 1990 storm, found only on Tripadvisor) is not verified, even if a good source is also listed.
    - **A plan, promise or attempt is not an event.** "Haarlem took on the duty to rebuild in 1963; nothing happened" means the mill stayed a ruin. Only completed changes (built, burnt, demolished, restored, rebuilt, repurposed) change the object's state; plans and attempts may be captions, never states.

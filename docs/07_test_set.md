@@ -971,7 +971,7 @@ answer supported or unsupported, over true and false claims).
 
 Both sets are developer-written from the 3 demo objects, mostly from
 Wikipedia, and both arms agree on every accept or not-accept
-decision, so the sets bound the risk but do not separate the models;
+decision, so the sets are regression evidence on these cases but do not separate the models;
 they show the open model matches Meta here at lower cost and higher
 latency. Meta's 3 hard-set errors (H03, H07, H10, all expected
 reject) fail closed like the 5 on the support set. All 4 injections

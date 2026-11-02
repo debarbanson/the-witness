@@ -1056,13 +1056,17 @@ def test_r3_22_real_looking_coordinate_literals_remain_in_tracked_tests():
     """Tracked tests use obvious placeholder coordinates, never real ones."""
     import ast
 
+    def line_of(text, at):
+        return text.count("\n", 0, at) + 1
+
     root = Path(__file__).resolve().parent
     for name in ("test_webapp.py", "test_webfilm.py", "test_modal_app.py",
                  "test_identify.py"):
         text = (root / name).read_text()
         for literal in ("52.1235", "4.5678", "52.12346", "4.56784",
                         "52.123456", "4.987654", "4.9877"):
-            assert literal not in text, (name, literal)
+            at = text.find(literal)
+            assert at < 0, f"{name}:{line_of(text, at)}"
     tree = ast.parse((root / "test_webfilm.py").read_text())
     for node in ast.walk(tree):
         if not isinstance(node, ast.Dict):
@@ -1071,8 +1075,9 @@ def test_r3_22_real_looking_coordinate_literals_remain_in_tracked_tests():
             if (isinstance(key, ast.Constant) and key.value in ("lat", "lon")
                     and isinstance(value, ast.Constant)
                     and isinstance(value.value, float)):
-                assert not (abs(value.value) > 1 and len(
+                precise = (abs(value.value) > 1 and len(
                     str(value.value).split(".")[-1]) >= 3)
+                assert not precise, f"test_webfilm.py:{node.lineno}"
 
 
 def test_r3_06_chunked_upload_stops_at_the_receive_cap(tmp_path, monkeypatch):

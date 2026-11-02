@@ -162,7 +162,9 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
             {"message": "Not identified. Try a closer photo or a public place."},
             "not_identified")
     if not result.get("confirmed"):
-        return finish({"message": "Not confirmed; nothing spent."}, "declined")
+        message = ("Not confirmed. Only the identification ran; "
+                   "no research or painting was paid for.")
+        return finish({"message": message}, "declined")
     try:
         with models.job_ledger() as ledger, models.job_control(control=control):
             slug = result["slug"]

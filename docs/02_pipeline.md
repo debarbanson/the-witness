@@ -43,7 +43,7 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 - Output is special-token text with a box and mask per object; decode with `meta_sam_parser` ([reading output](https://dev.meta.ai/docs/sam/reading-segmentation.md)).
 - Keep the largest instance, apply the mask to the original pixels, save `object.png` (RGBA) and `mask.png`.
 - **Proven 26 Oct:** box coordinates come back in the size of the image that was sent (downscaled to 1600 px), so scale them back to the original. The prompt "windmill" took the sails and cap but missed the brick base: try a fuller noun phrase ("windmill with its brick base") or the box fallback.
-- If the noun prompt fails, fall back to a box prompt drawn by the user (boxes and points cannot be mixed with text in one call).
+- If the noun prompt fails, `segment()` takes an optional box, but no interface collects one: there is no CLI flag and no web UI for drawing it, so in practice a failed noun means no cutout.
 
 ## Step 2: Research (Muse Spark with web search)
 
@@ -62,15 +62,15 @@ From a photo alone, "a windmill" could be any of thousands. The research needs t
 
 - For each claim, a support call gets the claim and the fetched source passages (never snippets) and must answer `supported | unsupported | partly`, with per-source support and the quote from the best-ranked supporting source. The first two votes run in parallel; a third runs only when they disagree. There is no model-side web search fallback: a claim without fetched passages is unverified.
 - A deterministic precheck (the claim's year and key words in one passage) sends an `unsupported` answer to a second confrontation judgement instead of accepting it.
-- A literal quote shortens a vote. When a support answer quotes a sentence that really appears in the fetched passages (checked in code after normalising whitespace and quotes) and that sentence carries the claim's year and key terms, no further round runs. A quoted answer is never outvoted by quoteless ones. Every acceptance rests on at least one model vote; there is no zero-vote path.
+- A literal quote shortens a vote. When a support answer quotes a sentence that really appears in the fetched passages (checked in code after normalising whitespace and quotes) and that sentence carries the claim's year and key terms, no further round runs. Every acceptance rests on at least one model vote; there is no zero-vote path. A decided dissent blocks acceptance: on a split vote the most skeptical decided verdict stands, quoted or not.
 - Wikidata anchors the build year. An inception (P571) or official opening (P1619) date with a reference is the fixed build claim; research may add claims but never a second construction year, neither contradicting the anchor nor duplicating it. The anchor is voted like any claim, but its evidence is focused on the anchor sentence when one pairs its year with a construction word and names the object (its name, kind or a known article title); otherwise it falls through to the normal passages and vote.
 - Claims verify in film order: the build anchor first, then earliest year first, so the first scene is ready first.
-- The anchor claim and every claim that would set a state get best of three, with every round kept in `research.json`; temperature 0 steadies the calls (probed 27 Oct; `seed` is not in the SDK surface).
+- The anchor claim and every claim that would set a state get up to three rounds, with every round kept in `research.json`; temperature 0 steadies the calls (probed 27 Oct; `seed` is not in the SDK surface). This is not majority-wins: a decided dissent blocks acceptance.
 - Completion ("did it really happen?") is asked separately, only for state-setting claims and claims whose own text raises doubt.
 - Only `supported` claims reach the film. `partly` means no: there is no rewrite path, and a partly supported claim counts as unverified. Every accepted claim rests on a literal quote in a fetched passage, bound to that passage's URL; search snippets are never evidence.
 - The same pass applies the content rules from [03_accuracy.md](03_accuracy.md): war, political events and living private persons are filtered out.
 - Owner-reviewed research is kept per object and language, so a demo film never changes between runs; stability itself is measured with the cache off.
-- Support checks run on the open-weights Muse Spark Open via Baseten by default (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`), with per-call Meta fallback. Research, vision and completion stay on Meta (`muse-spark-1.3`). Support votes are evaluated on two developer-written sets from the 3 demo objects, mostly from Wikipedia (eval/, docs/07_test_set.md): 53 cases (30 Oct, open 52 valid correct, Meta 47 valid with 5 errors failing closed, 1 shared false rejection) and 28 harder cases (1 Nov, open 28, Meta 25 valid with 3 errors failing closed, including 4 prompt-injection cases). Both arms agree on every accept or not-accept decision, so the sets bound the risk but do not separate the models; they show the open model matches Meta here at lower cost ($0.004 a vote against $0.005) and higher latency (9.8 s against 5.2 s on the hard set). Zero false accepts on valid votes; no fallbacks. The eval tests isolated support votes only, not anchors, captions, state, painting or rendering. This targets the "Best Build on Meta Open Weight Models" prize.
+- Support checks run on the open-weights Muse Spark Open via Baseten by default (model `meta-models/muse-spark-open-1026` per the hackathon guide, not the id in Baseten's own docs; OpenAI-compatible endpoint `https://inference.baseten.co/v1`, key `BASETEN_API_KEY`), with per-call Meta fallback. Research, vision and completion stay on Meta (`muse-spark-1.3`). Support votes are evaluated on two developer-written sets from the 3 demo objects, mostly from Wikipedia (eval/, docs/07_test_set.md): 53 cases (30 Oct, open 52 valid correct, Meta 47 valid with 5 errors failing closed, 1 shared false rejection) and 28 harder cases (1 Nov, open 28, Meta 25 valid with 3 errors failing closed, including 4 prompt-injection cases). Both arms agree on every accept or not-accept decision, so the sets are regression evidence on these cases but do not separate the models; they show the open model matches Meta here at lower cost ($0.004 a vote against $0.005) and higher latency (9.8 s against 5.2 s on the hard set). Zero false accepts on valid votes; no fallbacks. The eval tests isolated support votes only, not anchors, captions, state, painting or rendering. This targets the "Best Build on Meta Open Weight Models" prize.
 
 ## Step 3a: Choose the scenes
 
@@ -105,7 +105,7 @@ The thresholds are first guesses; tune them on the demo subjects.
 Pattern from Meta's cookbook [Keep an image series consistent](https://dev.meta.ai/docs/cookbook/anchored-image-series.md):
 
 - Responses API, model `muse-image-1.0`. Every era branches from the anchor turn (`previous_response_id` = the anchor's id) and paints in parallel (the limit is 150 images a minute).
-- **Parallel decided the evening of 27 October on De Adriaan:** 6 of 6 eras in 79 s against 5 of 6 in 195 s for the serial chain, framing drift 0.3% against 3.6% by SAM box, and no expired-id cascade. Consistency rests on the anchor alone, and holds.
+- **Parallel decided the evening of 27 October on De Adriaan:** 6 of 6 eras in 79 s against 5 of 6 in 195 s for the serial chain, framing drift 0.3% against 3.6% by SAM box, and no expired-id cascade. That evidence is from one object. Adult and child paint from separate anchors made from the same photo.
 - **Anchor turn:** the user's photo as `input_image`, with an instruction to keep the place's viewpoint and composition and to establish the painted style.
 - **Era turns:** the object's verified state for that year (from the state timeline) plus the verified surroundings (season, period dress and transport) and the shared style words. The object is painted as it was then: whole, burnt, a stump, under scaffolding, rebuilt.
 - **Settings go inside the image tool** (proven 26 Oct; top-level parameters return 400 `unknown parameter`): `tools: [{"type": "image_generation", "size": "1024x1536", "enable_image_search": false}]`. `"1080x1920"` and `"1024x1792"` are rejected; `"1024x1536"` returns 1280x1920, which the renderer crops to 1080x1920.
@@ -136,7 +136,7 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 
 ## Step 5b: Spot the difference (children's version)
 
-One painted era next to today's photo; `muse-spark-1.3` (vision) finds up to 5 visible differences with regions, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Adults/Children switch.
+One painted era next to today's photo; `muse-spark-1.3` (vision) answers with grounded reveal lines quoted from the verified changes, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Adults/Children switch.
 
 ## Step 6: Cut, see Planned
 
@@ -148,7 +148,7 @@ The period-figure layers are cut from this version. The object cut-out from step
 - The closing shot is the user's own photo as "today": the last painted era dissolves into it, using the SAM cut-out from step 1 to bring the object in first.
 - **The finished film plays in the browser.** The page is the film: every frame is a pure function of `t`, with a visible clock, pause and replay. No live streaming.
 - **MP4 from the command line only** (`render --mp4`), not from the web page: Playwright steps `t` frame by frame at 30 fps and captures 1080x1920 frames; ffmpeg encodes H.264 MP4. A download button on the page is planned.
-- Structure: title card (object, place) → anchor year → one era per 6 to 8 seconds with slow push-in and crossfade → today (the user's original photo) → end card with all sources and the AI-imagery label.
+- Structure: title card (object, kind) → anchor year → one era per 6 to 8 seconds with slow push-in and crossfade → today (the user's original photo) → end card with all sources and the AI-imagery label.
 - Captions are first person from the object, written from verified claims only, max 2 lines each.
 
 ## Time budget per film
@@ -214,4 +214,4 @@ The 27 October evening streaming experiment is cut from the viewing experience a
 
 - The opening card, the speculative start during confirm (it spent about $0.55 on visitors who said no) and buffer playback are gone. Only free facts fetch while the visitor decides; a refusal spends nothing beyond identify.
 - The build still verifies in film order (anchor first, then chronological) and paints scenes as their claims land, but the film plays only when finished, with honest progress and a timer meanwhile.
-- Known objects open instantly from reviewed research and paintings.
+- Known objects open instantly from reviewed research and paintings, on the command line (the web page has no shared cache).

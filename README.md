@@ -2,7 +2,7 @@
 
 One photo of something old. A short film of the decisive eras it lived through.
 
-Point The Witness at a windmill, an old tree or a lighthouse. It works out which object the photo shows, researches its history on the web, checks every claim against the fetched sources, then paints the decisive eras it lived through: the world around it, and the object itself as it was then, built, damaged, rebuilt, as the sources say. Your own photo closes the film as "today". The result is a vertical film of about 30 to 37 seconds, told in the first person by the object, where every caption carries its source.
+Point The Witness at a windmill, an old tree or a lighthouse. It works out which object the photo shows, researches its history on the web, checks every claim against the fetched sources, then paints the decisive eras it lived through: the world around it, and the object itself as it was then, built, damaged, rebuilt, as the sources say. Changes are shown only where an accepted, sourced claim supports them; that is what the sources support, not a guarantee of historical truth. Your own photo closes the film as "today". The result is a vertical film of about 30 to 37 seconds, told in the first person by the object, where every caption carries its source.
 
 > "I burnt down on 23 April 1932." (source shown on screen)
 
@@ -81,7 +81,7 @@ Measured 30 Oct from the saved token counts (research) plus the shipped painting
 - Major Oak: $0.23 research + 4 paintings = about $0.28.
 - Rubjerg Knude: $0.28 research + 6 paintings = about $0.35.
 
-Caption and check text tokens and web-search counts are tallied in process but not saved, so they are missing from these totals. The support vote was evaluated on two developer-written sets from the 3 demo films, mostly from Wikipedia: 53 cases (open 52 valid correct; Meta 47 valid with 5 errors failing closed; 1 shared false rejection) plus 28 harder cases with prompt injections (open 28; Meta 25 valid with 3 errors failing closed). Both arms agree on every accept or not-accept decision, so the sets bound the risk but do not separate the models; the open model matches Meta at lower cost and higher latency. The eval tests isolated support votes only, not anchors, captions, state, painting or rendering. End-to-end upload-to-film time will be measured on staging after the deploy; see [docs/04_demo.md](docs/04_demo.md) and [docs/07_test_set.md](docs/07_test_set.md).
+Caption and check text tokens and web-search counts are tallied in process but not saved, so they are missing from these totals. The support vote was evaluated on two developer-written sets from the 3 demo films, mostly from Wikipedia: 53 cases (open 52 valid correct; Meta 47 valid with 5 errors failing closed; 1 shared false rejection) plus 28 harder cases with prompt injections (open 28; Meta 25 valid with 3 errors failing closed). Both arms agree on every accept or not-accept decision, so the sets are regression evidence on these cases but do not separate the models; the open model matches Meta at lower cost and higher latency. The eval tests isolated support votes only, not anchors, captions, state, painting or rendering. End-to-end upload-to-film time will be measured on staging after the deploy; see [docs/04_demo.md](docs/04_demo.md) and [docs/07_test_set.md](docs/07_test_set.md).
 
 ## Planned, not built
 
@@ -89,7 +89,7 @@ Period-figure layers, live streaming playback, captions in languages other than 
 
 ## Built during the hackathon
 
-The git history runs from the kickoff on 26 October 2026 (first commit 17:41 Dutch time) to 4 November 2026. Cited third-party words (source quotes, package pins) excepted, everything in this repository was written in that window. The day-by-day record is in [docs/05_build_log.md](docs/05_build_log.md).
+Built during the hackathon, beginning 26 October 2026. Cited third-party words (source quotes, package pins) excepted, everything in this repository was written in that window. The git history is the record, day by day in [docs/05_build_log.md](docs/05_build_log.md).
 
 ## Licence
 

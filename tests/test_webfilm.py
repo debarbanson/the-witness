@@ -705,3 +705,23 @@ def test_cancel_in_extras_still_cancels(tmp_path, monkeypatch):
         models.configure_spending(None)
     assert out == {"status": "cancelled"}
     assert store.get_job("job-1")["status"] == "cancelled"
+
+
+def test_declined_says_only_identification_ran(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    monkeypatch.setattr(webfilm_module.cli, "run_job",
+                        lambda *a, **k: {"confirmed": False,
+                                         "identified": True,
+                                         "cached": False})
+    try:
+        assert run_web_film(spec, store, authority=None) == {
+            "status": "declined"}
+    finally:
+        models.configure_spending(None)
+    message = store.get_job("job-1")["result"]["message"]
+    assert "nothing spent" not in message.lower()
+    assert "identification" in message.lower()
+    assert "no research or painting was paid for" in message.lower()

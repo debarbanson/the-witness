@@ -493,16 +493,80 @@ def test_fake_provider_paints_a_png(monkeypatch):
         data["output"][0]["result"])[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-def test_fake_second_look_charged_at_vision_ceiling(tmp_path, monkeypatch):
+def test_fake_second_look_is_priced_not_ceiling(tmp_path, monkeypatch):
     monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
     try:
         client = models.client_for(models.VISION)
-        models.respond(client, models.VISION,
-                       input="Second look at the same photo.")
-        assert models._DAILY.total_usd() == pytest.approx(
-            models.VISION.ceiling_usd)
+        with models.job_ledger() as ledger:
+            models.respond(client, models.VISION,
+                           input="Second look at the same photo.")
+            assert 0 < ledger.cost_usd < models.VISION.ceiling_usd
+    finally:
+        models.configure_spending(None)
+
+
+def test_fake_answers_are_priced_and_a_full_set_costs_under_five_cents(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        with models.job_ledger() as ledger:
+            def cost_of(call):
+                before = ledger.cost_usd
+                call()
+                return ledger.cost_usd - before
+
+            vision = models.client_for(models.VISION)
+            delta = cost_of(lambda: models.respond(
+                vision, models.VISION,
+                input="1. Old Mill (windmill)\nWhich one does the photo show"))
+            assert 0 < delta < models.VISION.ceiling_usd
+            delta = cost_of(lambda: models.respond(
+                vision, models.VISION,
+                input="Second look at the same photo."))
+            assert 0 < delta < models.VISION.ceiling_usd
+            research = models.client_for(models.RESEARCH)
+            delta = cost_of(lambda: models.respond(
+                research, models.RESEARCH,
+                input="What happened to the mill itself over its lifetime?",
+                tools=[{"type": "web_search"}]))
+            assert 0 < delta < models.RESEARCH.ceiling_usd
+            verify = models.client_for(models.VERIFY)
+            delta = cost_of(lambda: models.respond(
+                verify, models.VERIFY,
+                input="Claim to check:\nBuilt in 1850."))
+            assert 0 < delta < models.VERIFY.ceiling_usd
+            opened = models.client_for(models.VERIFY_OPEN)
+            delta = cost_of(lambda: models.chat(
+                opened, models.VERIFY_OPEN,
+                messages=[{"role": "user", "content": "vote"}]))
+            assert 0 < delta < models.VERIFY_OPEN.ceiling_usd
+            delta = cost_of(lambda: models.respond(
+                verify, models.VERIFY,
+                input="Did this change actually happen?"))
+            assert 0 < delta < models.VERIFY.ceiling_usd
+            delta = cost_of(lambda: models.respond(
+                verify, models.CHECK,
+                input="Answer MATCHES only if the photo shows it."))
+            assert 0 < delta < models.CHECK.ceiling_usd
+            delta = cost_of(lambda: models.respond(
+                verify, models.VERIFY, input="Write one caption sentence."))
+            assert 0 < delta < models.VERIFY.ceiling_usd
+            paint = models.client_for(models.PAINT)
+            delta = cost_of(lambda: models.respond(
+                paint, models.PAINT, input="paint the era"))
+            assert 0 < delta < models.PAINT.ceiling_usd
+            sam = models.client_for(models.SAM)
+            delta = cost_of(lambda: models.respond(
+                sam, models.SAM, input="segment the mill"))
+            assert 0 < delta < models.SAM.ceiling_usd
+            assert ledger.cost_usd < 0.05
     finally:
         models.configure_spending(None)
 

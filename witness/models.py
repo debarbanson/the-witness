@@ -251,14 +251,20 @@ class _FakeResponses:
         import time as _time
 
         _time.sleep(float(os.environ.get("WITNESS_FAKE_DELAY_S", "0")))
+        # Image and SAM answers use the Responses usage keys; every
+        # fake answer carries usage so the ledger prices it, never a ceiling.
         if model == "muse-image-1.0":
             return _FakeSDKResponse({
                 "id": f"fake-{uuid.uuid4().hex[:8]}",
                 "output": [{"type": "image_generation_call",
                             "result": FAKE_PNG_B64}],
-                "usage": {}})
+                "usage": {"input_tokens": 100, "output_tokens": 50,
+                          "total_tokens": 150}})
         if model == "sam-3.1":
-            return _FakeSDKResponse({"output": [_fake_message("no mask")]})
+            return _FakeSDKResponse({
+                "output": [_fake_message("no mask")],
+                "usage": {"input_tokens": 10, "output_tokens": 10,
+                          "total_tokens": 20}})
         text = _fake_texts(kwargs.get("input", ""))
         if "Which one does the photo show" in text:
             first = _re.findall(r"^(\d+)\.\s+([^(\n]+)", text, _re.M)
@@ -269,19 +275,27 @@ class _FakeResponses:
                           "total_tokens": 110}})
         if "Second look" in text:
             return _FakeSDKResponse({
-                "output": [_fake_message("YES\nIt shows the object.")]})
+                "output": [_fake_message("YES\nIt shows the object.")],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 10,
+                          "total_tokens": 110}})
         if "Did this change actually happen" in text:
             return _FakeSDKResponse({
-                "output": [_fake_message('{"completed": true}')]})
+                "output": [_fake_message('{"completed": true}')],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 10,
+                          "total_tokens": 110}})
         if "Claim to check:" in text:
             return _FakeSDKResponse(_fake_vote_payload())
         if "MATCHES only if" in text:
             return _FakeSDKResponse({
-                "output": [_fake_message("MATCHES whole.")]})
+                "output": [_fake_message("MATCHES whole.")],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 10,
+                          "total_tokens": 110}})
         if "What happened to the" in text:
             return _FakeSDKResponse(_fake_research_payload())
         return _FakeSDKResponse({
-            "output": [_fake_message("I stood here through the years.")]})
+            "output": [_fake_message("I stood here through the years.")],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50,
+                      "total_tokens": 150}})
 
 
 class _FakeChatCompletions:

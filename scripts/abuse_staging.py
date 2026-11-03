@@ -84,12 +84,48 @@ def _reset(client):
     return out.json()
 
 
+LAST_JOBS = []
+
+
 def _start(client, photo=None, **data):
     files = {"photo": ("up.jpg", photo or _photo())}
     out = client.post("/api/jobs", files=files, data={"ack": "on", **data},
                       headers={"Origin": _origin(str(client.base_url))})
     assert out.status_code == 200, out.text[:200]
-    return out.json()["job_id"]
+    job_id = out.json()["job_id"]
+    LAST_JOBS.append((client, job_id))
+    return job_id
+
+
+def _save_failure(name, error, client):
+    import json as _json
+
+    folder = Path("out/abuse")
+    folder.mkdir(parents=True, exist_ok=True)
+    jobs = []
+    for owner, job_id in LAST_JOBS:
+        try:
+            state = owner.get(f"/api/jobs/{job_id}").json()
+        except Exception:
+            continue
+        jobs.append({
+            "job_id": job_id,
+            "status": state.get("status"),
+            "events": [{"event": e.get("event"), "t": e.get("t")}
+                       for e in state.get("events", [])],
+            "has_film": bool((state.get("result") or {}).get("film_url")),
+        })
+    try:
+        ledger = _ledger(client)
+    except Exception:
+        ledger = {}
+    slug = "".join(c if c.isalnum() else "-" for c in name.lower())[:60]
+    path = folder / f"{slug}.json"
+    path.write_text(_json.dumps({"check": name, "error": str(error)[:500],
+                                 "ledger": {k: ledger.get(k) for k in
+                                            ("total_usd", "calls", "films")},
+                                 "jobs": jobs}, indent=1))
+    print(f"evidence: {path}")
 
 
 def _wait(client, job_id, timeout=180):
@@ -377,6 +413,7 @@ def main(base):
     for name, fn, fake_provider in CHECKS:
         via = "staging, fake provider" if fake_provider else "staging"
         client = _client(base)  # fresh visitor cookie per case
+        del LAST_JOBS[:]
         try:
             _reset(client)
             if fn.__code__.co_argcount == 2:
@@ -386,6 +423,7 @@ def main(base):
         except Exception as exc:
             failed += 1
             print(f"FAIL {name} [{via}]: {exc}")
+            _save_failure(name, exc, client)
         else:
             print(f"PASS {name} [{via}]")
     return 1 if failed else 0

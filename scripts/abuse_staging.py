@@ -136,7 +136,7 @@ def _today_photo(client, film_url):
 
 @check("security headers on pages and examples", fake_provider=False)
 def headers(client):
-    for path in ("/", "/privacy", "/examples/de-adriaan"):
+    for path in ("/", "/privacy", "/examples/de-adriaan/"):
         out = client.get(path)
         assert out.status_code == 200, path
         assert out.headers["X-Content-Type-Options"] == "nosniff"
@@ -240,7 +240,7 @@ def quota(client):
     out = client.post("/api/jobs", files={"photo": ("up.jpg", _photo())},
                       data={"ack": "on", "place": "Test Town"})
     assert out.status_code == 429, out.text[:200]
-    assert "quota" in out.json()["error"].lower()
+    assert "limit" in out.json()["error"].lower()
     assert _ledger(client)["films"] == 2, "the refused film is not counted"
     client.delete(f"/api/jobs/{first}")
     client.delete(f"/api/jobs/{second}")
@@ -313,13 +313,19 @@ def spool(client):
 
 @check("foreign and missing origins refused", fake_provider=False)
 def origins(client, base):
-    bare = httpx.Client(base_url=base, timeout=30.0)
+    proxy = {}
+    key = os.environ.get("MODAL_PROXY_KEY")
+    secret = os.environ.get("MODAL_PROXY_SECRET")
+    if key and secret:
+        proxy = {"Modal-Key": key, "Modal-Secret": secret}
+    bare = httpx.Client(base_url=base, timeout=30.0, headers=proxy)
     missing = bare.post("/api/jobs", files={"photo": ("up.jpg", _photo())},
                         data={"ack": "on"})
     assert missing.status_code == 403, missing.text[:200]
     foreign = bare.post("/api/jobs", files={"photo": ("up.jpg", _photo())},
                         data={"ack": "on"},
-                        headers={"Origin": "https://evil.example"})
+                        headers={**proxy,
+                                 "Origin": "https://evil.example"})
     assert foreign.status_code == 403, foreign.text[:200]
     assert "nosniff" in foreign.headers.get("X-Content-Type-Options", "")
     assert _ledger(client)["films"] == 0, "a refused upload is not admitted"

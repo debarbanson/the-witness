@@ -26,8 +26,10 @@ schema version fails closed when a newer container meets an older
 record.
 """
 
+import asyncio
 import os
 import threading
+import time
 from pathlib import Path
 
 import modal
@@ -46,20 +48,81 @@ LEDGER_SCHEMA = 1
 _LEDGER_LOCK = threading.Lock()
 
 
-def try_reload(volume) -> None:
-    """Reload a volume before serving from it, best effort. Under
-    concurrent inputs Modal refuses a reload while another request
-    still streams a file; the sync interface reports that as a
-    RuntimeError naming the open files, the async one as
-    ConflictError. Either way the request serves the snapshot it
-    has instead of failing. Any other error still raises."""
+def _reload_conflict(exc) -> bool:
+    """An open-files refusal: the async interface raises
+    ConflictError, the sync one a RuntimeError naming the files."""
+    if isinstance(exc, ConflictError):
+        return True
+    return isinstance(exc, RuntimeError) and "open files" in str(exc)
+
+
+async def _reload_once(volume) -> None:
+    """One volume reload without blocking the event loop: the
+    async reload where it exists, else the sync one in a thread."""
+    aio = getattr(volume.reload, "aio", None)
+    if callable(aio):
+        await aio()
+    else:
+        await asyncio.to_thread(volume.reload)
+
+
+async def film_reload(volume) -> None:
+    """Fresh snapshot for /film/: a just-committed film must show,
+    so an open-files conflict retries briefly (3 tries within 2 s)
+    instead of serving stale at once. Any other error raises."""
+    deadline = time.monotonic() + 2.0
+    tries = 0
+    while True:
+        try:
+            await _reload_once(volume)
+            return
+        except (ConflictError, RuntimeError) as exc:
+            if not _reload_conflict(exc):
+                raise
+            tries += 1
+            if tries >= 3 or time.monotonic() >= deadline:
+                return
+            await asyncio.sleep(0.2)
+
+
+async def examples_reload(volume) -> None:
+    """One best-effort reload for /examples/: a conflict serves the
+    snapshot instead of failing, and any other error raises."""
     try:
-        volume.reload()
-    except ConflictError:
-        pass
-    except RuntimeError as exc:
-        if "open files" not in str(exc):
+        await _reload_once(volume)
+    except (ConflictError, RuntimeError) as exc:
+        if not _reload_conflict(exc):
             raise
+
+
+class ReloadingApp:
+    """Reload volumes before serving files, without stalling the page.
+
+    /film/ retries a conflict briefly so a just-committed film
+    shows; /examples/ reloads at most once a minute (uploads land
+    with a deploy, per the runbook); every other path never touches
+    the volumes. One instance lives on the container, so the
+    examples throttle is per container."""
+
+    EXAMPLES_RELOAD_S = 60.0
+
+    def __init__(self, wrapped, volume, shared, clock=None):
+        self._wrapped = wrapped
+        self._volume = volume
+        self._shared = shared
+        self._clock = clock or time.monotonic
+        self._examples_at = 0.0
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if path.startswith("/film/"):
+            await film_reload(self._volume)
+        elif path.startswith("/examples/"):
+            now = self._clock()
+            if now - self._examples_at >= self.EXAMPLES_RELOAD_S:
+                self._examples_at = now
+                await examples_reload(self._shared)
+        await self._wrapped(scope, receive, send)
 
 app = modal.App("the-witness")
 
@@ -867,22 +930,7 @@ def web():
         ip_secret=_ip_secret(),
         debug_reset=os.environ.get("WITNESS_ABUSE_RESET") == "1"))
 
-    volume = jobs_volume
-    shared = examples_volume
-
-    class _Reload:
-        def __init__(self, wrapped):
-            self._wrapped = wrapped
-
-        async def __call__(self, scope, receive, send):
-            path = scope.get("path", "")
-            if path.startswith("/film/"):
-                try_reload(volume)
-            elif path.startswith("/examples/"):
-                try_reload(shared)
-            await self._wrapped(scope, receive, send)
-
-    return _Reload(app)
+    return ReloadingApp(app, jobs_volume, examples_volume)
 
 
 @app.function(image=image, secrets=[keys],
@@ -923,19 +971,4 @@ def judge():
         try_enabled=_try_enabled,
         noindex=True))
 
-    volume = judge_jobs_volume
-    shared = examples_volume
-
-    class _Reload:
-        def __init__(self, wrapped):
-            self._wrapped = wrapped
-
-        async def __call__(self, scope, receive, send):
-            path = scope.get("path", "")
-            if path.startswith("/film/"):
-                try_reload(volume)
-            elif path.startswith("/examples/"):
-                try_reload(shared)
-            await self._wrapped(scope, receive, send)
-
-    return _Reload(app)
+    return ReloadingApp(app, judge_jobs_volume, examples_volume)

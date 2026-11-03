@@ -1028,40 +1028,207 @@ def test_watch_job_ignores_stale_polls_but_honors_cancel():
         stop.set()
 
 
-def test_reload_serves_on_when_files_are_open():
+def _conflict_errors():
     from modal.exception import ConflictError
 
-    class BusyVolume:
-        def __init__(self, error):
-            self.error = error
-            self.calls = 0
+    return (RuntimeError("there are open files preventing the "
+                         "operation: path de-adriaan/today.jpg "
+                         "is open"),
+            ConflictError("there are open files preventing "
+                          "the operation"))
 
-        def reload(self):
-            self.calls += 1
-            raise self.error
+
+def _raising_volume(error, async_reload=True):
+    from types import SimpleNamespace
+
+    calls = {"n": 0}
+
+    async def fail_async():
+        calls["n"] += 1
+        raise error
+
+    def fail_sync():
+        calls["n"] += 1
+        raise error
+
+    if async_reload:
+        volume = SimpleNamespace(reload=SimpleNamespace(aio=fail_async))
+    else:
+        volume = SimpleNamespace(reload=fail_sync)
+    return volume, calls
+
+
+def test_reload_serves_on_when_files_are_open():
+    import asyncio
 
     # The sync interface wraps the conflict in a RuntimeError; the
-    # async one raises ConflictError itself. Both serve the snapshot.
-    for error in (RuntimeError("there are open files preventing the "
-                               "operation: path de-adriaan/today.jpg "
-                               "is open"),
-                  ConflictError("there are open files preventing "
-                                "the operation")):
-        volume = BusyVolume(error)
-        modal_app.try_reload(volume)
-        assert volume.calls == 1
+    # async one raises ConflictError itself. Both serve the snapshot,
+    # through the async reload or the threaded sync fallback alike.
+    for error in _conflict_errors():
+        for async_reload in (True, False):
+            volume, calls = _raising_volume(error, async_reload)
+            asyncio.run(modal_app.examples_reload(volume))
+            assert calls["n"] == 1
 
 
 def test_reload_passes_other_errors_through():
+    import asyncio
+
     import pytest
 
-    class BrokenVolume:
-        def __init__(self, error):
-            self.error = error
-
-        def reload(self):
-            raise self.error
-
     for error in (OSError("disk gone"), RuntimeError("boom")):
+        volume, _ = _raising_volume(error)
         with pytest.raises(type(error)):
-            modal_app.try_reload(BrokenVolume(error))
+            asyncio.run(modal_app.examples_reload(volume))
+        volume, _ = _raising_volume(error)
+        with pytest.raises(type(error)):
+            asyncio.run(modal_app.film_reload(volume))
+
+
+def test_film_reload_retries_conflict_then_serves_fresh():
+    import asyncio
+    import time
+    from types import SimpleNamespace
+
+    from modal.exception import ConflictError
+
+    local = {"content": None}  # this reader's snapshot: film not there yet
+    durable = {"content": b"finished film"}
+    calls = {"n": 0}
+
+    async def flaky_reload():
+        calls["n"] += 1
+        if calls["n"] < 3:  # another reader still streams the file
+            raise ConflictError("there are open files preventing "
+                                "the operation")
+        local.update(durable)  # the commit lands, the retry sees it
+
+    volume = SimpleNamespace(reload=SimpleNamespace(aio=flaky_reload))
+    responses = []
+
+    async def inner(scope, receive, send):
+        responses.append((200, local["content"]) if local["content"]
+                         else (404, None))
+
+    app = modal_app.ReloadingApp(
+        inner, volume, SimpleNamespace(reload=SimpleNamespace()))
+    started = time.monotonic()
+    asyncio.run(app({"path": "/film/job/token/film.html"}, None, None))
+    assert time.monotonic() - started < 2.0
+    assert calls["n"] == 3
+    assert responses == [(200, b"finished film")]
+
+
+def test_film_reload_gives_up_after_three_conflicts():
+    import asyncio
+    import time
+
+    volume, calls = _raising_volume(_conflict_errors()[1])
+    responses = []
+
+    async def inner(scope, receive, send):
+        responses.append("served stale")
+
+    app = modal_app.ReloadingApp(
+        inner, volume, volume)
+    started = time.monotonic()
+    asyncio.run(app({"path": "/film/job/token/film.html"}, None, None))
+    assert time.monotonic() - started < 2.0
+    assert calls["n"] == 3
+    assert responses == ["served stale"]
+
+
+def test_unrelated_paths_skip_reload_and_never_wait():
+    import asyncio
+    import time
+
+    async def gated():
+        calls["n"] += 1
+        await gate.wait()
+
+    from types import SimpleNamespace
+
+    gate = asyncio.Event()
+    calls = {"n": 0}
+    volume = SimpleNamespace(reload=SimpleNamespace(aio=gated))
+    seen = []
+
+    async def inner(scope, receive, send):
+        seen.append(scope["path"])
+
+    app = modal_app.ReloadingApp(inner, volume, volume)
+
+    async def run():
+        await app({"path": "/api/jobs/x"}, None, None)
+        assert calls["n"] == 0
+        film = asyncio.create_task(
+            app({"path": "/film/job/token/film.html"}, None, None))
+        await asyncio.sleep(0.05)
+        ticks.append(time.monotonic() - started)  # the loop stays free
+        gate.set()
+        await film
+
+    ticks = []
+    started = time.monotonic()
+    asyncio.run(run())
+    assert ticks[0] < 0.5
+    assert seen == ["/api/jobs/x", "/film/job/token/film.html"]
+
+
+def test_sync_reload_runs_off_the_event_loop():
+    import asyncio
+    import time
+    from types import SimpleNamespace
+
+    calls = {"n": 0}
+
+    def slow_reload():
+        calls["n"] += 1
+        time.sleep(0.08)
+
+    volume = SimpleNamespace(reload=slow_reload)
+
+    async def inner(scope, receive, send):
+        pass
+
+    app = modal_app.ReloadingApp(inner, volume, volume)
+
+    async def run():
+        started = time.monotonic()
+        ticks = []
+
+        async def other():
+            await asyncio.sleep(0.005)
+            ticks.append(time.monotonic() - started)
+
+        await asyncio.gather(
+            app({"path": "/film/job/token/film.html"}, None, None), other())
+        return ticks
+
+    assert asyncio.run(run())[0] < 0.075
+    assert calls["n"] == 1
+
+
+def test_examples_reload_throttled_to_once_a_minute(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    calls = {"n": 0}
+
+    async def counted():
+        calls["n"] += 1
+
+    shared = SimpleNamespace(reload=SimpleNamespace(aio=counted))
+
+    async def inner(scope, receive, send):
+        pass
+
+    now = {"t": 1000.0}
+    app = modal_app.ReloadingApp(inner, shared, shared,
+                                 clock=lambda: now["t"])
+    asyncio.run(app({"path": "/examples/de-adriaan/film.json"}, None, None))
+    asyncio.run(app({"path": "/examples/de-adriaan/film.json"}, None, None))
+    assert calls["n"] == 1
+    now["t"] += 61.0
+    asyncio.run(app({"path": "/examples/de-adriaan/film.json"}, None, None))
+    assert calls["n"] == 2

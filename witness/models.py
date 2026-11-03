@@ -219,6 +219,9 @@ def _fake_research_payload() -> dict:
         {"year": 1925, "event": "restored",
          "detail": "The mill was restored in 1925.",
          "visible_change": "roof rebuilt", "date_text": "1925"},
+        {"year": 1950, "event": "damaged",
+         "detail": "A storm damaged the mill in 1950.",
+         "visible_change": "roof patched", "date_text": "1950"},
     ]
     sources = [_FAKE_URL]
     return {
@@ -238,7 +241,8 @@ def _fake_research_payload() -> dict:
 
 _FAKE_QUOTES = {1850: "The old mill was built here in the year 1850.",
                 1900: "The old mill burnt down here in the year 1900.",
-                1925: "The old mill was restored here in the year 1925."}
+                1925: "The old mill was restored here in the year 1925.",
+                1950: "The old mill was damaged here in the year 1950."}
 
 
 def _fake_vote_payload(text: str) -> dict:

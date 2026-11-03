@@ -708,6 +708,69 @@ def test_full_fake_upload_verifies_a_fact_with_no_network(tmp_path, monkeypatch)
     assert 0 < job["result"]["cost_usd"] < 0.05
 
 
+def test_full_fake_upload_with_anchor_still_reaches_a_film(tmp_path, monkeypatch):
+    import socket
+    import threading
+    import time
+
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Fake Mill", kind="mill", qid="Q1",
+                            articles={}, municipality=None,
+                            country_code="us", description="")
+    monkeypatch.setattr(webfilm_module.cli.identify, "identify",
+                        lambda *a, **k: found)
+    anchor_claim = {"year": 1792, "event": "built", "kind": "object",
+                    "claim": "built 1792", "quote_span": None,
+                    "date_text": "1792", "visible_change": "",
+                    "sources": ["https://www.wikidata.org/wiki/Q1"]}
+    monkeypatch.setattr(
+        webfilm_module.cli, "film_facts",
+        lambda *a, **k: {"facts": {"facts": []}, "claims": [anchor_claim],
+                         "build_anchor_year": 1792})
+    kept_seen = {}
+
+    def save_spy(found, lang, order, kept, *args, **kwargs):
+        kept_seen["kept"] = kept
+        return "out/fake-mill"
+
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save", save_spy)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+
+    def dead_socket(*args, **kwargs):
+        raise AssertionError("the fake film must not touch the network")
+
+    monkeypatch.setattr(socket, "socket", dead_socket)
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+
+    def answer():
+        time.sleep(0.2)
+        store.set_decision("job-1", True)
+
+    threading.Thread(target=answer, daemon=True).start()
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+    finally:
+        models.configure_spending(None)
+    job = store.get_job("job-1")
+    assert job["status"] == "done"
+    assert "film_url" in job["result"]
+    from witness.verify import filmed
+
+    filmed_years = {c["year"] for c in kept_seen["kept"] if filmed(c)}
+    assert 1850 not in {c["year"] for c in kept_seen["kept"]}, \
+        "the anchor must drop the research built year"
+    assert filmed_years == {1900, 1925, 1950}, filmed_years
+    assert 0 < job["result"]["cost_usd"] < 0.05
+
+
 def test_fake_film_emits_safe_call_events(tmp_path, monkeypatch):
     import json
     import socket

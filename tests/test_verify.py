@@ -1616,6 +1616,7 @@ def test_fake_flag_serves_canned_page_for_fake_url(monkeypatch):
     assert "The old mill was built here in the year 1850." in text
     assert "The old mill burnt down here in the year 1900." in text
     assert "The old mill was restored here in the year 1925." in text
+    assert "The old mill was damaged here in the year 1950." in text
     verify._cache.pop(models._FAKE_URL, None)
 
 

@@ -488,7 +488,7 @@ def test_fake_provider_research_returns_lifespan(monkeypatch):
         input="What happened to the mill itself over its lifetime?").model_dump_json())
     message = [o for o in data["output"] if o["type"] == "message"][-1]
     parsed = json.loads(message["content"][0]["text"])
-    assert {e["year"] for e in parsed["events"]} == {1850, 1900, 1925}
+    assert {e["year"] for e in parsed["events"]} == {1850, 1900, 1925, 1950}
     assert parsed["sources"]
 
 

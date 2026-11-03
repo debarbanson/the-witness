@@ -859,7 +859,8 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
     if _os.environ.get("WITNESS_FAKE_PROVIDER") and url == models._FAKE_URL:
         return ("Fake Mill. The old mill was built here in the year 1850. "
                 "The old mill burnt down here in the year 1900. "
-                "The old mill was restored here in the year 1925.")
+                "The old mill was restored here in the year 1925. "
+                "The old mill was damaged here in the year 1950.")
     if url in _cache:
         return _cache[url]
     if cache is not None:

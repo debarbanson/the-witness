@@ -631,13 +631,13 @@ def test_try_switch_flips_the_flag(monkeypatch):
     assert modal_app._try_enabled() is True
 
 
-def test_try_enabled_fails_open_when_unreadable(monkeypatch):
+def test_try_enabled_fails_closed_when_unreadable(monkeypatch):
     class Broken:
         def get(self, key, default=None):
             raise OSError("synthetic dict outage")
 
     monkeypatch.setattr(modal_app, "try_flag_dict", Broken())
-    assert modal_app._try_enabled() is True
+    assert modal_app._try_enabled() is False
 
 
 def test_volume_examples_lists_ready_films(tmp_path):

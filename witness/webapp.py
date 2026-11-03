@@ -41,6 +41,8 @@ MAX_FILMS_PER_DAY = 10
 MAX_VISITOR_FILMS_PER_DAY = 2
 MAX_NETWORK_FILMS_PER_DAY = 2
 FORM_SLACK_BYTES = 65536
+MAX_CONCURRENT_UPLOADS = 4
+QUOTA_LINE_TTL_SECONDS = 60
 
 
 @dataclass
@@ -64,6 +66,11 @@ class WebDeps:
     # try_enabled answers the production off switch; None means always on.
     try_enabled: object = None
     noindex: bool = False  # judge mode: unlisted page, never indexed
+    # Short-lived display cache for the quota line, per container:
+    # {(vid, vkey): (text, expires)}. Admission never reads it.
+    quota_cache: object = field(default_factory=dict)
+    upload_slots: object = field(
+        default_factory=lambda: threading.Semaphore(MAX_CONCURRENT_UPLOADS))
 
 
 class MemoryStore:
@@ -359,6 +366,21 @@ def _quota_used(deps, vid, vkey, now) -> dict:
         if vkey and job.get("vkey") == vkey:
             used["network"] += 1
     return used
+
+
+def _quota_line_cached(deps, vid, vkey, now) -> str:
+    """The quota line, cached a minute per visitor so page views never
+    touch the ledger container. Failures show no line at all."""
+    key = (vid, vkey)
+    hit = deps.quota_cache.get(key)
+    if hit is not None and hit[1] > now:
+        return hit[0]
+    try:
+        text = _quota_line(deps, vid, vkey, now)
+    except Exception:
+        return ""
+    deps.quota_cache[key] = (text, now + QUOTA_LINE_TTL_SECONDS)
+    return text
 
 
 def _quota_line(deps, vid, vkey, now) -> str:
@@ -703,7 +725,7 @@ TRY_FORM = """<section id="notice">
 <ul>
 <li>Your photo is processed to find and tell the story of the landmark it shows.</li>
 <li>It is sent to Meta (recognition, painting, checks) and Baseten (fact checking), on hosting by Modal. Nearby-place lookups go to Nominatim, Overpass (including the community mirror), Wikidata and Wikipedia.</li>
-<li>Your photo and everything made from it are deleted at the hourly sweep once your film ended over 24 h ago. Questions: __CONTACT__. <a href="/privacy">Full notice</a></li>
+<li>Your photo and everything made from it are deleted within about a day of your film, or within about 26 hours if you never finish. Questions: __CONTACT__. <a href="/privacy">Full notice</a></li>
 </ul>
 </section>
 <form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
@@ -1068,7 +1090,7 @@ def create_app(deps: WebDeps) -> FastAPI:
         else:
             vkey = None
         page = page.replace("__QUOTA_LINE__",
-                            _quota_line(deps, vid, vkey, now))
+                            _quota_line_cached(deps, vid, vkey, now))
         page = page.replace("__CONTACT__", deps.contact)
         page = page.replace("__NONCE__", request.state.nonce)
         request.state.style_hashes = _style_hashes(page)
@@ -1118,74 +1140,79 @@ def create_app(deps: WebDeps) -> FastAPI:
         day = clock()
         vkey = visitor_key(deps.ip_secret, client_ip,
                            int(day // (24 * 3600)))
-        data = b""
-        while len(data) <= photo_module.MAX_UPLOAD_BYTES:
-            piece = await photo.read(65536)
-            if not piece:
-                break
-            data += piece
-        if len(data) > photo_module.MAX_UPLOAD_BYTES or not data:
-            return _deny(request, "bad photo", 400)
+        if not deps.upload_slots.acquire(blocking=False):
+            return _deny(request, "busy, try again in a minute", 503)
         try:
-            photo_module.check_upload_header(data)
-        except photo_module.PhotoError as exc:
-            return _deny(request, f"bad photo: {exc}", 400)
-        job_id = uuid.uuid4().hex
-        token = secrets.token_hex(16)
-        directory = job_dir(deps.jobs_root)
-        upload_fd, upload_path = tempfile.mkstemp(dir=directory,
-                                                  suffix=".upload")
-        with os.fdopen(upload_fd, "wb") as handle:
-            handle.write(data)
-        tmp = Path(upload_path)
-        try:
-            location, today = photo_module.ingest_upload(tmp, directory)
-        except photo_module.PhotoError as exc:
-            shutil.rmtree(directory, ignore_errors=True)
-            return _deny(request, f"bad photo: {exc}", 400)
-        try:
-            admit_upload(deps, vid, vkey, day)
-        except models.SpendingCapExceeded as exc:
-            shutil.rmtree(directory, ignore_errors=True)
-            return _deny(request, _quota_refusal(deps, str(exc)), 429)
-        started = clock()
-        store.create_job(job_id, {
-            "vid": vid, "vkey": vkey, "token": token,
-            "job_dir": str(directory), "status": "started", "events": [],
-            "started_at": started, "last_poll": started, "ended_at": None,
-            "confirm": None, "decision": None, "cancel": False,
-            "result": None})
-        spec = {"job_id": job_id, "token": token, "vid": vid,
-                "job_dir": str(directory), "photo": str(today),
-                "place": place or "", "lat": fix_lat, "lon": fix_lon,
-                "location": ((location.lat, location.lon)
-                             if location is not None else None)}
-        (directory / "spec.json").write_text(json.dumps(spec))
-        from witness import webfilm as webfilm_module
-        try:
-            receipt = deps.runner({"job_id": job_id,
-                                   "job_dir": str(directory)})
-        except Exception:
+            data = b""
+            while len(data) <= photo_module.MAX_UPLOAD_BYTES:
+                piece = await photo.read(65536)
+                if not piece:
+                    break
+                data += piece
+            if len(data) > photo_module.MAX_UPLOAD_BYTES or not data:
+                return _deny(request, "bad photo", 400)
             try:
-                webfilm_module.scrub_hand_off(directory)
-            except OSError:
-                pass
-            release_upload(deps, vid, vkey)
-            store.end_job(job_id, "failed",
-                          {"message": "the worker did not start"})
-            raise
-        if receipt is None:
+                photo_module.check_upload_header(data)
+            except photo_module.PhotoError as exc:
+                return _deny(request, f"bad photo: {exc}", 400)
+            job_id = uuid.uuid4().hex
+            token = secrets.token_hex(16)
+            directory = job_dir(deps.jobs_root)
+            upload_fd, upload_path = tempfile.mkstemp(dir=directory,
+                                                      suffix=".upload")
+            with os.fdopen(upload_fd, "wb") as handle:
+                handle.write(data)
+            tmp = Path(upload_path)
             try:
-                webfilm_module.scrub_hand_off(directory)
-            except OSError:
-                release_upload(deps, vid, vkey)
-                store.drop_job(job_id)
+                location, today = photo_module.ingest_upload(tmp, directory)
+            except photo_module.PhotoError as exc:
                 shutil.rmtree(directory, ignore_errors=True)
-                return _deny(request, "the worker did not start", 500)
-        out = JSONResponse({"job_id": job_id})
-        out.set_cookie("vid", vid, httponly=True, samesite="lax",
-                       secure=deps.secure_cookies)
-        return out
+                return _deny(request, f"bad photo: {exc}", 400)
+            try:
+                admit_upload(deps, vid, vkey, day)
+            except models.SpendingCapExceeded as exc:
+                shutil.rmtree(directory, ignore_errors=True)
+                return _deny(request, _quota_refusal(deps, str(exc)), 429)
+            started = clock()
+            store.create_job(job_id, {
+                "vid": vid, "vkey": vkey, "token": token,
+                "job_dir": str(directory), "status": "started", "events": [],
+                "started_at": started, "last_poll": started, "ended_at": None,
+                "confirm": None, "decision": None, "cancel": False,
+                "result": None})
+            spec = {"job_id": job_id, "token": token, "vid": vid,
+                    "job_dir": str(directory), "photo": str(today),
+                    "place": place or "", "lat": fix_lat, "lon": fix_lon,
+                    "location": ((location.lat, location.lon)
+                                 if location is not None else None)}
+            (directory / "spec.json").write_text(json.dumps(spec))
+            from witness import webfilm as webfilm_module
+            try:
+                receipt = deps.runner({"job_id": job_id,
+                                       "job_dir": str(directory)})
+            except Exception:
+                try:
+                    webfilm_module.scrub_hand_off(directory)
+                except OSError:
+                    pass
+                release_upload(deps, vid, vkey)
+                store.end_job(job_id, "failed",
+                              {"message": "the worker did not start"})
+                raise
+            if receipt is None:
+                try:
+                    webfilm_module.scrub_hand_off(directory)
+                except OSError:
+                    release_upload(deps, vid, vkey)
+                    store.drop_job(job_id)
+                    shutil.rmtree(directory, ignore_errors=True)
+                    return _deny(request, "the worker did not start", 500)
+            out = JSONResponse({"job_id": job_id})
+            out.set_cookie("vid", vid, httponly=True, samesite="lax",
+                           secure=deps.secure_cookies)
+            return out
+        finally:
+            deps.upload_slots.release()
 
     @app.get("/api/jobs/{job_id}")
     async def job_status(request: Request, job_id: str):

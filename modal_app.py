@@ -604,12 +604,12 @@ def _check_judge_flags() -> None:
 def _try_enabled() -> bool:
     """The Try-your-own off switch, read live on every upload: the
     flag is off within a minute of the flip, with no redeploy. An
-    unreadable flag fails open: the spending caps still bound every
-    call, and a sick Dict must not silence judging."""
+    unreadable flag fails closed: new uploads refuse, while the
+    examples keep playing."""
     try:
         return try_flag_dict.get("enabled", True) is not False
     except Exception:
-        return True
+        return False
 
 
 def _volume_examples(root):

@@ -216,3 +216,9 @@ def test_pixel_gate_runs_before_decode(tmp_path, monkeypatch):
     with pytest.raises(photo.PhotoError) as excinfo:
         photo.load_clean(tmp_path / "huge.jpg")
     assert "pixels" in str(excinfo.value)
+
+
+def test_upload_pixel_limit_covers_default_phone_photos():
+    from witness import photo
+
+    assert photo.MAX_UPLOAD_PIXELS == 12_000_000

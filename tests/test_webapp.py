@@ -998,3 +998,55 @@ def test_privacy_notice_states_both_retention_windows(tmp_path):
     assert out.status_code == 200
     assert "24 h" in out.text
     assert "25 h" in out.text
+
+
+def test_landing_quota_line_is_cached_per_minute(tmp_path, monkeypatch):
+    from witness import webapp as webapp_module
+
+    calls = []
+    real = webapp_module._quota_line
+
+    def counting(deps, vid, vkey, now):
+        calls.append(1)
+        return real(deps, vid, vkey, now)
+
+    monkeypatch.setattr(webapp_module, "_quota_line", counting)
+    client = _client(tmp_path)
+    assert client.get("/").status_code == 200
+    assert client.get("/").status_code == 200
+    assert len(calls) == 1
+
+
+def test_landing_hides_quota_line_when_unavailable(tmp_path, monkeypatch):
+    from witness import webapp as webapp_module
+
+    def boom(deps, vid, vkey, now):
+        raise OSError("synthetic ledger outage")
+
+    monkeypatch.setattr(webapp_module, "_quota_line", boom)
+    out = _client(tmp_path).get("/")
+    assert out.status_code == 200
+    assert "tries a day" not in out.text
+
+
+def test_concurrent_uploads_are_capped_per_container(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from witness.webapp import create_app
+    from witness import webapp as webapp_module
+
+    deps = _deps(tmp_path)
+    client = TestClient(create_app(deps), headers=dict(ORIGIN))
+    slots = deps.upload_slots
+    for _ in range(webapp_module.MAX_CONCURRENT_UPLOADS):
+        assert slots.acquire(blocking=False)
+    try:
+        out = client.post("/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
+                          data={"ack": "on"})
+        assert out.status_code == 503, out.text[:200]
+    finally:
+        for _ in range(webapp_module.MAX_CONCURRENT_UPLOADS):
+            slots.release()
+    out = client.post("/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
+                      data={"ack": "on"})
+    assert out.status_code == 200, out.text[:200]

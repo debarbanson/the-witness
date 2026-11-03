@@ -211,12 +211,9 @@ def anchor_card(first_scene) -> dict:
         return {"line": "My story starts", "label": f"{words} ago."}
     year = first_scene.get("from_year")
     if isinstance(year, int) and str(year) in label:
-        if _full_date_parts(label) is not None:
-            evidence = ((first_scene.get("caption_sentence") or {})
-                        .get("evidence") or {})
-            shown = stamp_for(label, year, evidence.get("quote", ""))
-        else:
-            shown = label
+        evidence = ((first_scene.get("caption_sentence") or {})
+                    .get("evidence") or {})
+        shown = stamp_for(label, year, evidence.get("quote", ""))
         return {"line": "My story starts in", "label": f"{shown}."}
     return {"line": "My story starts", "label": label or "before living memory"}
 

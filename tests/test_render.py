@@ -212,6 +212,11 @@ def test_anchor_card_uses_the_same_stamp_rule():
     dated["caption_sentence"]["evidence"]["quote"] = (
         "On the evening of April 23, 1932 the windmill burnt down.")
     assert builder.anchor_card(dated)["label"] == "23 April 1932."
+    labelled = scene(1899, sentence="My construction began.")
+    labelled["date_label"] = "1899; first lit 27 December 1900"
+    labelled["caption_sentence"]["evidence"]["quote"] = (
+        "The lighthouse was first lit on 27 December 1900.")
+    assert builder.anchor_card(labelled)["label"] == "1899."
 
 
 def child_scene(year, line):

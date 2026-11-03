@@ -922,9 +922,11 @@ def test_r3_02_anchor_accepts_another_building_without_a_vote():
 
 
 def test_r3_04_anchor_drops_approximate_date():
-    """An approximate date keeps its qualifier on the opening card."""
+    """B4 supersedes the old qualifier: the opening card follows the
+    same stamp rule as every caption, so an approximate label shows
+    the verified year, matching its scene's stamp."""
     card = builder.anchor_card({"from_year": 1900, "date_label": "around 1900"})
-    assert card["label"] == "around 1900."
+    assert card["label"] == "1900."
 
 
 def test_r3_03_unverified_condition_reaches_adult_and_child_paint(tmp_path, monkeypatch):

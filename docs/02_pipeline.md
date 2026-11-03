@@ -136,7 +136,7 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 
 ## Step 5b: Spot the difference (picture-book version)
 
-One painted era next to today's photo; `muse-spark-1.3` (vision) answers with grounded reveal lines quoted from the verified changes, each checked against what is visible and against the object's verified state. Full specification, and the picture-book captions and painting style: [08_picture_book.md](08_picture_book.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Documentary/Picture-book switch.
+One painted era next to today's photo; `muse-spark-1.3` (vision) answers with grounded reveal lines quoted from the verified changes, each checked against what is visible and against the object's verified state. Full specification, and the picture-book captions and painting style: [08_picture_book.md](08_picture_book.md). Scope: command line and reviewed examples only. Uploads make the documentary film only, and the game appears only with 3 or more grounded changes (none of the three examples qualifies).
 
 ## Step 6: Cut, see Planned
 
@@ -182,7 +182,7 @@ Prices live in `witness/models.py`: Muse Spark $1.25 per M tokens in, $4.25 out;
 | Painting checks (Meta vision) plus caption checks (Meta text) | ~8 | ~$0.05 |
 | SAM cut-out | 0 on uploads; 1 on command-line renders with --subject | under $0.01 |
 | **Film total** | | **about $0.30 to $0.50** |
-| Picture-book extra (paintings, checks, captions, game) | ~10 calls | ~$0.12 to $0.15 |
+| Picture-book extra, examples and CLI only (paintings, checks, captions; game appears only with 3+ grounded changes) | ~10 calls | ~$0.12 to $0.15 |
 
 Every billable call reserves its ceiling with one budget authority before it runs; the web page refuses new films past the daily quota.
 

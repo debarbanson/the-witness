@@ -19,7 +19,7 @@ Watch the three example films first, then Try your own: take or choose a photo o
 | Step | What happens | Model |
 |---|---|---|
 | 0. Identify | The photo's location finds nearby known objects (OpenStreetMap, Wikidata); the right one is picked from the photo and confirmed by you | Muse Spark (vision), [identify](witness/identify.py) |
-| 1. Cut out | The object is segmented from today's photo, for the closing shot | SAM 3.1, [segment](witness/segment.py) |
+| 1. Cut out | The object is segmented from today's photo, for the closing shot; command line with --subject only, as in the examples (uploads skip it) | SAM 3.1, [segment](witness/segment.py) |
 | 2. Research | One grounded web question about the object's own life; every claim needs a URL | Muse Spark (web_search), [research](witness/research.py) |
 | 3. Verify | Each claim is checked against the fetched source text; only fully supported claims reach the film, "partly" means no | Muse Spark Open on Baseten (`meta-models/muse-spark-open-1026`), Meta fallback, [verify](witness/verify.py) |
 | 4. Paint eras | Up to 4 decisive eras are painted with the object in its verified state, branching in parallel from one anchor so it stays recognisably the same place | Muse Image, [paint](witness/paint.py) |
@@ -30,11 +30,11 @@ Every model called at runtime is a Meta model. Wikidata, Wikipedia and OpenStree
 
 Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/03_accuracy.md](docs/03_accuracy.md).
 
-## For adults, and to watch together
+## The picture-book version, in the examples
 
 For adults 18 and over.
 
-Uploads make the adult film only. The three examples also carry a family version and a game: the same verified facts in simpler words, rechecked against the same sources, with picture-book paintings from the same anchor and a "spot the difference" game between a painted era and the photo of today, to play together. The family version is for an adult to watch with younger family members. Both need enough verified material. See [docs/08_children.md](docs/08_children.md).
+Uploads make the adult film only. The three examples also carry a picture-book version: the same checked facts in simpler words, with picture-book paintings from the same anchor, plus a "spot the difference" game between a painted era and the photo of today. Both need enough verified material. See [docs/08_picture_book.md](docs/08_picture_book.md).
 
 ## Principles
 

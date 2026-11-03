@@ -867,7 +867,7 @@ def web():
 @modal.asgi_app()
 def judge():
     """Judge mode: the public, unlisted page. No proxy auth; the link
-    is shared only in the submission, and every response carries
+    goes in the README, and every response carries
     noindex. Reviewed examples come first; Try your own runs behind
     the hard daily cap, the per-visitor and global quotas, and the
     off switch. Separate state from staging throughout, and the

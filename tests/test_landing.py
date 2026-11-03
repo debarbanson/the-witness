@@ -55,7 +55,7 @@ def _page(tmp_path, **overrides):
 
 def test_hero_says_what_it_does_with_a_preview(tmp_path):
     page = _page(tmp_path)
-    assert "Every era it lived through, painted from your photo." in page
+    assert "The turning points of its history, painted from your photo." in page
     assert '<h1 class="hero-title">' in page
     assert "every fact sourced" in page.lower()
     assert re.search(r'<video[^>]*muted[^>]*loop[^>]*playsinline', page)
@@ -110,7 +110,7 @@ def test_gallery_card_per_example_with_span_and_both_pictures(tmp_path):
     assert "/examples/de-adriaan/" in page
     assert "/examples/de-adriaan/era_1932.webp" in page
     assert "/examples/de-adriaan/today.jpg" in page
-    assert "Family version" in page
+    assert "Picture-book version" in page
     assert "/examples/de-adriaan/child/film.html" in page
     assert client.get("/examples/de-adriaan/era_1932.webp").status_code == 200
 
@@ -122,7 +122,7 @@ def test_gallery_without_a_child_hides_the_pill(tmp_path):
     shutil.rmtree(tmp_path / "examples" / "de-adriaan" / "child")
     client = TestClient(create_app(deps), headers=dict(ORIGIN))
     page = client.get("/").text
-    assert "Family version" not in page
+    assert "Picture-book version" not in page
 
 
 def test_try_your_own_says_what_works_and_how_long(tmp_path):
@@ -337,7 +337,7 @@ def test_gallery_credits_today_photo_from_source(tmp_path):
 
 def test_family_wording_replaces_children_version(tmp_path):
     page = _page(tmp_path)
-    assert "Family version" in page
+    assert "Picture-book version" in page
     assert "children's version" not in page.lower()
     assert "8+" not in page
 
@@ -352,8 +352,9 @@ def test_player_audience_button_says_family():
 
     html = (Path(__file__).resolve().parent.parent / "witness" / "render"
             / "film.html").read_text()
-    assert '"Family"' in html
+    assert '"Picture-book"' in html
     assert '"Children"' not in html
+    assert '"Family"' not in html
 
 
 def test_playing_family_film_and_game_calls_no_api():
@@ -373,12 +374,31 @@ def test_user_facing_docs_say_family_not_children():
     from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent
-    for name in ("README.md", "docs/08_children.md", "docs/04_demo.md"):
+    for name in ("README.md", "docs/08_picture_book.md", "docs/04_demo.md"):
         text = (root / name).read_text()
         lowered = text.lower()
         assert "children's version" not in lowered, name
         assert "8+" not in text, name
         assert "children aged" not in lowered, name
+
+
+def test_no_audience_words_in_user_facing_text(tmp_path):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    page = _page(tmp_path)
+    privacy = _client(tmp_path).get("/privacy").text
+    texts = {"landing": page, "privacy": privacy}
+    for name in ("README.md", "docs/01_brief.md", "docs/02_pipeline.md",
+                 "docs/04_demo.md", "docs/06_web.md", "docs/07_test_set.md",
+                 "docs/08_picture_book.md"):
+        texts[name] = (root / name).read_text()
+    for where, text in texts.items():
+        lowered = text.lower().replace("font-family", "")
+        assert "family" not in lowered, where
+        assert "children" not in lowered, where
+        assert "kids" not in lowered, where
+        assert "younger" not in lowered, where
 
 
 def test_step_list_labels_follow_the_event_model(tmp_path):

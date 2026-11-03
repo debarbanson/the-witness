@@ -550,17 +550,17 @@ silent Meta fallback per call (180 s timeout) as demo insurance;
 research, vision, search fallback and completion stay on Meta.
 `--verify-with meta` overrides per run.
 
-## Fit for the children's version
+## Fit for the picture-book version
 
 Not built; scheduled Wed-Thu after the painting. What this round
 put in place: `research.json` already holds, per scene, the state
 plus caption lines with their claim year and text, and per claim
-the quote, source URL and verdict. Children's captions fit there as
+the quote, source URL and verdict. Picture-book captions fit there as
 a rewrite next to each adult caption line (same claim, same quote),
-re-verified against that quote per docs/08_children.md; the
+re-verified against that quote per docs/08_picture_book.md; the
 audience setting (`adult` or `child`) will run from research
 through captions, painting, the check and the renderer, with both
-versions cached together.
+versions cached.
 
 ## Block E: afternoon fixes and re-run (27 October)
 
@@ -913,9 +913,9 @@ Baseten tokens; painted De Adriaan $0.39 plus about $0.08 images
 plus 128k Baseten tokens. Baseten credit conversion unknown;
 web-search query counts unmeasured.
 
-## Stretch: children captions and figure layers (De Adriaan)
+## Stretch: picture-book captions and figure layers (De Adriaan)
 
-Children captions: 5 of 5 caption lines rewritten and re-verified
+Picture-book captions: 5 of 5 caption lines rewritten and re-verified
 against their source sentences, 3 of 6 scene states (drops honest:
 state detail spanning sentences cannot re-verify against one).
 Figure layers: 22 SAM person cut-outs across 4 of 6 eras (1932

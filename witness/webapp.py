@@ -471,7 +471,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 </header>
 <section class="hero" aria-label="Introduction">
 <div class="hero-left">
-<h1 class="hero-title">Every era it lived through, painted from your photo.</h1>
+<h1 class="hero-title">The turning points of its history, painted from your photo.</h1>
 <div class="hero-body">
 <p class="lede">Your landmark, researched and painted back through time, every fact sourced.</p>
 <p class="actions"><a class="btn" href="#examples">Watch the examples</a> <a class="btn ghost" href="#try">Try your own photo</a></p>
@@ -494,7 +494,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <div class="steps">
 <article class="step">
 <div class="step-media"><img src="/assets/landing/step1.jpg" width="1200" height="900" loading="lazy" alt="Today's photo of De Adriaan windmill in Haarlem"></div>
-<div><h3>1. Your photo</h3><p>Start with any photo of a landmark, old or new.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
+<div><h3>1. Your photo</h3><p>Start with an old, well-documented landmark.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
 </article>
 <article class="step">
 <div><h3>2. Its sourced history</h3><p>We research what happened here, and check every claim against its sources.</p><figure class="fact"><blockquote>De Adriaan was officially opened on May 19, 1779.</blockquote><figcaption>1779 · <a href="https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem">Wikipedia: De Adriaan, Haarlem</a></figcaption></figure></div>
@@ -506,10 +506,11 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 </div>
 </section>
 <section class="block promise" aria-label="The accuracy promise">
-<h2>True, or it is not in the film</h2>
+<h2>Sourced and checked, or it is not in the film</h2>
 <ul>
 <li>Every fact shown links to the page it came from.</li>
 <li>Claims without a source are left out of the film.</li>
+<li>That is what the sources support, not a guarantee of historical truth.</li>
 </ul>
 <figure>
 <blockquote>Not in the film: in July 2020 the tree was reported as vandalised, with a three-foot section of bark fallen off. No fetched source confirmed it.</blockquote>
@@ -528,6 +529,7 @@ __EXAMPLES__
 <p>Works best with old, well-documented landmarks: a tower, windmill, lighthouse, old tree or bridge.</p>
 <p>__TRY_DURATION__</p>
 <p>Sometimes the sources are thin. Then you get the verified facts instead of a film. That is by design.</p>
+<p>Uploads make the adult film only. The examples include the picture-book version and the spot-the-difference game.</p>
 <p>__QUOTA_LINE__</p>
 <p>For adults 18 and over.</p>
 __TRY_BLOCK__
@@ -692,8 +694,9 @@ window.addEventListener("pagehide", () => {
 </html>
 """
 
-TRY_DURATION_LINE = ("Films usually take about 8 minutes, and the page "
-                     "shows each step as it happens.")
+TRY_DURATION_LINE = ("A staging film measured 2 Nov took about 8 minutes "
+                     "to the adult film; uploads now make the adult film "
+                     "only. This line is updated after the phone tests.")
 
 TRY_FORM = """<section id="notice">
 <p><strong>Before you upload:</strong></p>
@@ -739,7 +742,7 @@ FONT_ASSETS = {"fraunces-600.woff2": "font/woff2"}
 
 def _gallery_cards(examples_root, examples) -> str:
     """One card per example film: name, year span, a painted era next
-    to today, the player link, and the children's version where it
+    to today, the player link, and the picture-book version where it
     exists. Spans and credits come from each film's own film.json;
     a film without one still gets its name and link. An empty
     gallery says so plainly."""
@@ -791,7 +794,7 @@ def _gallery_cards(examples_root, examples) -> str:
         child = (base / "child" / "film.html").exists()
         pill = (f" <a class=\"pill\" "
                 f"href=\"/examples/{slug}/child/film.html\">"
-                f"Family version</a>" if child else "")
+                f"Picture-book version</a>" if child else "")
         cards.append(
             f"<article class=\"card\"><h3>{_html.escape(name)}</h3>"
             f"{span}{pair}{credit_line}<p class=\"links\">"

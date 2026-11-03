@@ -134,9 +134,9 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 - `differs` triggers a repaint with the difference spelled out, at most twice; then the era is dropped and logged.
 - This is the visual half of "no source, no claim": what the film shows of the object is checked, not only what it says.
 
-## Step 5b: Spot the difference (children's version)
+## Step 5b: Spot the difference (picture-book version)
 
-One painted era next to today's photo; `muse-spark-1.3` (vision) answers with grounded reveal lines quoted from the verified changes, each checked against what is visible and against the object's verified state. Full specification, and the children's captions and painting style: [08_children.md](08_children.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Adults/Children switch.
+One painted era next to today's photo; `muse-spark-1.3` (vision) answers with grounded reveal lines quoted from the verified changes, each checked against what is visible and against the object's verified state. Full specification, and the picture-book captions and painting style: [08_picture_book.md](08_picture_book.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Adults/Picture-book switch.
 
 ## Step 6: Cut, see Planned
 
@@ -178,11 +178,11 @@ Prices live in `witness/models.py`: Muse Spark $1.25 per M tokens in, $4.25 out;
 |---|---|---|
 | Research (Meta, with ~12 searches) | 1 call | ~$0.10 |
 | Support votes (Baseten) | ~25 | ~$0.18 |
-| Paintings | anchor + up to 4 eras | ~$0.05 |
-| Painting and caption checks (Meta vision) | ~8 | ~$0.05 |
-| SAM cut-out | 1 | under $0.01 |
+| Paintings | up to 4 eras, first scene doubling as the anchor | ~$0.04 |
+| Painting checks (Meta vision) plus caption checks (Meta text) | ~8 | ~$0.05 |
+| SAM cut-out | 0 on uploads; 1 on command-line renders with --subject | under $0.01 |
 | **Adult total** | | **about $0.30 to $0.50** |
-| Children's extra (paintings, checks, captions, game) | ~10 calls | ~$0.12 to $0.15 |
+| Picture-book extra (paintings, checks, captions, game) | ~10 calls | ~$0.12 to $0.15 |
 
 Every billable call reserves its ceiling with one budget authority before it runs; the web page refuses new films past the daily quota.
 

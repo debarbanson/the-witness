@@ -1095,7 +1095,8 @@ def spare_needs(chosen, pool) -> int:
 
 def build_jobs(claims, texts, snippets, anchor_year) -> list:
     """Verify jobs: claim plus the fetched paragraphs that mention
-    its year or key words, best of three for the claims that matter.
+    its year or key words, two votes with a third on disagreement,
+    unanimous to accept, for the claims that matter.
     Jobs run in film order: the build anchor first, then earliest
     year first, so the first scene is ready first. Search snippets
     are not evidence and never enter the passage pool; the snippets

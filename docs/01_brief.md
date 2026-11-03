@@ -24,9 +24,9 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 4. **Open knowledge, worldwide and free:** the object is found through OpenStreetMap and Wikidata, and its dated facts come from Wikidata and Wikipedia in any language. Sources may be in any language; captions are English only. (Automatic reference photos from Commons or Europeana are planned, not built.)
 5. **A finished film:** first-person captions and citations in a browser player with pause and replay, shared as an unlisted public page on Modal plus this repo. (MP4 export runs from the command line; a download button on the page is planned, not built.)
 
-## Two audiences
+## Two versions
 
-Films that earn them come in a version for adults and one for children aged 8 and up: the same verified facts, told in simpler words with picture-book paintings, and ending in a "spot the difference" game between a painted era and today's photo. Both need enough verified material, so some films ship without one or both. Simple, but still true: every children's caption is verified again. Details: [08_children.md](08_children.md).
+Uploads make the adult film only. The three examples also carry a picture-book version: the same checked facts in simpler words with picture-book paintings, ending in a "spot the difference" game between a painted era and today's photo. Both need enough verified material. Simple, but still true: every picture-book caption is verified again. Details: [08_picture_book.md](08_picture_book.md).
 
 ## Out of scope for the hackathon
 
@@ -40,4 +40,4 @@ Films that earn them come in a version for adults and one for children aged 8 an
 - Three films from three real photos (a windmill, an old tree, a lighthouse), each about 30 to 37 seconds.
 - Every caption has a working source link, shown on screen and in an end card.
 - In every era the object matches its verified state for that year (for example De Adriaan: built 1779, burnt 1932, rebuilt 2002).
-- Generated in a few minutes per film, for under $1 in API cost. Modelled 30 Oct from measured call counts: about $0.30 to $0.50 per painted adult film, the children's set roughly doubling the painting and caption checks. End-to-end time is measured on staging.
+- Generated in a few minutes per film, for under $1 in API cost. Modelled 30 Oct from measured call counts: about $0.30 to $0.50 per painted adult film, the picture-book set roughly doubling the painting and caption checks. End-to-end time is measured on staging.

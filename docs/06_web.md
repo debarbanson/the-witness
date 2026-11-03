@@ -9,7 +9,7 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 3. **Location.** If the photo carries GPS data, use it. If not, ask the browser (`navigator.geolocation`, with a one-line reason). If refused, a text field: "Where is it?"
 4. **Confirm the object.** Step 0 shows its best match: "Is this De Adriaan, Haarlem?" with the name and kind. Yes, or cancel. Only identification runs before you confirm; research and painting wait for yes.
 5. **Watch it being made.** Honest progress with a timer while the film builds: a live clock with phase words that change as each step lands (a long painting or vote can run quiet between them). A closed tab cancels the job.
-6. **The film.** A link to the film page once finished: it plays in the browser, vertical, with clickable sources below, pause and replay, and an Adults/Children switch. Facts-only results show the verified facts with their source links instead. ("Download" and "Share" making the MP4 on the page are planned after the deploy.)
+6. **The film.** A link to the film page once finished: it plays in the browser, vertical, with clickable sources below, pause and replay, and an Adults/Picture-book switch on the examples. Facts-only results show the verified facts with their source links instead. ("Download" and "Share" making the MP4 on the page are planned after the deploy.)
 7. **When there is too little** (pipeline step 3b): a short film, an honest facts-only card, or a partial result that says what is missing. ("Add a source" and "Tell what you know" are planned.)
 
 ## How it is built
@@ -30,13 +30,13 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 
 ## Deploy runbook
 
-One deploy carries both surfaces: the staging page (`web`, behind proxy auth) and judge mode (`judge`, public and unlisted, no proxy auth, noindex on every response). The deploy prints both URLs; share the judge URL only in the submission.
+One deploy carries both surfaces: the staging page (`web`, behind proxy auth) and judge mode (`judge`, public and unlisted, no proxy auth, noindex on every response). The deploy prints both URLs; the judge URL goes in the README (owner fills it in on their go).
 
 ### Before the first deploy
 
 1. The owner runs `modal token new` on their own machine (Modal credentials live outside the repo).
 2. The owner creates the secret `the-witness-keys` in the Modal dashboard, never from the command line, with these names (no values anywhere in the repo or the shell history):
-   - `MODEL_API_KEY` (Meta calls: research, verify, paint, children),
+   - `MODEL_API_KEY` (Meta calls: research, verify, paint, picture-book),
    - `BASETEN_API_KEY` (open-weights support votes),
    - `WITNESS_CONTACT` (the notice address),
    - `WITNESS_IP_SECRET` (at least 32 characters of randomness, shared by every container for the visitor hash),

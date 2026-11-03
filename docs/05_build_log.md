@@ -8,7 +8,7 @@ Everything in this repository was built during the hackathon, from the kickoff o
 |---|---|
 | Mon 26 Oct, evening | Probes: object state research, a burnt-era painting, the vision check, the SAM base, EXIF GPS and the Overpass lookup on a phone photo file (local test, not an on-device run) |
 | Tue 27 Oct | Steps 0 to 3 as tested modules: identify, cut out, research, verify; CLI runs them on one photo |
-| Wed 28 Oct | Steps 4 to 6: paint, check, layers; children's captions (re-verified) and picture-book style (docs/08_children.md) |
+| Wed 28 Oct | Steps 4 to 6: paint, check, layers; children's captions (re-verified) and picture-book style (docs/08_picture_book.md) |
 | Thu 29 Oct | Step 7: the renderer with the audience setting; spot the difference (step 5b); first complete film, adult and children's, from the CLI |
 | Fri 30 Oct | The web page, locally, with the adults/children switch and the spot-the-difference game; hosting chosen and tested |
 | Sat 31 Oct to Sun 1 Nov | Three demo films (windmill, tree, lighthouse); deploy the page |
@@ -108,7 +108,7 @@ Test set: 10 Commons photos (CC0, PD or CC BY, file pages and licences in docs/0
 
 Time budget: identify misses 15 s everywhere (31-98 s); the 60 s story holds for eiffel and the tower only, with source fetching (90 s timeout, P12) the budget killer; 7 of 12 met 2-3 min research. Full timings and 15 open problems in docs/07_test_set.md.
 
-Children's fit (no build): `research.json` scenes plus caption lines, quotes and verdicts already carry what child captions need; the audience setting will run research, captions, paint, check and renderer per docs/08_children.md.
+Children's fit (no build): `research.json` scenes plus caption lines, quotes and verdicts already carry what child captions need; the audience setting will run research, captions, paint, check and renderer per docs/08_picture_book.md.
 
 ## 27 October
 

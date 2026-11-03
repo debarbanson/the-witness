@@ -14,6 +14,7 @@ max-width:46rem;margin:0 auto;padding:1.5rem;color:#211b12;background:#fffdf7}
 h1{font-size:1.6rem}
 h2{font-size:1.2rem;margin-top:2.5rem;border-top:1px solid #e0d3b8;padding-top:1rem}
 img{max-width:100%;height:auto}
+a{overflow-wrap:anywhere}
 blockquote.quote{background:#f7f1e3;border-left:4px solid #84301f;
 margin:1rem 0;padding:.75rem 1rem}
 p.source{font-size:.9rem;overflow-wrap:break-word}

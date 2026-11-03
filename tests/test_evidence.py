@@ -97,6 +97,14 @@ def test_refused_defaults_to_the_first_unaccepted_claim(tmp_path):
     assert "burnt in 1900" in page
 
 
+def test_every_link_wraps_on_a_narrow_phone(tmp_path):
+    root = _slug(tmp_path)
+    page = evidence.build_page(root)
+    assert "<a " in page
+    assert "a{overflow-wrap:anywhere}" in page.replace(" ", "").replace(
+        "\n", "")
+
+
 def test_steps_name_models_and_recorded_verdicts(tmp_path):
     root = _slug(tmp_path)
     page = evidence.build_page(root)

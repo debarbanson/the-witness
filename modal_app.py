@@ -503,8 +503,10 @@ class DictStore:
 
 def _worker_store(backend="staging"):
     if backend == "judge":
-        return DictStore(modal.Dict.from_name("witness-judge-store"))
-    return DictStore(modal.Dict.from_name("witness-store"))
+        return DictStore(modal.Dict.from_name("witness-judge-store",
+                                              create_if_missing=True))
+    return DictStore(modal.Dict.from_name("witness-store",
+                                          create_if_missing=True))
 
 
 def _contact():

@@ -840,3 +840,18 @@ def test_run_film_routes_by_backend(tmp_path, monkeypatch):
                                      "backend": "nope"}) == {
         "status": "failed"}
     assert store.get_job("k")["status"] == "failed"
+
+
+def test_worker_store_creates_missing_state(monkeypatch):
+    seen = {}
+
+    def fake_from_name(name, **kwargs):
+        seen[name] = kwargs
+        return {}
+
+    monkeypatch.setattr(modal_app.modal.Dict, "from_name",
+                        staticmethod(fake_from_name))
+    modal_app._worker_store("staging")
+    modal_app._worker_store("judge")
+    assert seen["witness-store"].get("create_if_missing") is True
+    assert seen["witness-judge-store"].get("create_if_missing") is True

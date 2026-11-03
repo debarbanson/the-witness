@@ -829,7 +829,15 @@ def judge_all(support_respond, jobs, completion_respond=None,
 def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
     """Full text of one cited source, cached. Wikipedia URLs go through the
     extracts API in the article's own language; other pages are fetched with
-    a plain GET and reduced to their main paragraphs."""
+    a plain GET and reduced to their main paragraphs. With the fake
+    provider flag, the fake URL alone serves a canned page holding the
+    fake quotes, so staging abuse films can verify; no other path
+    reaches it, and judge mode refuses the flag."""
+    import os as _os
+
+    if _os.environ.get("WITNESS_FAKE_PROVIDER") and url == models._FAKE_URL:
+        return ("Fake Mill. The mill was built in 1850. "
+                "The mill burnt down in 1900.")
     if url in _cache:
         return _cache[url]
     if cache is not None:

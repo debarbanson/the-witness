@@ -1579,3 +1579,39 @@ def test_judge_stream_progress_omits_the_model_without_a_label():
         progress=lambda event, data: events.append((event, data))))
     assert events
     assert all("model" not in d for _, d in events)
+
+
+def test_fake_flag_serves_canned_page_for_fake_url(monkeypatch):
+    from witness import models
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    verify._cache.pop(models._FAKE_URL, None)
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("fake page must not fetch")
+
+    text = verify.fetch_source_text(models._FAKE_URL, get=no_network)
+    assert "The mill was built in 1850." in text
+    assert "The mill burnt down in 1900." in text
+    verify._cache.pop(models._FAKE_URL, None)
+
+
+def test_no_canned_page_without_fake_flag(monkeypatch):
+    from witness import models
+
+    monkeypatch.delenv("WITNESS_FAKE_PROVIDER", raising=False)
+    verify._cache.pop(models._FAKE_URL, None)
+    seen = []
+
+    class EmptyApi:
+        def json(self):
+            return {"query": {"pages": {"-1": {"missing": True}}}}
+
+    def empty_api(url, params, **kwargs):
+        seen.append(url)
+        return EmptyApi()
+
+    text = verify.fetch_source_text(models._FAKE_URL, get=empty_api)
+    assert seen, "real path consults the network"
+    assert "The mill was built in 1850." not in text
+    verify._cache.pop(models._FAKE_URL, None)

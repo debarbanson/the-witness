@@ -1032,25 +1032,36 @@ def test_reload_serves_on_when_files_are_open():
     from modal.exception import ConflictError
 
     class BusyVolume:
-        def __init__(self):
+        def __init__(self, error):
+            self.error = error
             self.calls = 0
 
         def reload(self):
             self.calls += 1
-            raise ConflictError("there are open files preventing "
-                                "the operation")
+            raise self.error
 
-    volume = BusyVolume()
-    modal_app.try_reload(volume)  # must not raise: serve the snapshot
-    assert volume.calls == 1
+    # The sync interface wraps the conflict in a RuntimeError; the
+    # async one raises ConflictError itself. Both serve the snapshot.
+    for error in (RuntimeError("there are open files preventing the "
+                               "operation: path de-adriaan/today.jpg "
+                               "is open"),
+                  ConflictError("there are open files preventing "
+                                "the operation")):
+        volume = BusyVolume(error)
+        modal_app.try_reload(volume)
+        assert volume.calls == 1
 
 
 def test_reload_passes_other_errors_through():
-    class BrokenVolume:
-        def reload(self):
-            raise OSError("disk gone")
-
     import pytest
 
-    with pytest.raises(OSError):
-        modal_app.try_reload(BrokenVolume())
+    class BrokenVolume:
+        def __init__(self, error):
+            self.error = error
+
+        def reload(self):
+            raise self.error
+
+    for error in (OSError("disk gone"), RuntimeError("boom")):
+        with pytest.raises(type(error)):
+            modal_app.try_reload(BrokenVolume(error))

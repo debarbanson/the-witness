@@ -49,13 +49,17 @@ _LEDGER_LOCK = threading.Lock()
 def try_reload(volume) -> None:
     """Reload a volume before serving from it, best effort. Under
     concurrent inputs Modal refuses a reload while another request
-    still streams a file (ConflictError); the request then serves
-    the snapshot it has instead of failing. Any other error still
-    raises."""
+    still streams a file; the sync interface reports that as a
+    RuntimeError naming the open files, the async one as
+    ConflictError. Either way the request serves the snapshot it
+    has instead of failing. Any other error still raises."""
     try:
         volume.reload()
     except ConflictError:
         pass
+    except RuntimeError as exc:
+        if "open files" not in str(exc):
+            raise
 
 app = modal.App("the-witness")
 

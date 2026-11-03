@@ -1591,8 +1591,9 @@ def test_fake_flag_serves_canned_page_for_fake_url(monkeypatch):
         raise AssertionError("fake page must not fetch")
 
     text = verify.fetch_source_text(models._FAKE_URL, get=no_network)
-    assert "The mill was built in 1850." in text
-    assert "The mill burnt down in 1900." in text
+    assert "The old mill was built here in the year 1850." in text
+    assert "The old mill burnt down here in the year 1900." in text
+    assert "The old mill was restored here in the year 1925." in text
     verify._cache.pop(models._FAKE_URL, None)
 
 
@@ -1613,5 +1614,5 @@ def test_no_canned_page_without_fake_flag(monkeypatch):
 
     text = verify.fetch_source_text(models._FAKE_URL, get=empty_api)
     assert seen, "real path consults the network"
-    assert "The mill was built in 1850." not in text
+    assert "The old mill was built here in the year 1850." not in text
     verify._cache.pop(models._FAKE_URL, None)

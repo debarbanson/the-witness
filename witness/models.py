@@ -213,6 +213,9 @@ def _fake_research_payload() -> dict:
         {"year": 1900, "event": "burnt",
          "detail": "The mill burnt down in 1900.",
          "visible_change": "roof lost", "date_text": "1900"},
+        {"year": 1925, "event": "restored",
+         "detail": "The mill was restored in 1925.",
+         "visible_change": "roof rebuilt", "date_text": "1925"},
     ]
     sources = [_FAKE_URL]
     return {
@@ -230,13 +233,30 @@ def _fake_research_payload() -> dict:
     }
 
 
-def _fake_vote_payload() -> dict:
-    quote = "The mill was built in 1850."
+_FAKE_QUOTES = {1850: "The old mill was built here in the year 1850.",
+                1900: "The old mill burnt down here in the year 1900.",
+                1925: "The old mill was restored here in the year 1925."}
+
+
+def _fake_vote_payload(text: str) -> dict:
+    """The canned page's sentence for the claim's year, or unsupported:
+    the fake source says nothing about other years, and the gate
+    judges the quote like any real one."""
+    import re as _re
+
+    quote = next((_FAKE_QUOTES[int(year)] for year in
+                  _re.findall(r"\b(1[0-9]{3}|20[0-9]{2})\b", text or "")
+                  if int(year) in _FAKE_QUOTES), "")
+    if quote:
+        verdict, url = "supported", _FAKE_URL
+        support = [{"url": _FAKE_URL, "supports": True, "quote": quote}]
+    else:
+        verdict, url = "unsupported", ""
+        support = []
     return {
         "output": [_fake_message(json.dumps({
-            "verdict": "supported", "quote": quote, "url": _FAKE_URL,
-            "support": [{"url": _FAKE_URL, "supports": True,
-                         "quote": quote}]}))],
+            "verdict": verdict, "quote": quote, "url": url,
+            "support": support}))],
         "usage": {"prompt_tokens": 100, "completion_tokens": 50,
                   "total_tokens": 150},
     }
@@ -284,7 +304,7 @@ class _FakeResponses:
                 "usage": {"prompt_tokens": 100, "completion_tokens": 10,
                           "total_tokens": 110}})
         if "Claim to check:" in text:
-            return _FakeSDKResponse(_fake_vote_payload())
+            return _FakeSDKResponse(_fake_vote_payload(text))
         if "MATCHES only if" in text:
             return _FakeSDKResponse({
                 "output": [_fake_message("MATCHES whole.")],
@@ -303,11 +323,12 @@ class _FakeChatCompletions:
         import time as _time
 
         _time.sleep(float(os.environ.get("WITNESS_FAKE_DELAY_S", "0")))
+        text = "\n".join(str(m.get("content", ""))
+                         for m in messages if isinstance(m, dict))
+        payload = json.loads(_fake_vote_payload(text)["output"][0]
+                             ["content"][0]["text"])
         return {"choices": [{"message": {
-            "content": json.dumps({
-                "verdict": "supported",
-                "quote": "The mill was built in 1850.", "url": _FAKE_URL,
-                "support": []}),
+            "content": json.dumps(payload),
             "reasoning_content": "fake reasoning"}}],
                 "usage": {"prompt_tokens": 100, "completion_tokens": 50,
                           "total_tokens": 150}}

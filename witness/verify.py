@@ -836,8 +836,9 @@ def fetch_source_text(url, get=None, sleep=time.sleep, cache=None) -> str:
     import os as _os
 
     if _os.environ.get("WITNESS_FAKE_PROVIDER") and url == models._FAKE_URL:
-        return ("Fake Mill. The mill was built in 1850. "
-                "The mill burnt down in 1900.")
+        return ("Fake Mill. The old mill was built here in the year 1850. "
+                "The old mill burnt down here in the year 1900. "
+                "The old mill was restored here in the year 1925.")
     if url in _cache:
         return _cache[url]
     if cache is not None:
@@ -1094,6 +1095,11 @@ def sentence_disputed(url, quote, get=None, cache=None) -> bool:
     checked is not verified."""
     if not url or not quote or len(quote) < MIN_QUOTE_CHARS:
         return False
+    import os as _os
+
+    if _os.environ.get("WITNESS_FAKE_PROVIDER") and url == models._FAKE_URL:
+        return disputed_sentence(
+            fetch_source_text(url, get=get, cache=cache), quote)
     try:
         if urlparse(url).netloc.lower().endswith("wikipedia.org"):
             text = fetch_wikipedia_html(url, get=get, cache=cache)

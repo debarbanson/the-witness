@@ -1321,6 +1321,7 @@ def baseten_support_respond(prompt):
             messages=[{"role": "user", "content": prompt}],
             phase="verify",
             timeout=180,
+            reasoning_effort="low",
         )
         return verify.text_answer(models.chat_answer(resp)["content"])
     except Exception as exc:  # noqa: BLE001 - demo insurance: meta judges instead

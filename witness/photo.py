@@ -19,7 +19,7 @@ class PhotoError(Exception):
 
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB per upload
-MAX_UPLOAD_PIXELS = 12_000_000  # 12 MP: default phone photos; the film is 1080x1920
+MAX_UPLOAD_PIXELS = 25_000_000  # 25 MP: 24 MP iPhone default plus margin
 ALLOWED_FORMATS = frozenset({"JPEG", "PNG", "WEBP"})
 
 Image.MAX_IMAGE_PIXELS = MAX_UPLOAD_PIXELS  # a bomb never decodes

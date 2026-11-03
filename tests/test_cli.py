@@ -1119,6 +1119,24 @@ def test_baseten_support_passes_timeout_and_falls_back_to_meta(monkeypatch):
     assert cli_module.baseten_support_respond("claim") == {"fallback": True}
 
 
+def test_baseten_votes_use_low_reasoning_effort(monkeypatch):
+    from witness import cli as cli_module
+
+    seen = {}
+
+    class FakeChat:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return {"choices": [{"message": {"content": '{"verdict": "supported"}'}}]}
+
+    class FakeClient:
+        chat = type("chat", (), {"completions": FakeChat()})()
+
+    monkeypatch.setattr(cli_module, "_respond_for", lambda spec: FakeClient())
+    cli_module.baseten_support_respond("claim")
+    assert seen["reasoning_effort"] == "low"
+
+
 def test_caption_support_uses_three_votes(monkeypatch):
     from witness import cli as cli_module
 

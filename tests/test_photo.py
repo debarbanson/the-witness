@@ -218,7 +218,31 @@ def test_pixel_gate_runs_before_decode(tmp_path, monkeypatch):
     assert "pixels" in str(excinfo.value)
 
 
-def test_upload_pixel_limit_covers_default_phone_photos():
+def test_upload_pixel_limit_covers_default_phone_photos(monkeypatch):
+    import pytest
+
     from witness import photo
 
-    assert photo.MAX_UPLOAD_PIXELS == 12_000_000
+    assert photo.MAX_UPLOAD_PIXELS == 25_000_000
+
+    class Sized:
+        format = "JPEG"
+
+        def __init__(self, size):
+            self.size = size
+
+        def load(self):
+            raise AssertionError("decode must not run past the pixel gate")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("PIL.Image.open", lambda *a, **k: Sized((6000, 4000)))
+    photo.check_upload_header(b"\xff\xd8fake-24mp")  # 24.0 MP passes
+    monkeypatch.setattr("PIL.Image.open", lambda *a, **k: Sized((5010, 5010)))
+    with pytest.raises(photo.PhotoError) as excinfo:
+        photo.check_upload_header(b"\xff\xd8fake-25mp")  # 25.1 MP refused
+    assert "pixels" in str(excinfo.value)

@@ -608,8 +608,8 @@ def respond(client, spec, phase=None, **kwargs):
 
 def chat(client, spec, messages, phase=None, **kwargs):
     """One Chat Completions call (the Baseten path): model id,
-    temperature and the output bound injected. No reasoning control:
-    Muse Spark Open always reasons; read the answer with chat_answer.
+    temperature and the output bound injected. Reasoning control
+    passes through from the caller; read the answer with chat_answer.
     The ceiling is reserved first; a failed call keeps it, since a
     timeout cannot prove the server did not bill."""
     import time as _time

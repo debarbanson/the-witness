@@ -291,6 +291,30 @@ def test_every_function_uses_the_app_image():
                 assert any(k.arg == "image" for k in deco.keywords), node.name
 
 
+def test_upload_surfaces_reserve_decode_memory():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    found = {}
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name not in ("web", "judge"):
+            continue
+        for deco in node.decorator_list:
+            if not isinstance(deco, ast.Call):
+                continue
+            target = deco.func
+            if (isinstance(target, ast.Attribute)
+                    and target.attr == "function"):
+                for keyword in deco.keywords:
+                    if keyword.arg == "memory":
+                        found[node.name] = ast.literal_eval(keyword.value)
+    assert found.get("web", 0) >= 2048, found
+    assert found.get("judge", 0) >= 2048, found
+
+
 def test_contact_is_required(monkeypatch):
     monkeypatch.delenv("WITNESS_CONTACT", raising=False)
     with pytest.raises(RuntimeError) as excinfo:

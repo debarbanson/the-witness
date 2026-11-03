@@ -808,7 +808,8 @@ def try_switch(enable: bool):
 
 @app.function(image=image, secrets=[keys],
              volumes={"/jobs": jobs_volume,
-                     "/examples": examples_volume})
+                     "/examples": examples_volume},
+             memory=2048)  # 4 upload slots times ~200 MB per 25 MP decode
 @modal.asgi_app(requires_proxy_auth=True)
 def web():
     """The private page: examples plus Try your own. Proxy auth keeps
@@ -856,7 +857,8 @@ def web():
 
 @app.function(image=image, secrets=[keys],
               volumes={"/judge-jobs": judge_jobs_volume,
-                      "/examples": examples_volume})
+                      "/examples": examples_volume},
+              memory=2048)  # same upload gate as staging
 @modal.asgi_app()
 def judge():
     """Judge mode: the public, unlisted page. No proxy auth; the link

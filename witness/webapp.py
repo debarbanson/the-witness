@@ -605,12 +605,15 @@ function jpegGpsPresent(buf) {
         const gps = u32(e + 8);
         if (start + gps + 2 > b.length) { return "unknown"; }
         const gcount = u16(gps);
+        let lat = false;
+        let lon = false;
         for (let j = 0; j < gcount; j++) {
           const ge = gps + 2 + j * 12;
           if (start + ge + 12 > b.length) { return "unknown"; }
-          if (u16(ge) <= 6) { return true; }
+          if (u16(ge) === 2) { lat = true; }
+          if (u16(ge) === 4) { lon = true; }
         }
-        return false;
+        return lat && lon;
       }
     }
     return false;
@@ -691,18 +694,28 @@ function notConfirmedHint(message) {
 }
 const photoInput = document.querySelector('input[name="photo"]');
 const preview = document.getElementById("preview");
+let photoSeq = 0;
+async function photoChanged() {
+  const picked = photoInput.files && photoInput.files[0];
+  if (!picked) { return; }
+  const mine = ++photoSeq;
+  preview.src = URL.createObjectURL(picked);
+  preview.classList.remove("hidden");
+  document.getElementById("lat").value = "";
+  document.getElementById("lon").value = "";
+  document.getElementById("geo-note").textContent = "";
+  locChoice = null;
+  const gps = await photoHasGps(picked);
+  if (mine !== photoSeq || photoInput.files[0] !== picked) { return; }
+  locNeeded = gps !== true;
+  document.getElementById("locq-text").textContent = gps === "unknown"
+    ? "We couldn't read a location from this photo. Where is the landmark?"
+    : "This photo has no location. Where is the landmark?";
+  document.getElementById("locq").classList.toggle("hidden", !locNeeded);
+  updateSubmit();
+}
 if (photoInput && preview) {
-  photoInput.addEventListener("change", async () => {
-    const picked = photoInput.files && photoInput.files[0];
-    if (!picked) { return; }
-    preview.src = URL.createObjectURL(picked);
-    preview.classList.remove("hidden");
-    locChoice = null;
-    const gps = await photoHasGps(picked);
-    locNeeded = gps !== true;
-    document.getElementById("locq").classList.toggle("hidden", !locNeeded);
-    updateSubmit();
-  });
+  photoInput.addEventListener("change", photoChanged);
   const placeInput = document.querySelector('#upload input[name="place"]');
   if (placeInput) {
     placeInput.addEventListener("input", updateSubmit);
@@ -1067,7 +1080,7 @@ TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multip
 <p><label class="file-btn">Take or choose a photo<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></p>
 <p><img id="preview" class="hidden" alt="Preview of your chosen photo"></p>
 <div id="locq" class="hidden">
-<p>This photo has no location. Where is the landmark?</p>
+<p id="locq-text">This photo has no location. Where is the landmark?</p>
 <p><button type="button" id="loc-here">I'm standing in front of it now</button></p>
 <p><button type="button" id="loc-type">I'll type its name and town</button></p>
 <p><button type="button" id="loc-auto">Let Muse Spark recognise it</button></p>

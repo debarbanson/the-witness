@@ -12,7 +12,8 @@ const src = script[1];
 
 function extract(name, args) {
   const found = src.match(
-    new RegExp("function " + name + "\\(" + args + "\\) \\{[\\s\\S]*?\\n\\}"));
+    new RegExp("(?:async )?function " + name + "\\(" + args +
+      "\\) \\{[\\s\\S]*?\\n\\}"));
   assert(found, "no " + name + "(" + args + ")");
   return found[0];
 }
@@ -22,6 +23,7 @@ assert(html.includes('<div id="locq" class="hidden">'),
   "no hidden location question");
 assert(html.includes("This photo has no location. Where is the landmark?"),
   "no location question text");
+assert(html.includes('id="locq-text"'), "no question text line");
 for (const id of ["loc-here", "loc-type", "loc-auto"]) {
   assert(html.includes('id="' + id + '"'), "no #" + id);
 }
@@ -35,8 +37,8 @@ function bytes(arr) {
   return new Uint8Array(arr).buffer;
 }
 
-function tiffWithGps(bigEndian) {
-  const tiff = new Uint8Array(80);
+function gpsTiff(bigEndian, tags) {
+  const tiff = new Uint8Array(128);
   const view = new DataView(tiff.buffer);
   const bo = !bigEndian;
   const set16 = (o, v) => view.setUint16(o, v, bo);
@@ -48,10 +50,12 @@ function tiffWithGps(bigEndian) {
   set16(8, 1);
   set16(10, 0x8825); set16(12, 4); set32(14, 1); set32(18, 26);
   set32(22, 0);
-  set16(26, 2);
-  set16(28, 1); set16(30, 2); set32(32, 2); tiff[36] = 0x4e;
-  set16(40, 2); set16(42, 5); set32(44, 3); set32(48, 56);
-  set32(52, 0);
+  set16(26, tags.length);
+  tags.forEach((tag, i) => {
+    const e = 28 + i * 12;
+    set16(e, tag); set16(e + 2, 5); set32(e + 4, 1); set32(e + 8, 96);
+  });
+  set32(28 + tags.length * 12, 0);
   return tiff;
 }
 
@@ -75,10 +79,18 @@ vm.createContext(sandbox);
 vm.runInContext(extract("jpegGpsPresent", "buf"), sandbox);
 const jpegGpsPresent = vm.runInContext("jpegGpsPresent", sandbox);
 
-assert.strictEqual(jpegGpsPresent(jpeg([app1(tiffWithGps(false))])), true,
-  "little-endian GPS found");
-assert.strictEqual(jpegGpsPresent(jpeg([app1(tiffWithGps(true))])), true,
-  "big-endian GPS found");
+assert.strictEqual(jpegGpsPresent(jpeg([app1(gpsTiff(false, [1, 2, 3, 4]))])),
+  true, "little-endian GPS found");
+assert.strictEqual(jpegGpsPresent(jpeg([app1(gpsTiff(true, [1, 2, 3, 4]))])),
+  true, "big-endian GPS found");
+assert.strictEqual(jpegGpsPresent(jpeg([app1(gpsTiff(false, [2, 4]))])), true,
+  "latitude plus longitude without refs counts");
+assert.strictEqual(jpegGpsPresent(jpeg([app1(gpsTiff(false, [0]))])), false,
+  "a version tag alone is no fix");
+assert.strictEqual(jpegGpsPresent(jpeg([app1(gpsTiff(false, [1, 2]))])), false,
+  "latitude without longitude is no fix");
+assert.strictEqual(jpegGpsPresent(jpeg([app1(gpsTiff(false, [2]))])), false,
+  "latitude alone is no fix");
 
 const noGpsTiff = new Uint8Array(14);
 noGpsTiff[0] = 0x49; noGpsTiff[1] = 0x49;
@@ -173,4 +185,82 @@ vm.runInContext("showResult", sandbox)(box, { status: "done",
 assert(box.textContent.includes("Type its name and town"), "hint shown");
 assert(!touched.includes("upload"), "form untouched, photo kept");
 
-console.log("location help: OK");
+// --- photoChanged: clears the old fix, guards out-of-order reads --------
+{
+  const nodes = {};
+  function node() {
+    return { value: "", files: [], textContent: "",
+      classList: { add() {}, remove() {}, toggle() {} },
+      addEventListener() {} };
+  }
+  const stage = {
+    locNeeded: false, locChoice: "stale",
+    photoInput: node(), preview: node(),
+    lat: node(), lon: node(), geoNote: node(),
+    locq: node(), locqText: node(),
+    gpsOf: () => Promise.resolve(false),
+    submits: 0,
+  };
+  const ctx = { locNeeded: stage.locNeeded, locChoice: stage.locChoice,
+    photoSeq: 0,
+    photoInput: stage.photoInput, preview: stage.preview,
+    document: { getElementById: (id) => (
+      { lat: stage.lat, lon: stage.lon, "geo-note": stage.geoNote,
+        locq: stage.locq, "locq-text": stage.locqText }[id] || null) },
+    URL: { createObjectURL: () => "blob:picked" },
+    photoHasGps: (file) => stage.gpsOf(file),
+    updateSubmit: () => { stage.submits += 1; },
+    locqShown: null,
+    console };
+  ctx.document.getElementById("locq").classList.toggle = (cls, force) => {
+    ctx.locqShown = !force;
+  };
+  vm.createContext(ctx);
+  vm.runInContext(extract("photoChanged", ""), ctx);
+  vm.runInContext("globalThis.changed = photoChanged;", ctx);
+
+  (async () => {
+    // A new photo clears the earlier browser fix and its note.
+    stage.lat.value = "prior-fix";
+    stage.lon.value = "prior-fix";
+    stage.geoNote.textContent = "Location added.";
+    stage.photoInput.files = [{}];
+    await vm.runInContext("changed()", ctx);
+    assert.strictEqual(stage.lat.value, "", "old latitude cleared");
+    assert.strictEqual(stage.lon.value, "", "old longitude cleared");
+    assert.strictEqual(stage.geoNote.textContent, "", "old note cleared");
+    assert.strictEqual(vm.runInContext("locChoice", ctx), null);
+    assert.strictEqual(ctx.locqShown, true, "question shows without GPS");
+    assert.strictEqual(stage.locqText.textContent,
+      "This photo has no location. Where is the landmark?");
+
+    // When the probe cannot tell, the question says so.
+    stage.gpsOf = () => Promise.resolve("unknown");
+    await vm.runInContext("changed()", ctx);
+    assert.strictEqual(stage.locqText.textContent,
+      "We couldn't read a location from this photo. " +
+      "Where is the landmark?");
+
+    // A slow read for a photo no longer picked is ignored.
+    const waiting = {};
+    stage.gpsOf = (file) => new Promise((resolve) => {
+      waiting[file.name] = resolve;
+    });
+    const first = { name: "first" };
+    const second = { name: "second" };
+    stage.photoInput.files = [first];
+    const slow = vm.runInContext("changed()", ctx);
+    stage.photoInput.files = [second];
+    const fast = vm.runInContext("changed()", ctx);
+    waiting.second(false);
+    await fast;
+    assert.strictEqual(ctx.locqShown, true, "second photo needs a place");
+    waiting.first(true);
+    await slow;
+    assert.strictEqual(ctx.locqShown, true, "stale GPS ignored");
+    assert.strictEqual(
+      vm.runInContext("locNeeded", ctx), true, "stale result ignored");
+  })().then(
+    () => console.log("location help: OK"),
+    (err) => { console.error(err); process.exit(1); });
+}

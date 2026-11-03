@@ -799,6 +799,7 @@ def prune_hourly():
                     expired += int(answer.get("expired", 0))
             else:
                 handle.pop(f"spending-{day}", None)
+    print(f"prune_hourly: pruned={pruned} swept={swept} expired={expired}")
     return {"pruned": pruned, "swept": swept, "expired": expired}
 
 

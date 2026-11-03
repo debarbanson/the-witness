@@ -1,0 +1,431 @@
+{
+ "date": "2026-11-04",
+ "records": [
+  {
+   "slug": "q2763574-de-adriaan",
+   "year": 1779,
+   "audience": "adult",
+   "sha256": "63053f9c90df13a5c82dba2db680cf935a4c2997383fa3d1d52fbd3ba24a2379",
+   "caption": "I was opened.",
+   "state": {
+    "condition": "standing",
+    "degree": "partial",
+    "scope": "part",
+    "description": "opened in 1779"
+   },
+   "quote": "De Adriaan was officially opened on May 19, 1779.",
+   "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I was opened."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": false,
+     "note": "The verified sources state only an 1779 opening with part standing and never verify the fully complete brick-based staging mill with cap, sails, houses and winter river shown."
+    },
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 32.2,
+   "cost_usd": 0.0172
+  },
+  {
+   "slug": "q2763574-de-adriaan",
+   "year": 1932,
+   "audience": "adult",
+   "sha256": "6b47831f646ae4e66fa766e6dfce74c9f4d97530787f787ce1dc7fe1204aca92",
+   "caption": "I burnt down.",
+   "state": {
+    "condition": "ruin",
+    "degree": "total",
+    "scope": "whole",
+    "description": "wooden superstructure burnt to ash, only stones and burned beams left"
+   },
+   "quote": "On the evening of April 23, 1932 the windmill burnt down.",
+   "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I burnt down."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 18.5,
+   "cost_usd": 0.0118
+  },
+  {
+   "slug": "q2763574-de-adriaan",
+   "year": 2002,
+   "audience": "adult",
+   "sha256": "edbc25392f059dc321d6e951412118ba0ae190070ae85c6095a880d2f1762051",
+   "caption": "I reopened seventy years after the fire.",
+   "state": {
+    "condition": "rebuilt",
+    "degree": "total",
+    "scope": "whole",
+    "description": "smock mill rebuilt on original foundations, skyline restored"
+   },
+   "quote": "Windmill De Adriaan was reopened on April 23, 2002, exactly 70 years after the fire.",
+   "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I reopened seventy years after the fire."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 15.9,
+   "cost_usd": 0.0113
+  },
+  {
+   "slug": "q2763574-de-adriaan",
+   "year": 1779,
+   "audience": "child",
+   "sha256": "5e2ce84f32a5c71a2bbb597de73f25192139e1e197d7627c93eb48ea406314dd",
+   "caption": "I was opened.",
+   "state": {
+    "condition": "standing",
+    "degree": "partial",
+    "scope": "part",
+    "description": "opened in 1779"
+   },
+   "quote": "De Adriaan was officially opened on May 19, 1779.",
+   "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I was opened."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": false,
+     "note": "The verified sources state only that part was standing and opened in 1779 and never describe the complete black smock mill on a brick base with gallery, sails, houses, and snow shown here."
+    },
+    {
+     "ok": false,
+     "note": "The painting shows a fully detailed black smock, stage, sails and brick base that the verified source stating only an 1779 opening never describes."
+    },
+    {
+     "ok": false,
+     "note": "The fully detailed black smock, gallery stage, brick base, four sails and snowy riverside setting are never stated in the verified source which only records opening in 1779."
+    }
+   ],
+   "seconds": 51.0,
+   "cost_usd": 0.0258
+  },
+  {
+   "slug": "q2763574-de-adriaan",
+   "year": 1932,
+   "audience": "child",
+   "sha256": "970cab219e349b6131ca5a1181199ba1c2e9861690fc74f8ca845916f9c0ea92",
+   "caption": "I burnt down.",
+   "state": {
+    "condition": "ruin",
+    "degree": "total",
+    "scope": "whole",
+    "description": "wooden superstructure burnt to ash, only stones and burned beams left"
+   },
+   "quote": "On the evening of April 23, 1932 the windmill burnt down.",
+   "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I burnt down."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 12.4,
+   "cost_usd": 0.0094
+  },
+  {
+   "slug": "q2763574-de-adriaan",
+   "year": 2002,
+   "audience": "child",
+   "sha256": "9204368209ca0f394e58f4bb022efac3a4df8a96719cb8ac110bbe7c8699b23d",
+   "caption": "I opened again seventy years after the fire.",
+   "state": {
+    "condition": "rebuilt",
+    "degree": "total",
+    "scope": "whole",
+    "description": "smock mill rebuilt on original foundations, skyline restored"
+   },
+   "quote": "Windmill De Adriaan was reopened on April 23, 2002, exactly 70 years after the fire.",
+   "url": "https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I opened again seventy years after the fire."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": false,
+     "note": "The small blue plaque beside the entrance door is a sign that violates the no-text-signs condition."
+    },
+    {
+     "ok": false,
+     "note": ""
+    },
+    {
+     "ok": false,
+     "note": "\u2013 The 2002 view shows an empty mill with no visitors, museum use, or wedding-hall use named in the 2003 museum and 2004 wedding-venue context."
+    }
+   ],
+   "seconds": 60.7,
+   "cost_usd": 0.0332
+  },
+  {
+   "slug": "q388443-major-oak",
+   "year": 1790,
+   "audience": "adult",
+   "sha256": "afdaa7df525f6041ef2c70ef2a4f8a66e3cd87633ac44e63d4b88c11a9e6ca01",
+   "caption": "Major Hayman Rooke described me.",
+   "state": {
+    "condition": "standing",
+    "degree": "total",
+    "scope": "whole",
+    "description": ""
+   },
+   "quote": "The tree was originally known as the Cockpen Tree, after the cockfighting that once took place beneath it. It was later named the Major Oak after Major Hayman Rooke, a British Army soldier and antiquarian who described the tree in his 1790 book Description and Sketches of Some Remarkable Oaks, writing: \"I think no one can behold this majestic ruin without pronouncing it to be of very remote antiquity; and might venture to say, that it cannot be much less than a thousand years old.\"",
+   "url": "https://en.wikipedia.org/wiki/Major_Oak",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "Major Hayman Rooke described me."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 10.0,
+   "cost_usd": 0.0079
+  },
+  {
+   "slug": "q388443-major-oak",
+   "year": 1974,
+   "audience": "adult",
+   "sha256": "30e12ac21daf8c215f3fa586ed4d900271fa448c3660b4bee00398bb9aa976f8",
+   "caption": "Fences were installed around me.",
+   "state": {
+    "condition": "standing",
+    "degree": "total",
+    "scope": "whole",
+    "description": ""
+   },
+   "quote": "In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil.",
+   "url": "https://en.wikipedia.org/wiki/Major_Oak",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "Fences were installed around me."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 9.4,
+   "cost_usd": 0.0071
+  },
+  {
+   "slug": "q388443-major-oak",
+   "year": 1790,
+   "audience": "child",
+   "sha256": "3488412d6bf30924a3d46b8863e62b24b9b7e7c60c1e70379a0c0b6774b358ad",
+   "caption": "Major Hayman Rooke wrote about me.",
+   "state": {
+    "condition": "standing",
+    "degree": "total",
+    "scope": "whole",
+    "description": ""
+   },
+   "quote": "The tree was originally known as the Cockpen Tree, after the cockfighting that once took place beneath it. It was later named the Major Oak after Major Hayman Rooke, a British Army soldier and antiquarian who described the tree in his 1790 book Description and Sketches of Some Remarkable Oaks, writing: \"I think no one can behold this majestic ruin without pronouncing it to be of very remote antiquity; and might venture to say, that it cannot be much less than a thousand years old.\"",
+   "url": "https://en.wikipedia.org/wiki/Major_Oak",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "Major Hayman Rooke wrote about me."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 9.0,
+   "cost_usd": 0.0082
+  },
+  {
+   "slug": "q388443-major-oak",
+   "year": 1974,
+   "audience": "child",
+   "sha256": "fabd2e2ca5b974f946de26be5d8ecfddc563400194e8041fb325d577165bc67d",
+   "caption": "They put fences around me.",
+   "state": {
+    "condition": "standing",
+    "degree": "total",
+    "scope": "whole",
+    "description": ""
+   },
+   "quote": "In 1974, fences were installed around the tree to protect its root system, as the volume of visitors was compacting the surrounding soil.",
+   "url": "https://en.wikipedia.org/wiki/Major_Oak",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "They put fences around me."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 8.7,
+   "cost_usd": 0.0064
+  },
+  {
+   "slug": "q2206180-rubjerg-knude-fyr",
+   "year": 1899,
+   "audience": "adult",
+   "sha256": "40ff1b6b0dd4dc64f6fb86f91e16eb5a9317f953544b2b9c7dffe2d29d4c261a",
+   "caption": "My construction began.",
+   "state": {
+    "condition": "under construction",
+    "degree": "total",
+    "scope": "whole",
+    "description": "Construction began / built in 1899; first lit on 27 December 1900"
+   },
+   "quote": "It was first lit on 27 December 1900. Construction of the lighthouse began in 1899.",
+   "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "My construction began."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 10.9,
+   "cost_usd": 0.0086
+  },
+  {
+   "slug": "q2206180-rubjerg-knude-fyr",
+   "year": 2019,
+   "audience": "adult",
+   "sha256": "55b15990883d1134dbf398c6163139c1983dd2870f82af2c0905f98d3e650eb4",
+   "caption": "I was moved 70 m inland on specially built rails.",
+   "state": {
+    "condition": "moved",
+    "degree": "total",
+    "scope": "whole",
+    "description": "On 22 October 2019 the 23-metre, 720-tonne lighthouse was moved 70 m inland on specially built rails; move begun at 09:15 and completed same"
+   },
+   "quote": "It was expected that the tower would fall into the sea by 2023; however, works to relocate the lighthouse started on 14 August 2019, and on 22 October 2019 the 23 metres (75 ft) high lighthouse, weighing 720 tonnes, was moved 70 m (230 ft) inland on specially built rails.",
+   "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I was moved 70 m inland on specially built rails."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 15.3,
+   "cost_usd": 0.0119
+  },
+  {
+   "slug": "q2206180-rubjerg-knude-fyr",
+   "year": 1899,
+   "audience": "child",
+   "sha256": "38143f3332849150a8787497e3d7184025badb7334aa29e3e4b8f2644026cc62",
+   "caption": "They started to build me.",
+   "state": {
+    "condition": "under construction",
+    "degree": "total",
+    "scope": "whole",
+    "description": "Construction began / built in 1899; first lit on 27 December 1900"
+   },
+   "quote": "It was first lit on 27 December 1900. Construction of the lighthouse began in 1899.",
+   "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "They started to build me."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 11.5,
+   "cost_usd": 0.0081
+  },
+  {
+   "slug": "q2206180-rubjerg-knude-fyr",
+   "year": 2019,
+   "audience": "child",
+   "sha256": "90a2b1dad2a5f19a9e6d0bf3175726933f5f5dd9008f05da192f66164776b9a6",
+   "caption": "I moved back on rails.",
+   "state": {
+    "condition": "moved",
+    "degree": "total",
+    "scope": "whole",
+    "description": "On 22 October 2019 the 23-metre, 720-tonne lighthouse was moved 70 m inland on specially built rails; move begun at 09:15 and completed same"
+   },
+   "quote": "It was expected that the tower would fall into the sea by 2023; however, works to relocate the lighthouse started on 14 August 2019, and on 22 October 2019 the 23 metres (75 ft) high lighthouse, weighing 720 tonnes, was moved 70 m (230 ft) inland on specially built rails.",
+   "url": "https://en.wikipedia.org/wiki/Rubjerg_Knude_Lighthouse",
+   "caption_verdicts": [
+    {
+     "ok": true,
+     "note": "I moved back on rails."
+    }
+   ],
+   "paint_verdicts": [
+    {
+     "ok": true,
+     "note": "MATCHES"
+    }
+   ],
+   "seconds": 19.6,
+   "cost_usd": 0.0125
+  }
+ ]
+}

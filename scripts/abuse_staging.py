@@ -301,16 +301,94 @@ def cancel_after_research(client):
     assert final["ended_at"] is not None, final
 
 
-@check("closed tab cancels through the beacon endpoint",
-       fake_provider=False)
-def closed_tab(client):
+@check("closed tab keeps the job; resume restores facts",
+       fake_provider=True)
+def closed_tab_keeps_job(client):
     job = _start(client, place="Test Town")
-    before = _ledger(client)["calls"]
-    out = client.post(f"/api/jobs/{job}/cancel")  # what sendBeacon calls
-    assert out.status_code == 200, out.text[:200]
+    _wait_for_confirm(client, job)
+    client.post(f"/api/jobs/{job}/decide", json={"confirm": True})
+    deadline = time.monotonic() + 240
+    while time.monotonic() < deadline:
+        events = client.get(f"/api/jobs/{job}").json()["events"]
+        if any(event["event"] == "checked_facts" for event in events):
+            break
+        time.sleep(2.0)
+    else:
+        raise AssertionError("checked facts never published")
+    films_before = _ledger(client)["films"]
+    time.sleep(5.0)  # the closed tab: no polls, no cancel, the job keeps going
+    resumed = client.get(f"/api/jobs/{job}").json()
+    assert resumed["status"] not in ("cancelled", "expired"), resumed["status"]
+    facts = [event for event in resumed["events"]
+             if event["event"] == "checked_facts"]
+    assert facts and facts[-1].get("data", {}).get("items"), \
+        "facts are not restored on resume"
+    assert _ledger(client)["films"] == films_before, \
+        "coming back must not admit a second film"
     final = _wait(client, job)
-    assert _ledger(client)["calls"] <= before + 1, "no new call after cancel (one in flight may finish)"
-    assert final["ended_at"] is not None, final
+    assert final["status"] == "done", final["status"]
+    _film_bytes(client, final["result"]["film_url"])
+
+
+@check("concurrent uploads past the slots get busy 503s",
+       fake_provider=False)
+def concurrent_bodies(client, base):
+    from concurrent.futures import ThreadPoolExecutor
+
+    big = _photo() + b"\0" * (8 * 1024 * 1024)  # slow to send, decodes fine
+
+    def one(_):
+        mine = _client(base)
+        try:
+            out = mine.post("/api/jobs",
+                            files={"photo": ("big.jpg", big)},
+                            data={"ack": "on", "place": "Test Town"},
+                            timeout=120.0)
+        except Exception as exc:
+            return mine, exc
+        return mine, out
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        got = list(pool.map(one, range(16)))
+    started = []
+    codes = []
+    for mine, out in got:
+        assert not isinstance(out, Exception), f"a burst upload hung: {out!r}"
+        codes.append(out.status_code)
+        if out.status_code == 200:
+            started.append((mine, out.json()["job_id"]))
+    try:
+        assert set(codes) <= {200, 429, 503}, codes
+        busy = [out for _, out in got if out.status_code == 503]
+        assert busy, f"no slot gate under a 16-wide burst: {sorted(codes)}"
+        assert all("busy" in out.text for out in busy), "a 503 must say busy"
+    finally:
+        for mine, job_id in started:  # leave staging tidy
+            try:
+                mine.delete(f"/api/jobs/{job_id}")
+            except Exception:
+                pass
+
+
+@check("committed film serves to concurrent readers",
+       fake_provider=True)
+def concurrent_readers(client, base):
+    from concurrent.futures import ThreadPoolExecutor
+
+    job = _start(client, place="Test Town")
+    _wait_for_confirm(client, job)
+    client.post(f"/api/jobs/{job}/decide", json={"confirm": True})
+    final = _wait(client, job, timeout=300)
+    assert final["status"] == "done", final["status"]
+    url = final["result"]["film_url"]
+
+    def one(_):
+        out = _client(base).get(url)  # token URL needs no cookie
+        return out.status_code, len(out.content)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        got = list(pool.map(one, range(6)))
+    assert all(code == 200 and size > 1000 for code, size in got), got
 
 
 def _sizes():

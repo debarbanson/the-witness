@@ -119,7 +119,7 @@ export MODAL_PROXY_KEY=<token-id> MODAL_PROXY_SECRET=<token-secret>
 ```
 
 1. One full Try-your-own film on staging, on a well-documented object: submit through the staging page, record the wall time per phase from the progress events and the total cost from the ledger (`GET /api/debug/ledger`, `total_usd` delta).
-2. The abuse script above (16 checks, each asserting on effects; it refuses unless `WITNESS_ABUSE_RESET=1` is in the staging secret).
+2. The abuse script above (18 checks, each asserting on effects; it refuses unless `WITNESS_ABUSE_RESET=1` is in the staging secret).
 3. After the abuse run, remove the three test flags from the secret (`WITNESS_ABUSE_RESET`, `WITNESS_FAKE_PROVIDER`, `WITNESS_FAKE_DELAY_S`), drain (no film in progress), redeploy, and confirm staging runs in real mode and judge mode starts: the judge URL answers 200 and serves an example film. Judge mode refuses to start while either of the first two flags is set, and its worker refuses fake films.
 4. Put the dated numbers in the README and here, and set `WITNESS_JUDGE_CAP_USD` so 5 to 16 Nov (judging plus the community vote) fits the remaining credits.
 

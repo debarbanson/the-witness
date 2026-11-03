@@ -25,7 +25,9 @@ def test_new_abuse_cases_exist():
     module = _load()
     names = [entry[0] for entry in module.CHECKS]
     for wanted in ("cancel after research ends the spending",
-                   "closed tab cancels through the beacon endpoint",
+                   "closed tab keeps the job; resume restores facts",
+                   "concurrent uploads past the slots get busy 503s",
+                   "committed film serves to concurrent readers",
                    "oversize body refused before reading",
                    "handler spool refuses before admission",
                    "foreign and missing origins refused",

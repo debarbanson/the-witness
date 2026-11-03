@@ -182,7 +182,7 @@ def checked_location(location) -> tuple:
 
 def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
              cache=None, lang="en", timings=None, progress=None, location=None,
-             pace=None):
+             pace=None, overpass=True):
     """Run step 0. Transports and the vision call are injectable for tests.
 
     EXIF GPS can lie (a placeholder far from the object), so when the
@@ -201,7 +201,7 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
             return _identify_once(photo, place=place, post=post, get=get, respond=respond,
                                   sleep=sleep, cache=cache, lang=lang, timings=timings,
                                   progress=progress, location=location,
-                                  pace=pace)
+                                  pace=pace, overpass=overpass)
         except NotIdentifiedError as failed:
             if not place:
                 try:
@@ -226,17 +226,17 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
             return _identify_once(photo, place=place, post=post, get=get, respond=respond,
                                   sleep=sleep, cache=cache, lang=lang, timings=timings,
                                   progress=progress, _gps_ok=False, location=None,
-                                  pace=pace)
+                                  pace=pace, overpass=overpass)
     except NoGpsError as failed:
         return _identify_from_guess(photo, failed, post, get, respond,
                                     sleep, cache, lang, timings, progress,
-                                    pace)
+                                    pace, overpass)
     finally:
         clear_cache()
 
 
 def _identify_from_guess(photo, failed, post, get, respond, sleep, cache,
-                         lang, timings, progress, pace):
+                         lang, timings, progress, pace, overpass=True):
     """Retry from a vision-named landmark, exactly like a typed place:
     geocode it, find candidates within PLACE_RADIUS_M, keep the vision
     pick. Unknown, a failed geocode or no match re-raises the first
@@ -261,7 +261,8 @@ def _identify_from_guess(photo, failed, post, get, respond, sleep, cache,
         return _identify_once(photo, place=query, post=post, get=get,
                                respond=respond, sleep=sleep, cache=cache,
                                lang=lang, timings=timings, progress=progress,
-                               _gps_ok=False, location=None, pace=pace)
+                               _gps_ok=False, location=None, pace=pace,
+                               overpass=overpass)
     raise searched
 
 
@@ -308,14 +309,15 @@ def _response_text(response) -> str:
 
 def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=time.sleep,
                    cache=None, lang="en", timings=None, progress=None, _gps_ok=True,
-                   location=None, pace=None):
+                   location=None, pace=None, overpass=True):
     """One identify attempt: EXIF GPS first, then browser geolocation,
     then the typed place.
 
     Reverse geocoding runs first (labels and articles need the country);
     then Overpass and Wikidata nearby in parallel, then sitelinks and the
     vision pick in parallel. Per-step seconds go into `timings` when given;
-    `progress(event, data)` feeds the web page.
+    `progress(event, data)` feeds the web page. With overpass off, no
+    Overpass request runs and no wait is spent on it.
     """
     if respond is None:
         raise IdentifyError("a vision respond callable is required")
@@ -376,8 +378,10 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
         finally:
             osm_box["overpass_s"] = round(time.perf_counter() - started, 1)
 
-    overpass_thread = threading.Thread(target=overpass_job, daemon=True)
-    overpass_thread.start()
+    overpass_thread = None
+    if overpass:
+        overpass_thread = threading.Thread(target=overpass_job, daemon=True)
+        overpass_thread.start()
     if not from_place:
         country_code, municipality = guarded(
             "reverse", (None, None), reverse, lat, lon, get=get, sleep=sleep,
@@ -395,9 +399,10 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
     steps["wikidata_s"], steps["wpgeo_s"] = wiki_s, wp_s
-    overpass_thread.join(OVERPASS_BUDGET)
+    if overpass_thread is not None:
+        overpass_thread.join(OVERPASS_BUDGET)
     osm = osm_box.get("osm", [])
-    steps["overpass_s"] = osm_box.get("overpass_s", OVERPASS_BUDGET)
+    steps["overpass_s"] = osm_box.get("overpass_s", OVERPASS_BUDGET if overpass else 0)
     merged = merge_and_rank(osm, wiki, lat, lon, location.direction, radius=radius, extra=wpedia)
     if not merged:
         raise NotIdentifiedError("no named candidates near the photo")

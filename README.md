@@ -22,7 +22,7 @@ How each example was checked, scene by scene (bound quotes, sources, models, ver
 
 | Step | What happens | Model |
 |---|---|---|
-| 0. Identify | The photo's location finds nearby known objects (OpenStreetMap, Wikidata); the right one is picked from the photo and confirmed by you | Muse Spark (vision), [identify](witness/identify.py) |
+| 0. Identify | GPS, the location question, a typed place, or Muse Spark naming the landmark from the photo; nearby candidates come from Wikidata and Wikipedia (Overpass is off on the live path: it failed 61 of 62 stored jobs on 2-3 Nov and never decided an identification); the right one is picked from the photo and confirmed by you | Muse Spark (vision), [identify](witness/identify.py) |
 | 1. Cut out | The object is segmented from today's photo, for the closing shot; command line with --subject only, as in the examples (uploads skip it) | SAM 3.1, [segment](witness/segment.py) |
 | 2. Research | One grounded web question about the object's own life; every claim needs a URL | Muse Spark (web_search), [research](witness/research.py) |
 | 3. Verify | Each claim is checked against the fetched source text; only fully supported claims reach the film, "partly" means no | Muse Spark Open on Baseten (`meta-models/muse-spark-open-1026`), Meta fallback, [verify](witness/verify.py) |

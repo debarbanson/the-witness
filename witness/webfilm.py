@@ -20,6 +20,61 @@ def public_claims(kept) -> list:
             for claim in kept if filmed(claim)]
 
 
+def _fetch_outcome(error) -> str:
+    """A fetch failure in plain words. The raw error never leaves the
+    API: only this fixed vocabulary does."""
+    text = str(error or "").lower()
+    if "401" in text or "unauthor" in text or "login" in text:
+        return "asked for a login"
+    if "403" in text or "forbidden" in text or "refus" in text:
+        return "refused us"
+    if "timeout" in text or "timed out" in text or "total time" in text:
+        return "timed out"
+    return "couldn't open it"
+
+
+def source_outcomes(read, failures) -> list:
+    """Every checked source with what happened: read, asked for a
+    login, refused us, timed out, or couldn't open it. Sorted by
+    domain; unconfirmed claim text never appears."""
+    from urllib.parse import urlparse
+
+    def domain(url):
+        return urlparse(url).netloc.lower().removeprefix("www.")
+
+    seen = {}
+    for url in read or []:
+        seen[url] = "read"
+    for failure in failures or []:
+        url = failure.get("url", "")
+        seen.setdefault(url, _fetch_outcome(failure.get("error", "")))
+    return [{"domain": domain(url), "url": url, "outcome": outcome}
+            for url, outcome in sorted(seen.items(),
+                                       key=lambda item: (domain(item[0]),
+                                                         item[0]))]
+
+
+def facts_payload(kept, read, failures, stage=None) -> dict:
+    """The facts-only result: confirmed claims as now, or, with none
+    confirmed, real counts plus what happened per source. `stage`
+    prefixes its own failure line when the research itself ran."""
+    confirmed = public_claims(kept)
+    if confirmed:
+        payload = {"claims": confirmed}
+        if stage:
+            payload["message"] = stage
+        return payload
+    sources = source_outcomes(read, failures)
+    message = (f"No film this time. We found {len(kept or [])} possible "
+               f"facts in {len(sources)} sources, but couldn't confirm "
+               f"enough of them in sources we could open, so nothing was "
+               f"painted. Well-known landmarks with a Wikipedia page work "
+               f"best.")
+    if stage:
+        message = f"{stage} {message}"
+    return {"message": message, "claims": [], "sources": sources}
+
+
 def checked_facts(slug_dir) -> list:
     """The caption-checked scenes in film order: date stamp, sentence
     and source page, exactly as the film shows them. Refused scenes
@@ -186,7 +241,7 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                 out_dir=spec["job_dir"], visitor=spec["vid"],
                 control=control, deadline_s=spec.get("deadline_s", 1500),
                 pre_admitted=True, nominatim_pace=nominatim_pace,
-                reset_timing=False)
+                reset_timing=False, overpass=False)
     except models.JobCancelled as exc:
         return halted("cancelled", str(exc) or "job cancelled")
     except models.JobDeadlineExceeded as exc:
@@ -221,6 +276,12 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
             def total_cost():
                 return result["cost_usd"] + ledger.cost_usd
 
+            def facts_only(stage):
+                payload = facts_payload(result["kept"], result.get("read"),
+                                        result.get("failures"), stage=stage)
+                payload["cost_usd"] = total_cost()
+                return finish(payload, "facts_only")
+
             cli.report_and_save(
                 result["found"], "en", result["order"], result["kept"],
                 result["timeline"], result["chosen"], result["result"],
@@ -233,10 +294,7 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                 progress("captions", {"slug": slug, "model": "Muse Spark"})
                 if cli.cmd_captions(slug, out_dir=spec["job_dir"],
                                     cache=knowledge) == 2:
-                    return finish(
-                        {"message": "Research is done but captions failed.",
-                         "claims": public_claims(result["kept"]),
-                         "cost_usd": total_cost()}, "facts_only")
+                    return facts_only("Research is done but captions failed.")
                 progress("painting", {"slug": slug, "model": "Muse Image"})
                 try:
                     progress("checked_facts", {"items": checked_facts(
@@ -251,18 +309,12 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                 if cli.cmd_paint(slug, spec["photo"], mode="parallel",
                                  out_dir=spec["job_dir"],
                                  progress=paint_progress) != 0:
-                    return finish(
-                        {"message": "Research is done but painting failed.",
-                         "claims": public_claims(result["kept"]),
-                         "cost_usd": total_cost()}, "facts_only")
+                    return facts_only("Research is done but painting failed.")
                 progress("render", {"slug": slug})
                 if cli.cmd_render(slug, spec["photo"], era_dir="eras_parallel",
                                   out_dir=spec["job_dir"],
                                   cache=knowledge) != 0:
-                    return finish(
-                        {"message": "Research is done but the film failed.",
-                         "claims": public_claims(result["kept"]),
-                         "cost_usd": total_cost()}, "facts_only")
+                    return facts_only("Research is done but the film failed.")
                 film = {"film_url": f"/film/{job_id}/{spec['token']}/film.html",
                         "film_dir": str(Path(spec["job_dir"]) / slug / "film"),
                         "outcome": outcome, "audiences": "adult",
@@ -273,9 +325,12 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                 finish(dict(film), "film")
                 published = True
                 return {"status": "film"}
-            return finish(
-                {"message": "Too little evidence for a film; the facts are below.",
-                 "claims": public_claims(result["kept"])}, "facts_only")
+            payload = facts_payload(result["kept"], result.get("read"),
+                                        result.get("failures"))
+            payload.setdefault(
+                "message",
+                "Too little evidence for a film; the facts are below.")
+            return finish(payload, "facts_only")
     except models.JobCancelled as exc:
         if published:
             return {"status": "film"}

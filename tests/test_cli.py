@@ -3377,6 +3377,17 @@ def test_run_job_film_hooks_see_same_result(tmp_path, monkeypatch):
     assert seen["scenes"]  # draft scenes verified towards
 
 
+def test_run_job_reports_read_source_urls(tmp_path, monkeypatch):
+    from witness import cli as cli_module
+
+    _stub_job(monkeypatch)
+    result = cli_module.run_job(
+        str(tmp_path / "photo.jpg"), place="Town", lang="en",
+        decide=lambda found: True, no_cache=True, verify_with="meta",
+        progress=None, quiet=True, out_dir=str(tmp_path / "out"))
+    assert result["read"] == [_JOB_WIKI]
+
+
 def test_run_job_quiet_prints_nothing(tmp_path, monkeypatch, capsys):
     from witness import cli as cli_module
 

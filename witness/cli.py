@@ -346,7 +346,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             on_identified=None, on_facts=None, on_claim=None, on_scene=None,
             location=None, out_dir="out", visitor="cli", control=None,
             deadline_s=1800, pre_admitted=False, nominatim_pace=None,
-            reset_timing=True) -> dict:
+            reset_timing=True, overpass=True) -> dict:
     """One job for the web and both commands: identify, research,
     verify. No input; no print when quiet; milestones via progress.
     Only free facts fetch while `decide` confirms the identified
@@ -380,7 +380,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
         found = identify.identify(photo, place=place, respond=vision_respond,
                                   cache=cache, lang=lang, location=location,
                                   timings=identify_steps, progress=progress,
-                                  pace=nominatim_pace)
+                                  pace=nominatim_pace, overpass=overpass)
         timings["identify_s"] = round(time.perf_counter() - phase, 1)
         timings["identify_steps"] = identify_steps
     except identify.NoGpsError as exc:
@@ -607,6 +607,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             "found": found, "order": order, "kept": gathered["kept"],
             "timeline": timeline, "chosen": chosen, "result": result,
             "timings": timings, "failures": fetched.failures,
+            "read": sorted(fetched.texts),
             "comparison": comparison, "tokens": tokens, "cost_usd": cost}
 
 

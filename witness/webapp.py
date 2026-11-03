@@ -487,7 +487,12 @@ input[name="place"]{display:block;width:100%;box-sizing:border-box;border:2px so
 #steps li.done{color:var(--ink)}
 #steps li.done::before{background:var(--accent);border-color:var(--accent)}
 #steps li.current{color:var(--ink);font-weight:700}
-#steps li.current::before{border-color:var(--accent)}
+#steps li.current::before{border-color:var(--accent);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){#steps li.current::before{animation:none;background:var(--accent)}}
+#steps li.skipped{opacity:.55}
+#steps li.skipped::before{border-style:dashed}
+#steps li.stopped::before{background:var(--muted);border-color:var(--muted)}
 button{font:inherit;cursor:pointer;background:var(--ink);color:var(--paper);border:none;border-radius:999px;padding:10px 22px}
 button#geo,button#yes,button#no{background:transparent;color:var(--ink);border:1px solid var(--ink);padding:6px 16px;font-size:15px}
 footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;color:var(--muted)}
@@ -727,7 +732,50 @@ function phaseWords(name) {
   if (Object.prototype.hasOwnProperty.call(PHASES, name)) { return PHASES[name]; }
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ") + "…";
 }
-const STEP_FOR = {identifying: 0, identified: 0, recognising: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, verify: 2, captions: 3, painting: 3, render: 4};
+const STEP_FOR = {identifying: 0, identified: 0, recognising: 0, confirmed: 0, working: 0, researched: 1, facts: 1, fetch: 1, verifying: 2, verify: 2, captions: 3, painting: 3, render: 4};
+const STEP_DEFAULTS = [" · Muse Spark", " · Muse Spark", " · Muse Spark Open on Baseten", " · Muse Image", ""];
+const answeredModels = new Map();
+const STEP_NAMES = ["Recognise", "Research", "Check", "Paint", "Film"];
+const subState = {key: "", t: 0};
+function renderSub(st, now) {
+  const sub = document.getElementById("subprogress");
+  const still = document.getElementById("still-working");
+  if (!sub || !still) { return; }
+  const evs = st.events || [];
+  const key = evs.length + ":" + (evs.length ? JSON.stringify(evs[evs.length - 1]) : "");
+  if (key !== subState.key) { subState.key = key; subState.t = now; }
+  const lastEv = [...evs].reverse().find(e => !["call", "checked_facts", "painted"].includes(e.event));
+  const step = lastEv ? STEP_FOR[lastEv.event] : undefined;
+  let line = "";
+  if (step === 1) {
+    const fetch = [...evs].reverse().find(e => e.event === "fetch");
+    if (fetch) {
+      const d = fetch.data || {};
+      line = "Reading sources: " + (d.done ?? "?") + " of " + (d.total ?? "?");
+    } else if (evs.some(e => e.event === "facts")) {
+      line = "Muse Spark is searching the web";
+    }
+  } else if (step === 2) {
+    const ver = [...evs].reverse().find(e => e.event === "verify");
+    if (ver) {
+      const d = ver.data || {};
+      line = "Facts checked: " + (d.done ?? "?") + " of " + (d.total ?? "?");
+    }
+  } else if (step === 3) {
+    const p = [...evs].reverse().find(e => e.event === "painted");
+    if (p) {
+      const d = p.data || {};
+      line = "Painted " + (d.accepted || 0) + " of " + ((d.attempted || 0) - (d.dropped || 0));
+    }
+  }
+  sub.textContent = line;
+  const running = !["done", "cancelled", "failed", "expired"].includes(st.status);
+  if (running && step !== undefined && now - subState.t >= 20000) {
+    still.textContent = "Still working: " + STEP_NAMES[step] + " can take a minute or two.";
+  } else {
+    still.textContent = "";
+  }
+}
 function updateSteps(ev) {
   const items = document.querySelectorAll("#steps li");
   if (!items.length) { return; }
@@ -738,15 +786,44 @@ function updateSteps(ev) {
     li.classList.toggle("done", i < cur);
     li.classList.toggle("current", i === cur);
     const slot = li.querySelector(".model");
-    if (slot) { slot.textContent = (i === cur && model) ? " · " + model : ""; }
+    if (!slot) { return; }
+    if (i === cur && model) {
+      slot.textContent = " · " + model;
+      answeredModels.set(slot, true);
+    } else if (!answeredModels.has(slot)) {
+      slot.textContent = STEP_DEFAULTS[i];
+    }
   });
+}
+function finishSteps(st) {
+  const items = document.querySelectorAll("#steps li");
+  if (!items.length) { return; }
+  const film = st.status === "done" && (st.result || {}).film_url;
+  items.forEach((li, i) => {
+    if (film) {
+      li.classList.toggle("done", true);
+      li.classList.toggle("current", false);
+    } else if (st.status === "done") {
+      li.classList.toggle("done", i <= 2);
+      li.classList.toggle("current", false);
+      li.classList.toggle("skipped", i >= 3);
+    } else if (li.classList.contains("current")) {
+      li.classList.toggle("current", false);
+      li.classList.toggle("stopped", true);
+    }
+  });
+  if (st.status === "done" && !film) {
+    document.getElementById("events").textContent = "Finished: no film";
+  }
 }
 function showResult(box, st) {
   const r = st.result || {};
   const parts = [r.film_url ? "Ready." : (r.message || st.status)];
   const hint = notConfirmedHint(r.film_url ? "" : (r.message || ""));
   if (hint) { parts.push(hint); }
-  for (const c of r.claims || []) {
+  const claims = r.claims || [];
+  if (claims.length && !r.film_url) { parts.push("Checked facts:"); }
+  for (const c of claims) {
     parts.push((c.year ? c.year + ": " : "") + c.claim);
   }
   box.textContent = parts.join(" ");
@@ -756,11 +833,23 @@ function showResult(box, st) {
     box.appendChild(document.createTextNode(" "));
     box.appendChild(a);
   }
-  for (const c of r.claims || []) {
+  for (const c of claims) {
     if (typeof c.url === "string" && /^https?:\/\//.test(c.url)) {
       const a = document.createElement("a");
       a.href = c.url; a.textContent = " (source)";
       box.appendChild(a);
+    }
+  }
+  for (const s of r.sources || []) {
+    box.appendChild(document.createTextNode(" "));
+    if (typeof s.url === "string" && s.url.indexOf("https:" + "//") === 0) {
+      const a = document.createElement("a");
+      a.href = s.url; a.textContent = s.domain || "source";
+      box.appendChild(a);
+      box.appendChild(document.createTextNode(" " + (s.outcome || "")));
+    } else {
+      box.appendChild(document.createTextNode(
+        (s.domain || "a source") + " " + (s.outcome || "")));
     }
   }
 }
@@ -836,6 +925,17 @@ async function watch(id) {
   const box = document.getElementById("job");
   box.style.display = "block";
   box.dataset.id = id;
+  answeredModels.clear();
+  document.querySelectorAll("#steps li").forEach((li, i) => {
+    const slot = li.querySelector(".model");
+    if (slot) {
+      slot.textContent = STEP_DEFAULTS[i];
+    }
+    li.classList.toggle("done", false);
+    li.classList.toggle("current", false);
+    li.classList.toggle("skipped", false);
+    li.classList.toggle("stopped", false);
+  });
   document.getElementById("result").textContent = "";
   const cancelBtn = document.getElementById("cancel");
   cancelBtn.style.display = "";
@@ -886,9 +986,11 @@ async function watch(id) {
     updateSteps(lastEv);
     renderCalls(st);
     renderFacts(st);
+    renderSub(st, Date.now());
     showConfirm(st);
     if (["done", "cancelled", "failed", "expired"].includes(st.status)) {
       finish();
+      finishSteps(st);
       if (st.status === "cancelled") {
         document.getElementById("result").textContent = "Cancelled.";
       } else {
@@ -927,9 +1029,26 @@ document.getElementById("yes").onclick = () => decide(true);
 document.getElementById("no").onclick = () => decide(false);
 async function decide(confirm) {
   const id = currentId();
-  await fetch("/api/jobs/" + id + "/decide", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({confirm})});
+  const yes = document.getElementById("yes");
+  const no = document.getElementById("no");
+  yes.style.display = "none";
+  no.style.display = "none";
+  let note = document.getElementById("decide-note");
+  if (!note) {
+    note = document.createElement("p");
+    note.id = "decide-note";
+    document.getElementById("confirm").appendChild(note);
+  }
+  note.textContent = confirm ? "Thanks. Researching now…" : "Not this one.";
+  try {
+    await fetch("/api/jobs/" + id + "/decide", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({confirm})});
+  } catch (err) {
+    yes.style.display = "";
+    no.style.display = "";
+    note.textContent = "That didn't go through. Try again.";
+  }
 }
 const resumed = savedJob();
 if (resumed) { watch(resumed); }
@@ -968,7 +1087,9 @@ I understand how my photo is used.</label></p>
 </form>
 <div id="job" class="hidden">
 <p>Making your film: <span id="clock">0:00</span></p>
-<ol id="steps"><li data-step="identify">Recognise<span class="model"></span></li><li data-step="research">Research<span class="model"></span></li><li data-step="check">Check<span class="model"></span></li><li data-step="paint">Paint<span class="model"></span></li><li data-step="film">Film<span class="model"></span></li></ol>
+<ol id="steps"><li data-step="identify">Recognise<span class="model"> · Muse Spark</span></li><li data-step="research">Research<span class="model"> · Muse Spark</span></li><li data-step="check">Check<span class="model"> · Muse Spark Open on Baseten</span></li><li data-step="paint">Paint<span class="model"> · Muse Image</span></li><li data-step="film">Film<span class="model"></span></li></ol>
+<p id="subprogress"></p>
+<p id="still-working"></p>
 <div id="facts" class="hidden"><h3>Checked so far</h3><ol id="facts-list"></ol><p id="paint-count"></p></div>
 <details id="calls-box"><summary>Show the model calls</summary><ul id="calls"></ul></details>
 <div id="confirm" class="hidden">
@@ -1106,7 +1227,6 @@ public places only.</p>
 <li>Baseten (open-weights Muse Spark): fact checking.</li>
 <li>Modal: hosts this page and runs the film worker.</li>
 <li>Nominatim: typed place to coordinates.</li>
-<li>Overpass (including the community mirror): nearby named objects.</li>
 <li>Wikidata and Wikipedia: facts and source texts.</li>
 </ul>
 <h2>How long it is kept</h2>

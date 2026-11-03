@@ -1424,3 +1424,30 @@ def test_confirm_question_names_the_place():
     assert identify.confirm_question("Mill", "mill", "") == (
         "Is this Mill (mill)?")
     assert identify.confirm_question("Mill", "", "") == "Is this Mill?"
+
+
+def test_identify_without_overpass_sends_no_overpass_request(tmp_path):
+    photo = tmp_path / "p.jpg"
+    gps_photo(photo)
+
+    def post(url, **kwargs):
+        raise AssertionError("overpass must not be called")
+
+    def respond(prompt, image_bytes):
+        if "YES or NO" in prompt:
+            answer = "YES\nThe photo shows the tower."
+        else:
+            assert "Testtoren" in prompt  # the wiki candidate
+            answer = "1 Testtoren\nHighly confident."
+        return {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": answer, "annotations": []}]}]}
+
+    events = []
+    timings = {}
+    found = identify.identify(photo, post=post, get=routed(),
+                              respond=respond, overpass=False,
+                              timings=timings,
+                              progress=lambda event, data: events.append(event))
+    assert found.name == "Testtoren"
+    assert events == ["location", "candidates"]
+    assert timings["overpass_s"] == 0

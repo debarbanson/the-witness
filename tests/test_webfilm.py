@@ -1164,3 +1164,87 @@ def test_real_paint_reports_facts_then_the_counter(tmp_path, monkeypatch):
                 / "eras_parallel" / "1850.webp").exists()
     finally:
         models.configure_spending(None)
+
+
+def _too_little_run(kept, failures, read):
+    def fake_run(*args, **kwargs):
+        return {"confirmed": True, "identified": True, "cached": False,
+                "slug": "q1-mill", "found": _mill(), "order": ["en"],
+                "kept": kept, "timeline": [], "chosen": [],
+                "result": {"outcome": "too_little"}, "timings": {},
+                "failures": failures, "read": read,
+                "comparison": None, "tokens": {}, "cost_usd": 0.40}
+    return fake_run
+
+
+def test_zero_confirmed_facts_lists_sources_not_claims(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    kept = [{"year": 1932, "claim": "stood tall", "verdict": "partly",
+             "url": "https://a.example/x", "quote": "q"},
+            {"year": 1986, "claim": "was painted", "verdict": "unverified",
+             "url": "https://a.example/y", "quote": "q"}]
+    failures = [
+        {"url": "https://www.waymarking.com/x", "error": "HTTP 401 Unauthorized",
+         "provider": "baseten"},
+        {"url": "https://www.tripadvisor.com/y", "error": "HTTP 403 Forbidden",
+         "provider": "baseten"},
+        {"url": "https://aroundus.com/z",
+         "error": "fetch exceeded its total time", "provider": "baseten"},
+    ]
+    run = _too_little_run(kept, failures, ["https://en.wikipedia.org/wiki/X"])
+    monkeypatch.setattr(webfilm_module.cli, "run_job", run)
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/q1-mill")
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "facts_only"}
+        result = store.get_job("job-1")["result"]
+        assert result["claims"] == []
+        assert result["message"] == (
+            "No film this time. We found 2 possible facts in 4 sources, "
+            "but couldn't confirm enough of them in sources we could open, "
+            "so nothing was painted. Well-known landmarks with a Wikipedia "
+            "page work best.")
+        assert result["sources"] == [
+            {"domain": "aroundus.com", "url": "https://aroundus.com/z",
+             "outcome": "timed out"},
+            {"domain": "en.wikipedia.org",
+             "url": "https://en.wikipedia.org/wiki/X", "outcome": "read"},
+            {"domain": "tripadvisor.com", "url": "https://www.tripadvisor.com/y",
+             "outcome": "refused us"},
+            {"domain": "waymarking.com", "url": "https://www.waymarking.com/x",
+             "outcome": "asked for a login"},
+        ]
+    finally:
+        models.configure_spending(None)
+
+
+def test_source_outcomes_fall_back_to_could_not_open():
+    from witness.webfilm import source_outcomes
+
+    out = source_outcomes(
+        [], [{"url": "https://gone.example/x", "error": "HTTP 404 Not Found",
+              "provider": "baseten"}])
+    assert out == [{"domain": "gone.example", "url": "https://gone.example/x",
+                    "outcome": "couldn't open it"}]
+
+
+def test_web_job_skips_overpass(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    seen = {}
+
+    def fake_run(*args, **kwargs):
+        seen.update(kwargs)
+        return {"confirmed": False, "identified": False, "cached": False,
+                "error_kind": "no_location", "error": "no location",
+                "identify_steps": {}}
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    try:
+        run_web_film(spec, store, authority=None)
+        assert seen.get("overpass") is False
+    finally:
+        models.configure_spending(None)

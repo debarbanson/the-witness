@@ -7,8 +7,8 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 1. **Open the link** on a phone. One screen: "Point me at something old."
 2. **Take or pick a photo.** A file picker for an image file; on phones the OS usually offers the camera among the sources.
 3. **Location.** If the photo carries GPS data, use it. If not, ask the browser (`navigator.geolocation`, with a one-line reason). If refused, a text field: "Where is it?"
-4. **Confirm the object.** Step 0 shows its best match: "Is this De Adriaan, Haarlem?" with the name and kind. Yes, or cancel. Only identification runs before you confirm; research and painting wait for yes.
-5. **Watch it being made.** Honest progress with a timer while the film builds: a live clock with phase words that change as each step lands (a long painting or vote can run quiet between them). A closed tab cancels the job.
+4. **Confirm the object.** Step 0 shows its best match, named with its Wikidata description ("Is this Poldertoren, water tower in Noordoostpolder?"). Yes, or cancel. Only identification runs before you confirm; research and painting wait for yes.
+5. **Watch it being made.** Honest progress with a timer while the film builds: a live clock with phase words that change as each step lands (a long painting or vote can run quiet between them). Only the Cancel button cancels the job; closing the tab, locking the phone or switching apps lets the film keep going, and coming back in the same browser shows it again. A "Show the model calls" toggle under the step list shows each model call as it lands.
 6. **The film.** A link to the film page once finished: it plays in the browser, vertical, with clickable sources below, pause and replay, and a Documentary/Picture-book switch on the examples. Facts-only results show the verified facts with their source links instead. ("Download" and "Share" making the MP4 on the page are planned after the deploy.)
 7. **When there is too little** (pipeline step 3b): a short film, an honest facts-only card, or a partial result that says what is missing. ("Add a source" and "Tell what you know" are planned.)
 
@@ -18,8 +18,8 @@ The judges score "does the product hold up live", so the pipeline gets a small m
 - **Front end:** one static HTML page with plain JavaScript, no framework. It polls the job, renders the progress events with a timer, and plays the finished film with the same renderer code the MP4 export uses.
 - **Rendering on the server:** the page plays the film in the browser. MP4 export runs from the command line only and needs Playwright with Chromium and ffmpeg; a download button on the page is planned.
 - **Cache:** on the command line, reviewed research is kept by Wikidata id plus language, and a fresh film is reused from its folder for a week, so a known object opens at once. The web page has no shared cache: every upload researches fresh (the reviewed example films are served as static pages). Only research results and paintings are cached, never the visitor's photo or location.
-- **Modal uploads:** the image holds only the witness package (out/cache, samples and .env.local never go in, and Modal has no ignore file). The web job starts with an empty cache or one seeded only from the reviewed demo objects. The reviewed example films are uploaded once to a shared Volume and discovered at request time; missing ones are skipped with a log line, so a fresh clone still deploys. The films stay git-ignored until the owner decides.
-- **Hosting: Modal.** A Modal account exists (workspace `debarbanson`), and the hackathon's $100 Modal credits were requested on 26 Oct (selected teams only, not guaranteed). Deploy blocked on owner credentials (30 Oct): Modal authenticates through its own CLI (`modal token new`, stored outside the repo), and the app's keys go into Modal secrets, never into the repo. The `the-witness-keys` secret must hold `WITNESS_CONTACT` (the notice address) and `WITNESS_IP_SECRET` (one random value shared by every container for the visitor hash). Fallback: another container host. It must stay up through judging (5 to 9 November).
+- **Modal uploads:** the image holds only the witness package (out/cache, samples and .env.local never go in, and Modal has no ignore file). The web job starts with an empty cache or one seeded only from the reviewed demo objects. The reviewed example films are uploaded once to a shared Volume and read when each app instance starts; missing ones are skipped with a log line, so a fresh clone still deploys. Upload before deploying, or redeploy/restart after uploading. The films stay git-ignored until the owner decides.
+- **Hosting: Modal.** A Modal account exists (workspace `debarbanson`), and the hackathon's $100 Modal credits were requested on 26 Oct (selected teams only, not guaranteed). Deploys run from a machine with Modal access: Modal authenticates through its own CLI (`modal token new`, stored outside the repo), and the app's keys go into Modal secrets, never into the repo. The `the-witness-keys` secret must hold `WITNESS_CONTACT` (the notice address) and `WITNESS_IP_SECRET` (one random value shared by every container for the visitor hash). Fallback: another container host. The demo must stay up through the community vote (until 16 November) if it stays public.
 - **Limits for a public link:** reviewed example films for everyone, plus a limited "Try your own". One budget authority admits each film (per-browser, per-network and daily quotas; a spawn that never starts refunds its admission) and reserves a ceiling before every billable call, reconciling after; it fails closed when accounting is unavailable. Meta's "Spend Limit" is only an alert and does not stop billing (hackathon FAQ, 26 Oct), so the app itself refuses new films past the quota; past the $150 credits, usage is charged to the card. The hard dollar cap stays the real spending guard; the film counts only keep one visitor from using a day's budget.
 
 ## Privacy
@@ -54,11 +54,17 @@ modal deploy modal_app.py
 This deploys staging (`web`) and judge mode together; test on the staging URL first. Upload each reviewed example film to the shared Volume before deploying (the app reads the example list once at startup and skips missing ones with a log line); if you upload later, redeploy afterwards:
 
 ```bash
-modal volume put witness-examples out/de-adriaan/film de-adriaan
+modal volume put witness-examples out/q2763574-de-adriaan/film de-adriaan
+modal volume put witness-examples out/q388443-major-oak/film major-oak
+modal volume put witness-examples out/q2206180-rubjerg-knude-fyr/film rubjerg-knude
 modal volume ls witness-examples
 ```
 
-One `put` per reviewed example, one slug per film directory.
+One `put` per reviewed example: the finished `film/` folder (film pages, paintings, `evidence.html`) under its public slug.
+
+### Redeploys: drain first
+
+Before redeploying or stopping the app, let running films finish: a deploy while a film runs can strand it mid-job. Never run two deploys at once, and never leave an old deployment running next to a new one: two ledger writers at once can admit past the cap. Check that no upload is in progress (nothing but finished films in the last minutes), then deploy once.
 
 ### Production (judge mode)
 
@@ -94,19 +100,22 @@ Off means: new `POST /api/jobs` on judge mode answers 503 ("Try your own is rest
 
 Measured 2 Nov on staging (De Adriaan, one full Try-your-own, paid): Identify 33 s, Research 49 s, Check 91 s, Paint 272 s (captions 47 s, painting 225 s), Film 3 s; 454 s wall to the film (about 8 minutes). Model-API ledger delta $1.03 (56 paid calls; film job ledger $0.52, extras started). Modal compute about $0.005 for the film (`modal billing report --for today`; $0.01 metered for the whole staging session, $0.00 billed after credits).
 
-The owner-side run, on a machine with Modal access:
+The owner-side run, on a machine with Modal access, in this order: cap first, examples before deploy, abuse run, flags out, drain, redeploy, then smoke checks.
 
 ```bash
+# 1. set a valid WITNESS_JUDGE_CAP_USD in the-witness-keys first:
+#    judge mode cannot start without it, and every capless start
+#    alerts the owner
+# 2. upload the reviewed examples (the three puts above)
 modal deploy modal_app.py
-# upload the reviewed examples, set WITNESS_JUDGE_CAP_USD last
 export MODAL_PROXY_KEY=<token-id> MODAL_PROXY_SECRET=<token-secret>
 .venv/bin/python scripts/abuse_staging.py <staging-url>
 ```
 
 1. One full Try-your-own film on staging, on a well-documented object: submit through the staging page, record the wall time per phase from the progress events and the total cost from the ledger (`GET /api/debug/ledger`, `total_usd` delta).
 2. The abuse script above (16 checks, each asserting on effects; it refuses unless `WITNESS_ABUSE_RESET=1` is in the staging secret).
-3. After the abuse run, remove the three test flags from the secret (`WITNESS_ABUSE_RESET`, `WITNESS_FAKE_PROVIDER`, `WITNESS_FAKE_DELAY_S`), redeploy, and confirm judge mode starts: the judge URL answers 200 and serves an example film. Judge mode refuses to start while either of the first two flags is set, and its worker refuses fake films.
-4. Put the dated numbers in the README and here, and set `WITNESS_JUDGE_CAP_USD` so judging (5 to 8 Nov) plus the community vote (until 16 Nov) fits the remaining credits.
+3. After the abuse run, remove the three test flags from the secret (`WITNESS_ABUSE_RESET`, `WITNESS_FAKE_PROVIDER`, `WITNESS_FAKE_DELAY_S`), drain (no film in progress), redeploy, and confirm staging runs in real mode and judge mode starts: the judge URL answers 200 and serves an example film. Judge mode refuses to start while either of the first two flags is set, and its worker refuses fake films.
+4. Put the dated numbers in the README and here, and set `WITNESS_JUDGE_CAP_USD` so 5 to 16 Nov (judging plus the community vote) fits the remaining credits.
 
 ### Freeze
 

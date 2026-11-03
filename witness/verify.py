@@ -720,10 +720,15 @@ def _vote_rounds(one_round, votes: int, stop=None) -> list:
 
 
 def _support_round(respond, claim, passages) -> dict:
+    models.note_support_provider(None)
     try:
-        return verify_claim(respond, claim, passages)
+        result = verify_claim(respond, claim, passages)
     except Exception as exc:  # noqa: BLE001 - one bad round never kills its siblings
         return {"verdict": "error", "note": f"verify failed: {exc}"}
+    provider = models.last_support_provider()
+    if provider is not None:
+        result["provider"] = provider
+    return result
 
 
 def _second_judgement(respond, job, passages) -> dict:
@@ -752,17 +757,27 @@ def _second_judgement(respond, job, passages) -> dict:
         "\"refused_content\": true when the claim text is hateful or "
         "about a private individual rather than a public figure}."
     )
+    models.note_support_provider(None)
     try:
         judged = _judge_support(respond(prompt))
         judged["second_judgement"] = True
-        return judged
     except VerifyError as exc:
         return {"verdict": "error", "note": f"verify failed: {exc}"}
+    provider = models.last_support_provider()
+    if provider is not None:
+        judged["provider"] = provider
+    return judged
 
 
 def _slim(rounds) -> list:
-    return [{"verdict": r.get("verdict"), "quote": r.get("quote", ""),
-             "url": r.get("url")} for r in rounds]
+    slimmed = []
+    for r in rounds:
+        entry = {"verdict": r.get("verdict"), "quote": r.get("quote", ""),
+                 "url": r.get("url")}
+        if r.get("provider") is not None:
+            entry["provider"] = r["provider"]
+        slimmed.append(entry)
+    return slimmed
 
 
 def judge_stream(support_respond, jobs, completion_respond=None,
@@ -772,8 +787,9 @@ def judge_stream(support_respond, jobs, completion_respond=None,
     as it finishes. A failing job becomes unverified with a note
     instead of killing the run. `progress("verifying", ...)` names the
     claim a worker picks up; `progress("verify", ...)` fires per
-    finished claim, in completion order. Both carry the working
-    model's label when `support_label` names it."""
+    finished claim, in completion order. The start event carries the
+    configured `support_label`; the finished event names the provider
+    that actually answered when every round agrees, else the label."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def run(job, index):
@@ -806,7 +822,12 @@ def judge_stream(support_respond, jobs, completion_respond=None,
             if progress is not None:
                 data = {"done": done, "total": len(jobs), "index": index,
                         "year": jobs[index].get("year")}
-                if support_label is not None:
+                answered = {r.get("provider")
+                            for r in result.get("rounds", [])
+                            if r.get("provider") is not None}
+                if len(answered) == 1:
+                    data["model"] = answered.pop()
+                elif support_label is not None:
                     data["model"] = support_label
                 progress("verify", data)
             yield index, result

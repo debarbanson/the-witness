@@ -13,7 +13,7 @@ def test_opening_card_names_verified_year_only():
     )
     assert card["name"] == "De Adriaan"
     assert card["since_year"] == 1779
-    assert card["text"] == "I have stood here since 1779."
+    assert card["text"] == "My story starts in 1779."
     assert "photo" not in card
 
 

@@ -275,6 +275,117 @@ def test_nominatim_slot_runs_single_flight():
                      r"def nominatim_slot", src)
 
 
+def test_fleet_bounds_pin_two_films_at_once():
+    """run_film enforces the cap rule's two-films-at-once assumption;
+    the two web surfaces stay at two containers each; run_film keeps
+    one input per container (the spend state is process-global)."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(modal_app.__file__).read_text())
+    found = {}
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name not in ("run_film", "web", "judge"):
+            continue
+        for deco in node.decorator_list:
+            target = deco.func if isinstance(deco, ast.Call) else deco
+            if (isinstance(target, ast.Attribute)
+                    and target.attr == "concurrent"):
+                raise AssertionError(f"{node.name} allows concurrent inputs")
+            if not isinstance(deco, ast.Call):
+                continue
+            if not (isinstance(deco.func, ast.Attribute)
+                    and deco.func.attr == "function"):
+                continue
+            for key in deco.keywords:
+                if key.arg in ("max_containers", "max_inputs"):
+                    found[(node.name, key.arg)] = key.value.value
+    assert found[("run_film", "max_containers")] == 2
+    assert found[("run_film", "max_inputs")] == 1
+    assert found[("web", "max_containers")] == 2
+    assert found[("judge", "max_containers")] == 2
+
+
+def _prune_stores(tmp_path):
+    from types import SimpleNamespace
+
+    stores = {}
+    for backend in ("staging", "judge"):
+        store = MemoryStore()
+        job_dir = tmp_path / backend / "job-old"
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "today.jpg").write_bytes(b"photo")
+        store.create_job("old", {"vid": "v", "job_dir": str(job_dir),
+                                "status": "done", "started_at": 0.0,
+                                "ended_at": 1.0, "events": []})
+        stores[backend] = store
+    return stores
+
+
+def _prune_ledgers(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(modal_app, "ledger_op", SimpleNamespace(
+        remote=lambda op: {"ok": True, "expired": 0}))
+    monkeypatch.setattr(modal_app, "ledger_dict", {})
+    monkeypatch.setattr(modal_app, "judge_ledger_dict", {})
+
+
+@pytest.mark.parametrize("backend", ["staging", "judge"])
+def test_prune_keeps_records_when_the_commit_fails(tmp_path, monkeypatch,
+                                                   backend):
+    """r6_02 made safe: a commit failure keeps the record for the
+    next hour, on either backend, while the other still cleans."""
+    from types import SimpleNamespace
+
+    stores = _prune_stores(tmp_path)
+    monkeypatch.setattr(modal_app, "_worker_store",
+                        lambda b: stores[b])
+    volumes = {}
+    for name in ("staging", "judge"):
+        if name == backend:
+            def commit():
+                raise OSError("synthetic volume commit failure")
+        else:
+            def commit():
+                return None
+        volumes[name] = SimpleNamespace(reload=lambda: None,
+                                        commit=commit)
+    monkeypatch.setattr(modal_app, "jobs_volume", volumes["staging"])
+    monkeypatch.setattr(modal_app, "judge_jobs_volume", volumes["judge"])
+    _prune_ledgers(monkeypatch)
+    with pytest.raises(OSError):
+        modal_app.prune_hourly.local()
+    assert stores[backend].job_ids() == ["old"]
+    other = "judge" if backend == "staging" else "staging"
+    assert stores[other].job_ids() == []
+
+
+def test_prune_cleans_judge_when_staging_reload_fails(tmp_path, monkeypatch):
+    """One backend's failure never skips the other's cleanup; the
+    first error still surfaces after both were attempted."""
+    from types import SimpleNamespace
+
+    stores = _prune_stores(tmp_path)
+    monkeypatch.setattr(modal_app, "_worker_store",
+                        lambda b: stores[b])
+
+    def staging_reload():
+        raise OSError("synthetic staging volume outage")
+
+    monkeypatch.setattr(modal_app, "jobs_volume", SimpleNamespace(
+        reload=staging_reload, commit=lambda: None))
+    monkeypatch.setattr(modal_app, "judge_jobs_volume", SimpleNamespace(
+        reload=lambda: None, commit=lambda: None))
+    _prune_ledgers(monkeypatch)
+    with pytest.raises(OSError):
+        modal_app.prune_hourly.local()
+    assert stores["staging"].job_ids() == ["old"]
+    assert stores["judge"].job_ids() == []
+
+
 def test_every_function_uses_the_app_image():
     import ast
     from pathlib import Path

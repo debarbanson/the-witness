@@ -422,6 +422,41 @@ def test_confirmed_event_names_the_object_after_decision(tmp_path, monkeypatch):
                           "data": {"name": "Mill", "kind": "mill"}}]
 
 
+def test_confirm_payload_carries_the_place_description(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Poldertoren", kind="water tower",
+                            description="water tower in Noordoostpolder")
+    seen = {}
+
+    def answer():
+        time.sleep(0.2)
+        store.set_decision("job-1", True)
+
+    threading.Thread(target=answer, daemon=True).start()
+
+    def fake_run(*args, **kwargs):
+        assert kwargs["decide"](found) is True
+        seen["confirm"] = store.get_job("job-1")["confirm"]
+        return _confirmed_run()
+
+    _phase2(monkeypatch, None)
+    monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_children",
+                        lambda *a, **k: 2)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    try:
+        assert run_web_film(spec, store, authority=None)["status"] == "film"
+    finally:
+        models.configure_spending(None)
+    assert seen["confirm"] == {"name": "Poldertoren", "kind": "water tower",
+                               "description": "water tower in Noordoostpolder"}
+
+
 def test_quota_decline_and_miss_all_set_ended_at(tmp_path, monkeypatch):
     import witness.webfilm as webfilm_module
 
@@ -673,6 +708,62 @@ def test_full_fake_upload_verifies_a_fact_with_no_network(tmp_path, monkeypatch)
     assert 0 < job["result"]["cost_usd"] < 0.05
 
 
+def test_fake_film_emits_safe_call_events(tmp_path, monkeypatch):
+    import json
+    import socket
+    import threading
+    import time
+
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Fake Mill", kind="mill", qid=None,
+                            articles={}, municipality=None,
+                            country_code="us", description="")
+    monkeypatch.setattr(webfilm_module.cli.identify, "identify",
+                        lambda *a, **k: found)
+    monkeypatch.setattr(
+        webfilm_module.cli, "film_facts",
+        lambda *a, **k: {"facts": {"facts": []}, "claims": [],
+                         "build_anchor_year": None})
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/fake-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+
+    def dead_socket(*args, **kwargs):
+        raise AssertionError("the fake film must not touch the network")
+
+    monkeypatch.setattr(socket, "socket", dead_socket)
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+
+    def answer():
+        time.sleep(0.2)
+        store.set_decision("job-1", True)
+
+    threading.Thread(target=answer, daemon=True).start()
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+    finally:
+        models.configure_spending(None)
+    calls = [event for event in store.get_job("job-1")["events"]
+             if event["event"] == "call"]
+    assert calls, "the toggle needs rows while the job runs"
+    for event in calls:
+        assert set(event["data"]) <= {"op", "phase", "provider", "model",
+                                     "duration_s"}, event["data"]
+    dumped = json.dumps(calls)
+    assert "http" not in dumped
+    assert "data:image" not in dumped
+    assert "MODEL_API_KEY" not in dumped
+    assert "BASETEN_API_KEY" not in dumped
+
+
 def test_not_identified_without_location_hints_at_where_is_it(tmp_path, monkeypatch):
     import witness.webfilm as webfilm_module
     from witness.webfilm import run_web_film
@@ -789,14 +880,55 @@ def test_upload_ends_at_adult_publication(tmp_path, monkeypatch):
         models.configure_spending(None)
 
 
-def test_published_adult_survives_cancel_deadline_and_error(
-        tmp_path, monkeypatch):
+def test_film_commits_before_done_is_visible(tmp_path, monkeypatch):
+    """Commit-first publication: at commit time the film files exist
+    but no poller can see done; only then is the URL published."""
+    from pathlib import Path
+
     import witness.webfilm as webfilm_module
     from witness.webfilm import run_web_film
 
-    for case, boom in enumerate((models.JobCancelled("gone"),
-                                models.JobDeadlineExceeded("slow"),
-                                RuntimeError("disk"))):
+    store, spec = _film_spec(tmp_path, monkeypatch)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                        lambda *a, **k: 0)
+
+    def render(slug, photo, **kwargs):
+        film_dir = (Path(spec["job_dir"]) / slug / "film")
+        film_dir.mkdir(parents=True, exist_ok=True)
+        (film_dir / "film.html").write_text("synthetic complete film")
+        return 0
+
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", render)
+    seen = []
+
+    def commit():
+        job = store.get_job("job-1")
+        seen.append(job["status"])
+        assert job["status"] != "done"
+        assert "film_url" not in (job["result"] or {})
+        assert (Path(spec["job_dir"]) / "q1-mill" / "film" / "film.html"
+                ).exists()
+
+    try:
+        assert run_web_film(spec, store, authority=None,
+                            commit=commit) == {"status": "film"}
+        assert seen == ["working"]
+        job = store.get_job("job-1")
+        assert job["status"] == "done"
+        assert job["result"]["film_url"] == "/film/job-1/token-1/film.html"
+    finally:
+        models.configure_spending(None)
+
+
+def test_failed_first_commit_never_publishes_the_film(tmp_path, monkeypatch):
+    """A commit failure means no durable film: no done, no URL."""
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    for case, boom in enumerate((OSError("synthetic failed commit"),
+                                RuntimeError("synthetic disk fault"))):
         case_dir = tmp_path / f"case{case}"
         case_dir.mkdir(parents=True, exist_ok=True)
         store, spec = _film_spec(case_dir, monkeypatch)
@@ -806,9 +938,35 @@ def test_published_adult_survives_cancel_deadline_and_error(
                             lambda *a, **k: 0)
         monkeypatch.setattr(webfilm_module.cli, "cmd_render",
                             lambda *a, **k: 0)
-        monkeypatch.setattr(webfilm_module.cli, "cmd_children",
+
+        def commit():
+            raise boom
+
+        try:
+            assert run_web_film(spec, store, authority=None,
+                                commit=commit) == {"status": "failed"}
+            job = store.get_job("job-1")
+            assert job["status"] == "failed"
+            assert "film_url" not in job["result"]
+        finally:
+            models.configure_spending(None)
+
+
+def test_cancel_during_first_commit_leaves_no_film(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    cases = ((models.JobCancelled("gone"), "cancelled"),
+             (models.JobDeadlineExceeded("slow"), "expired"))
+    for index, (boom, status) in enumerate(cases):
+        case_dir = tmp_path / f"case{index}"
+        case_dir.mkdir(parents=True, exist_ok=True)
+        store, spec = _film_spec(case_dir, monkeypatch)
+        monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
                             lambda *a, **k: 0)
-        monkeypatch.setattr(webfilm_module.cli, "cmd_spot",
+        monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                            lambda *a, **k: 0)
+        monkeypatch.setattr(webfilm_module.cli, "cmd_render",
                             lambda *a, **k: 0)
 
         def commit():
@@ -816,12 +974,40 @@ def test_published_adult_survives_cancel_deadline_and_error(
 
         try:
             assert run_web_film(spec, store, authority=None,
-                                commit=commit) == {"status": "film"}
+                                commit=commit) == {"status": status}
             job = store.get_job("job-1")
-            assert job["status"] == "done"
-            assert "film_url" in job["result"]
+            assert job["status"] == status
+            assert "film_url" not in job["result"]
         finally:
             models.configure_spending(None)
+
+
+def test_terminated_first_commit_never_publishes_the_film(tmp_path,
+                                                          monkeypatch):
+    import pytest
+
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _film_spec(tmp_path, monkeypatch)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render",
+                        lambda *a, **k: 0)
+
+    def commit():
+        raise SystemExit("synthetic worker termination")
+
+    try:
+        with pytest.raises(SystemExit):
+            run_web_film(spec, store, authority=None, commit=commit)
+        job = store.get_job("job-1")
+        assert job["status"] != "done"
+        assert "film_url" not in (job["result"] or {})
+    finally:
+        models.configure_spending(None)
 
 
 def test_stale_heartbeat_does_not_cancel_the_film(tmp_path, monkeypatch):

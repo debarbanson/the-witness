@@ -73,10 +73,10 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
     """Identify, confirm, research, paint, render under one job
     ledger and control. `spec` carries the in-memory location and
     place; the store never sees them. The on-disk hand-off is
-    scrubbed first, before any paid call. The adult film is
-    published (and `commit` run, when given) before the optional
-    extras start, so a deadline, cap or crash in an extra never
-    loses it. Returns a short status."""
+    scrubbed first, before any paid call. The film files are
+    committed before done and the film URL are published, so a
+    poller never sees a film no reader can fetch; a commit failure
+    fails the job instead. Returns a short status."""
     scrub_hand_off(spec["job_dir"])
     now = clock or _time.time
     job_id = spec["job_id"]
@@ -96,8 +96,19 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
         except KeyError:
             pass
 
+    def forward_call(row):
+        if row.get("op") != "call":
+            return
+        progress("call", {key: row.get(key) for key in
+                          ("op", "phase", "provider", "model",
+                           "duration_s")})
+
+    models.on_call_row(forward_call)
+
     def decide(found):
-        store.set_confirm(job_id, {"name": found.name, "kind": found.kind})
+        store.set_confirm(job_id, {"name": found.name, "kind": found.kind,
+                                   "description": getattr(found, "description",
+                                                          "") or ""})
         store.set_decision(job_id, None)
         deadline = _time.monotonic() + DECIDE_TIMEOUT_SECONDS
         while _time.monotonic() < deadline:
@@ -154,7 +165,8 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                 progress=progress, quiet=True, location=location,
                 out_dir=spec["job_dir"], visitor=spec["vid"],
                 control=control, deadline_s=spec.get("deadline_s", 1500),
-                pre_admitted=True, nominatim_pace=nominatim_pace)
+                pre_admitted=True, nominatim_pace=nominatim_pace,
+                reset_timing=False)
     except models.JobCancelled as exc:
         return halted("cancelled", str(exc) or "job cancelled")
     except models.JobDeadlineExceeded as exc:
@@ -225,10 +237,10 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                         "outcome": outcome, "audiences": "adult",
                         "unavailable": []}
                 film["cost_usd"] = total_cost()
-                finish(dict(film), "film")
-                published = True
                 if commit is not None:
                     commit()
+                finish(dict(film), "film")
+                published = True
                 return {"status": "film"}
             return finish(
                 {"message": "Too little evidence for a film; the facts are below.",

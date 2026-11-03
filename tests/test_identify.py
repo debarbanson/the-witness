@@ -1414,3 +1414,13 @@ def test_identify_forwards_pace_to_reverse(tmp_path, monkeypatch):
                           respond=vision_pick(), sleep=lambda s: None,
                           pace=sentinel, location=(52.4, 4.6))
     assert seen.get("pace") is sentinel
+
+
+def test_confirm_question_names_the_place():
+    assert identify.confirm_question(
+        "Poldertoren", "water tower",
+        "water tower in Noordoostpolder") == (
+        "Is this Poldertoren, water tower in Noordoostpolder?")
+    assert identify.confirm_question("Mill", "mill", "") == (
+        "Is this Mill (mill)?")
+    assert identify.confirm_question("Mill", "", "") == "Is this Mill?"

@@ -1569,6 +1569,28 @@ def test_judge_stream_progress_names_the_model():
                for _, d in events)
 
 
+def test_judge_stream_progress_names_the_provider_that_answered():
+    from witness import models
+
+    events = []
+    jobs = [job(year=1779)]
+    inner = quoted_support(
+        ("supported", "The old mill dates to the eighteenth century."))
+
+    def meta_fallback(prompt):
+        models.note_support_provider("Muse Spark")
+        return inner(prompt)
+
+    list(verify.judge_stream(
+        meta_fallback, jobs, max_workers=1,
+        completion_respond=lambda p: answered_with({"completed": True}),
+        support_label="Muse Spark Open on Baseten",
+        progress=lambda event, data: events.append((event, data))))
+    by_event = {event: data for event, data in events}
+    assert by_event["verifying"]["model"] == "Muse Spark Open on Baseten"
+    assert by_event["verify"]["model"] == "Muse Spark"
+
+
 def test_judge_stream_progress_omits_the_model_without_a_label():
     events = []
     jobs = [job(year=1779)]

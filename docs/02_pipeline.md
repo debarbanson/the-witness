@@ -213,5 +213,5 @@ out/<slug>/
 The 27 October evening streaming experiment is cut from the viewing experience and from the build. The rule that guards quality stands: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
 
 - The opening card, the speculative start during confirm (it spent about $0.55 on visitors who said no) and buffer playback are gone. Only free facts fetch while the visitor decides; a refusal spends nothing beyond identify.
-- The build still verifies in film order (anchor first, then chronological) and paints scenes as their claims land, but the film plays only when finished, with honest progress and a timer meanwhile.
+- The build runs in stages with a barrier between them: all claims verify first, then captions, then painting, then render. Nothing paints while claims are still landing, and the film plays only when finished, with honest progress and a timer meanwhile.
 - Known objects open instantly from reviewed research and paintings, on the command line (the web page has no shared cache).

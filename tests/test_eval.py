@@ -144,6 +144,26 @@ def test_runner_summarize_counts_errors_separately():
     assert summary["open"]["errors"] == 0
 
 
+def test_low_effort_raw_outputs_recompute_81_of_81():
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "eval"
+    total = 0
+    for name in ("support_low_results_2026-11-03",
+                 "hard_low_results_2026-11-03"):
+        data = json.loads((root / f"{name}.json").read_text())
+        assert data["bad_flips"] == []
+        for case_id, result in data["results"].items():
+            total += 1
+            expected = ("supported" if result["expected"] == "accept"
+                        else "unsupported")
+            for arm in ("omitted", "low"):
+                assert result[arm]["verdict"] == expected, (name, case_id,
+                                                            arm)
+    assert total == 81
+
+
 def test_true_cases_come_from_kept_research():
     kept = _kept_quotes()
     assert kept

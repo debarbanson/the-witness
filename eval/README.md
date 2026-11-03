@@ -40,3 +40,15 @@ of the chosen set.
 
 Spot-check list (5 accept, 5 reject, both sets): T01, T14, N03, W02,
 D07, P04, H03, H17, H21, I02.
+
+## Low-effort comparison (3 Nov 2026)
+
+Same cases, one support vote per case, both arms on Baseten
+(`meta-models/muse-spark-open-1026`, timeout 180 s, 4 workers):
+`reasoning_effort` omitted against `reasoning_effort: low`,
+identical votes through `verify.verify_claim`, completion off.
+Raw per-case verdicts, seconds and token usage (no prompts, quotes
+or keys) in `support_low_results_2026-11-03.json` (53 cases) and
+`hard_low_results_2026-11-03.json` (28 cases). Both arms right on
+all 81, with no flips; `tests/test_eval.py` recomputes that from
+these files.

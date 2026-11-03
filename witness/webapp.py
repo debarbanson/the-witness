@@ -42,6 +42,7 @@ MAX_NETWORK_FILMS_PER_DAY = 2
 FORM_SLACK_BYTES = 65536
 MAX_CONCURRENT_UPLOADS = 4
 QUOTA_LINE_TTL_SECONDS = 60
+QUOTA_LINE_CACHE_MAX = 512  # entries per container; cookie churn evicts
 
 
 @dataclass
@@ -164,13 +165,15 @@ class MemoryStore:
 
 
 def prune_jobs(store, now, ttl=RETENTION_SECONDS,
-               max_age=MAX_JOB_AGE_SECONDS) -> int:
+               max_age=MAX_JOB_AGE_SECONDS, commit=None) -> int:
     """Delete jobs (files and records) ended over `ttl` seconds ago.
     Jobs that never ended are deleted past `max_age` after creation,
     so no failure path keeps a photo forever. A job whose files fail
     to delete keeps its record and is not counted; the next hour
-    retries it."""
-    pruned = 0
+    retries it. When `commit` is given, every due file is deleted
+    first, the volume is committed, and only then are the records
+    dropped: a commit failure keeps every record for the next hour."""
+    due = []
     for job_id in store.job_ids():
         try:
             job = store.get_job(job_id)
@@ -183,7 +186,9 @@ def prune_jobs(store, now, ttl=RETENTION_SECONDS,
             pass
         else:
             continue
-        job_dir = job.get("job_dir")
+        due.append((job_id, job.get("job_dir")))
+    deleted = []
+    for job_id, job_dir in due:
         if job_dir:
             try:
                 shutil.rmtree(job_dir)
@@ -192,9 +197,12 @@ def prune_jobs(store, now, ttl=RETENTION_SECONDS,
             except OSError as exc:
                 print(f"prune failed for job {job_id}: {exc}")
                 continue
+        deleted.append(job_id)
+    if commit is not None:
+        commit()
+    for job_id in deleted:
         store.drop_job(job_id)
-        pruned += 1
-    return pruned
+    return len(deleted)
 
 
 def film_expired(job, now, ttl=RETENTION_SECONDS,
@@ -337,15 +345,14 @@ def _quota_refusal(deps, quota: str) -> str:
 
 
 def _quota_used(deps, vid, vkey, now) -> dict:
-    """Films used today overall and by this visitor's own keys."""
+    """Films used today overall and by this visitor's own keys. A
+    real authority error propagates (the line hides); only a run
+    with no authority at all counts its own store."""
     authority = deps.authority
     quota = getattr(authority, "quota", None) if authority else None
     if callable(quota):
-        try:
-            return quota(vid or "",
-                         extra=("ip:" + vkey) if vkey else None)
-        except Exception:
-            pass
+        return quota(vid or "",
+                     extra=("ip:" + vkey) if vkey else None)
     cutoff = now - 24 * 3600
     used = {"films": 0, "visitor": 0, "network": 0}
     for job_id in deps.store.job_ids():
@@ -369,7 +376,8 @@ def _quota_used(deps, vid, vkey, now) -> dict:
 
 def _quota_line_cached(deps, vid, vkey, now) -> str:
     """The quota line, cached a minute per visitor so page views never
-    touch the ledger container. Failures show no line at all."""
+    touch the ledger container. Failures show no line at all. Each
+    write evicts expired entries and, past the bound, the oldest."""
     key = (vid, vkey)
     hit = deps.quota_cache.get(key)
     if hit is not None and hit[1] > now:
@@ -378,7 +386,13 @@ def _quota_line_cached(deps, vid, vkey, now) -> str:
         text = _quota_line(deps, vid, vkey, now)
     except Exception:
         return ""
-    deps.quota_cache[key] = (text, now + QUOTA_LINE_TTL_SECONDS)
+    cache = deps.quota_cache
+    for old in [entry for entry, (_, expires) in list(cache.items())
+                if expires <= now]:
+        cache.pop(old, None)
+    while len(cache) >= QUOTA_LINE_CACHE_MAX and cache:
+        cache.pop(next(iter(cache)), None)
+    cache[key] = (text, now + QUOTA_LINE_TTL_SECONDS)
     return text
 
 
@@ -518,7 +532,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <div><h3>1. Your photo</h3><p>Take or upload a photo of an old, well-documented landmark.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
 </article>
 <article class="step">
-<div><h3>2. Its history, with sources</h3><p>Muse Spark researches what happened there. A second model, Muse Spark Open, checks every claim against the page it came from, with Muse Spark judging state-setting follow-ups. Anything that can't be checked is left out.</p><figure class="fact"><blockquote>De Adriaan was officially opened on May 19, 1779.</blockquote><figcaption>1779 · <a href="https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem">Wikipedia: De Adriaan, Haarlem</a></figcaption></figure></div>
+<div><h3>2. Its history, with sources</h3><p>Muse Spark researches what happened there. Muse Spark Open and Muse Spark check every claim against the page it came from. Anything that can't be checked is left out.</p><figure class="fact"><blockquote>De Adriaan was officially opened on May 19, 1779.</blockquote><figcaption>1779 · <a href="https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem">Wikipedia: De Adriaan, Haarlem</a></figcaption></figure></div>
 </article>
 <article class="step">
 <div class="step-media"><img src="/assets/landing/step3.webp" width="1280" height="1920" loading="lazy" alt="De Adriaan painted in 1932, the year it burnt down"></div>
@@ -540,7 +554,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 </section>
 <section class="block" id="examples" aria-label="Example films">
 <h2>Example films</h2>
-<p>Three landmarks, researched and painted. Each has a documentary version and a picture-book version with a spot-the-difference game.</p>
+<p>Three landmarks, researched and painted. Each also has a picture-book version.</p>
 <div class="gallery">
 __EXAMPLES__
 </div>
@@ -651,6 +665,28 @@ function clearJob() {
 function currentId() {
   return document.getElementById("job").dataset.id || savedJob();
 }
+function renderCalls(st) {
+  const list = document.getElementById("calls");
+  if (!list) { return; }
+  list.textContent = "";
+  for (const ev of (st.events || []).filter(e => e.event === "call").slice(-50)) {
+    const item = document.createElement("li");
+    const d = ev.data || {};
+    item.textContent = (d.model || "?") + " · " + (d.provider || "?") + " · " + (d.phase || "?") + " · " + (d.duration_s ?? "?") + "s";
+    list.appendChild(item);
+  }
+}
+function showConfirm(st) {
+  const confirmBox = document.getElementById("confirm");
+  if (st.confirm && st.decision === null) {
+    confirmBox.style.display = "block";
+    document.getElementById("confirm-name").textContent = st.confirm.name;
+    const desc = (st.confirm.description || "").trim();
+    const kind = (st.confirm.kind || "").trim();
+    document.getElementById("confirm-detail").textContent =
+      desc ? ", " + desc : (kind ? " (" + kind + ")" : "");
+  } else { confirmBox.style.display = "none"; }
+}
 async function watch(id) {
   const box = document.getElementById("job");
   box.style.display = "block";
@@ -700,15 +736,11 @@ async function watch(id) {
     }
     missed = 0;
     const evs = st.events || [];
-    const lastEv = evs.length ? evs[evs.length - 1] : {event: st.status};
+    const lastEv = [...evs].reverse().find(e => e.event !== "call") || {event: st.status};
     document.getElementById("events").textContent = phaseWords(lastEv.event);
     updateSteps(lastEv);
-    const confirmBox = document.getElementById("confirm");
-    if (st.confirm && st.decision === null) {
-      confirmBox.style.display = "block";
-      document.getElementById("confirm-name").textContent = st.confirm.name;
-      document.getElementById("confirm-kind").textContent = st.confirm.kind;
-    } else { confirmBox.style.display = "none"; }
+    renderCalls(st);
+    showConfirm(st);
     if (["done", "cancelled", "failed", "expired"].includes(st.status)) {
       finish();
       if (st.status === "cancelled") {
@@ -763,8 +795,7 @@ if (resumed) { watch(resumed); }
 TRY_DURATION_LINE = ("Works best with an old, well-documented landmark: "
                      "a windmill, tower, lighthouse, bridge or old tree. "
                      "Your photo becomes one painted film with its sources, "
-                     "in about 8 minutes (one film measured 2 Nov; updated "
-                     "after the owner's phone films).")
+                     "in about 8 minutes, measured on one film.")
 
 TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
 <h3>Step 1: Your photo</h3>
@@ -785,8 +816,9 @@ I understand how my photo is used.</label></p>
 <div id="job" class="hidden">
 <p>Making your film: <span id="clock">0:00</span></p>
 <ol id="steps"><li data-step="identify">Recognise<span class="model"></span></li><li data-step="research">Research<span class="model"></span></li><li data-step="check">Check<span class="model"></span></li><li data-step="paint">Paint<span class="model"></span></li><li data-step="film">Film<span class="model"></span></li></ol>
+<details id="calls-box"><summary>Show the model calls</summary><ul id="calls"></ul></details>
 <div id="confirm" class="hidden">
-<p>Is this <strong id="confirm-name"></strong> (<span id="confirm-kind"></span>)?</p>
+<p>Is this <strong id="confirm-name"></strong><span id="confirm-detail"></span>?</p>
 <p><button id="yes">Yes, that's it</button> <button id="no">No</button></p>
 </div>
 <ul id="events"></ul>
@@ -932,7 +964,8 @@ job file. No account, no
 advertising, no sale. To stop one visitor spending the daily budget,
 uploads are counted per visitor: a cookie, plus a keyed hash of the
 network address that rotates daily and is kept 24 h. The raw address
-is never stored.</p>
+is never stored. Your browser keeps the job id (localStorage) so you can come
+back to a running film; it is cleared when the film ends or is gone.</p>
 <p>You must be 18 or older to upload a photo.</p>
 <h2>Contact</h2>
 <p>Questions or deletion sooner: __CONTACT__.</p>

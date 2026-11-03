@@ -425,6 +425,31 @@ def test_respond_bounds_max_output_tokens():
 
     models.respond(FakeClient(), models.VERIFY, input="hi")
     assert seen["max_output_tokens"] == models.VERIFY.max_output_tokens
+
+
+def test_research_sends_max_tool_calls():
+    seen = {}
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return {"usage": {}}
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    models.respond(FakeClient(), models.RESEARCH, input="hi",
+                   tools=[{"type": "web_search"}])
+    assert seen["max_tool_calls"] == models.SEARCH_BUDGET_PER_JOB
+
+
+def test_call_ceiling_uses_the_per_call_search_bound():
+    from dataclasses import replace
+
+    bare = replace(models.RESEARCH, ceiling_usd=0.0, max_output_tokens=0,
+                   max_tool_calls=10)
+    assert models.call_ceiling(bare, 0) == pytest.approx(
+        10 * models.WEB_SEARCH_USD)
     assert models.VERIFY.max_output_tokens > 0
 
 
@@ -869,6 +894,33 @@ def test_timing_log_records_calls_and_authority_round_trips(
         assert "data:image" not in dumped
     finally:
         models.configure_spending(None)
+
+
+def test_call_row_listener_hears_completed_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        models.reset_timing()
+        heard = []
+        models.on_call_row(heard.append)
+        client = models.client_for(models.VERIFY)
+        with models.job_ledger():
+            models.respond(client, models.VERIFY, phase="verify",
+                           input="hi")
+        calls = [row for row in heard if row["op"] == "call"]
+        assert len(calls) == 1
+        assert calls[0]["phase"] == "verify"
+        models.reset_timing()
+        with models.job_ledger():
+            models.respond(client, models.VERIFY, phase="verify",
+                           input="hi again")
+        assert len([row for row in heard if row["op"] == "call"]) == 1
+    finally:
+        models.configure_spending(None)
+        models.reset_timing()
 
 
 def test_timing_log_marks_failed_calls(tmp_path, monkeypatch):

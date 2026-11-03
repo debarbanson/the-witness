@@ -11,6 +11,7 @@ import contextlib
 import contextvars
 import json
 import os
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -60,6 +61,13 @@ PER_CALL_USD = {
 WEB_SEARCH_USD = 0.0025  # per search, counted from web_search_call items
 
 
+SEARCH_BUDGET_PER_JOB = 200  # web searches; the job stops paying past this
+# Meta's Responses schema documents max_tool_calls (verified 3 Nov 2026:
+# https://dev.meta.ai/docs/api-reference/responses/schemas), so the
+# RESEARCH ceiling reserves the enforced per-call worst case: at most
+# 200 searches ($0.50) plus token headroom, inside the $2.00 floor.
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     provider: str
@@ -74,6 +82,7 @@ class ModelSpec:
     max_output_tokens: int | None = None  # bound injected into the call
     max_input_tokens: int | None = None  # larger estimated inputs are refused
     web_search: bool = False  # True reserves the whole job search budget
+    max_tool_calls: int | None = None  # built-in tool calls per call, enforced
 
 
 RESEARCH = ModelSpec(
@@ -86,6 +95,7 @@ RESEARCH = ModelSpec(
     max_output_tokens=16384,
     max_input_tokens=16384,
     web_search=True,
+    max_tool_calls=SEARCH_BUDGET_PER_JOB,
 )
 
 VISION = ModelSpec(
@@ -156,13 +166,6 @@ VERIFY_OPEN = ModelSpec(
     max_output_tokens=16384,
     max_input_tokens=16384,
 )
-
-
-SEARCH_BUDGET_PER_JOB = 200  # web searches; the job stops paying past this
-# No per-call web_search bound found in Meta's public docs (checked
-# 30 Oct; only other vendors document max_uses), so the RESEARCH
-# ceiling reserves the worst case the budget allows: all 200 searches
-# in one call ($0.50) plus token headroom.
 
 
 _CLIENTS = {}
@@ -431,15 +434,33 @@ def estimate_input_tokens(payload) -> int:
     return (chars + 3) // 4 + images * IMAGE_INPUT_TOKENS
 
 
+_SUPPORT_PROVIDER = threading.local()
+
+
+def note_support_provider(label: str | None) -> None:
+    """Remember which provider answered this thread's latest support
+    vote, so progress events name it. Stubs never call this."""
+    _SUPPORT_PROVIDER.label = label
+
+
+def last_support_provider() -> str | None:
+    """This thread's latest noted provider, or None when no real
+    support call answered here since the last note."""
+    return getattr(_SUPPORT_PROVIDER, "label", None)
+
+
 def call_ceiling(spec, input_tokens: int) -> float:
     """A true upper bound for one call: estimated input plus the
-    bounded output at list prices, the whole search budget for
-    search specs, and any per-call price. Never below the spec's
-    conservative floor."""
+    bounded output at list prices, the enforced per-call tool bound
+    (or the whole search budget for unbounded search specs), and any
+    per-call price. Never below the spec's conservative floor."""
     in_price, out_price = PRICE_PER_M.get((spec.provider, spec.model),
                                           (0.0, 0.0))
     out_tokens = spec.max_output_tokens or 0
-    searches = SEARCH_BUDGET_PER_JOB if spec.web_search else 0
+    if spec.max_tool_calls is not None:
+        searches = spec.max_tool_calls
+    else:
+        searches = SEARCH_BUDGET_PER_JOB if spec.web_search else 0
     per_call = PER_CALL_USD.get((spec.provider, spec.model), 0.0)
     computed = (input_tokens * in_price / 1e6
                 + out_tokens * out_price / 1e6
@@ -611,6 +632,10 @@ def respond(client, spec, phase=None, **kwargs):
     if spec.temperature is not None:
         kwargs["temperature"] = spec.temperature
     _bound_output("max_output_tokens", spec, kwargs)
+    if spec.max_tool_calls is not None:
+        asked = kwargs.get("max_tool_calls")
+        kwargs["max_tool_calls"] = (spec.max_tool_calls if asked is None
+                                    else min(asked, spec.max_tool_calls))
     _check_control()
     _admit_call()
     wall = _time.time()
@@ -720,6 +745,8 @@ _GLOBAL_LEDGER = SpendingLedger()  # unattributed calls outside any job
 
 _TIMING_LOG: contextvars.ContextVar = contextvars.ContextVar(
     "witness_timing_log", default=None)
+_CALL_LISTENER: contextvars.ContextVar = contextvars.ContextVar(
+    "witness_call_listener", default=None)
 
 
 def reset_timing() -> None:
@@ -727,6 +754,14 @@ def reset_timing() -> None:
     the job ledger on purpose: one web job runs under two ledgers,
     and both phases belong in the same timing log."""
     _TIMING_LOG.set([])
+    _CALL_LISTENER.set(None)
+
+
+def on_call_row(listener) -> None:
+    """Hear every recorded row as it lands (the web worker forwards
+    model calls to the job's events). Worker threads inherit the
+    listener through submit_context; reset_timing clears it."""
+    _CALL_LISTENER.set(listener)
 
 
 def timing_rows() -> list:
@@ -741,6 +776,12 @@ def _record(row: dict) -> None:
         log = []
         _TIMING_LOG.set(log)
     log.append(row)
+    listener = _CALL_LISTENER.get()
+    if listener is not None:
+        try:
+            listener(row)
+        except Exception:  # noqa: BLE001 - a display hook never fails a call
+            pass
 
 
 def current_ledger() -> SpendingLedger:

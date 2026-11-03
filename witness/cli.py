@@ -16,6 +16,7 @@ from pathlib import Path
 
 from witness import captions, check, children, identify, models, outcome, paint, research, scenes, spot, states, stream, verify
 from witness.cache import Cache
+from witness.identify import confirm_question
 from witness.photo import PhotoError, photo_bytes_clean, prepare_photo
 from witness.render import builder as render_builder
 
@@ -100,6 +101,10 @@ def main(argv=None):
     render_cmd.add_argument("--photo-year", type=int, default=None)
     render_cmd.add_argument("--own-photo", action="store_true")
     render_cmd.add_argument("--mp4", action="store_true")
+    evidence_cmd = sub.add_parser("evidence")
+    evidence_cmd.add_argument("slug")
+    evidence_cmd.add_argument("--out-dir", default="out")
+    evidence_cmd.add_argument("--refused-year", type=int, default=None)
     paint_cmd = sub.add_parser("paint")
     paint_cmd.add_argument("slug")
     paint_cmd.add_argument("--out-dir", default="out")
@@ -151,6 +156,12 @@ def main(argv=None):
                 return 1
             print(f"MP4 at {out_mp4}")
         return code
+    if args.command == "evidence":
+        from witness.render import evidence as render_evidence
+
+        return render_evidence.cmd_evidence(
+            args.slug, out_dir=args.out_dir,
+            refused_year=args.refused_year)
     if args.command == "paint":
         return cmd_paint(args.slug, args.photo,
                          mode=args.mode, scenes=args.scenes, tag=args.tag,
@@ -216,7 +227,9 @@ def cmd_identify(photo, place=None, lang="en", yes=False, no_cache=False,
         print(f"article [{lang}]: https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}")
     print(f"confidence: {found.confidence}")
     if not yes:
-        answer = input(f"Is this {found.name}? [Y/n] ").strip().lower()
+        question = confirm_question(found.name, found.kind,
+                                               found.description)
+        answer = input(f"{question} [Y/n] ").strip().lower()
         if answer not in ("", "y", "yes"):
             print("not confirmed; stopping")
             return 2
@@ -332,7 +345,8 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             compare_support=False,
             on_identified=None, on_facts=None, on_claim=None, on_scene=None,
             location=None, out_dir="out", visitor="cli", control=None,
-            deadline_s=1800, pre_admitted=False, nominatim_pace=None) -> dict:
+            deadline_s=1800, pre_admitted=False, nominatim_pace=None,
+            reset_timing=True) -> dict:
     """One job for the web and both commands: identify, research,
     verify. No input; no print when quiet; milestones via progress.
     Only free facts fetch while `decide` confirms the identified
@@ -343,7 +357,8 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
     Returns the result; callers save and report."""
     if decide is None:
         raise ValueError("run_job needs an explicit decide callback")
-    models.reset_timing()
+    if reset_timing:
+        models.reset_timing()
     if progress is None:
         progress = (lambda event, data: None) if quiet else cli_progress
     if cache is None and not no_cache:
@@ -467,7 +482,9 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
 
     before = models.usage_totals()
     confirmed, first = stream.confirm_speculative(
-        f"Is this {found.name}?", get_first, lambda: decide(found))
+        confirm_question(found.name, found.kind,
+                                  found.description),
+        get_first, lambda: decide(found))
     if not confirmed:
         after = models.usage_totals()
         spent = (sum(v.get("total_tokens", 0) for v in after.values())
@@ -739,7 +756,10 @@ def cmd_film(photo, place=None, lang="en", yes=False, no_cache=False, verify_wit
         decide = lambda ident: True
     else:
         def decide(ident):
-            answer = input(f"Is this {ident.name}? [Y/n] ").strip().lower()
+            question = confirm_question(
+                ident.name, ident.kind,
+                getattr(ident, "description", ""))
+            answer = input(f"{question} [Y/n] ").strip().lower()
             return answer in ("", "y", "yes")
 
     try:
@@ -852,7 +872,10 @@ def cmd_research(photo, place=None, lang="en", yes=False, no_cache=False, verify
         decide = lambda ident: True
     else:
         def decide(ident):
-            answer = input(f"Is this {ident.name}? [Y/n] ").strip().lower()
+            question = confirm_question(
+                ident.name, ident.kind,
+                getattr(ident, "description", ""))
+            answer = input(f"{question} [Y/n] ").strip().lower()
             return answer in ("", "y", "yes")
     result = run_job(photo, place=place, lang=lang, decide=decide,
                      no_cache=no_cache, verify_with=verify_with,
@@ -1304,6 +1327,7 @@ def support_respond(prompt):
         phase="verify",
         input=prompt,
     )
+    models.note_support_provider("Muse Spark")
     return json.loads(resp.model_dump_json())
 
 
@@ -1323,6 +1347,7 @@ def baseten_support_respond(prompt):
             timeout=180,
             reasoning_effort="low",
         )
+        models.note_support_provider("Muse Spark Open on Baseten")
         return verify.text_answer(models.chat_answer(resp)["content"])
     except Exception as exc:  # noqa: BLE001 - demo insurance: meta judges instead
         print(f"note: baseten support failed ({str(exc)[:100]}), meta fallback",

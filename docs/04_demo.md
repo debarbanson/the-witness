@@ -6,13 +6,13 @@ English, at most 3:00 (judges stop at 3:00), no slides. The owner presents: a sh
 
 | Time | Picture | Voice-over |
 |---|---|---|
-| 0:00 to 0:15 | Owner on camera | "The Witness turns one photo of something old into a short film of the eras it lived through. Nothing existed before; it was built from scratch during the hackathon, from 26 Oct 2026." |
-| 0:15 to 0:45 | Phone screen recording: take a photo of a windmill, confirm the object, watch the step list (Identify, Research, Check, Paint, Film) with the working model named at each step | "One photo in. The page shows each step and the Meta model doing it, live." |
-| 0:45 to 1:30 | Laptop screen recording: the finished De Adriaan film plays full screen, vertical; pause on the 1932 burnt era with its source on screen | "Every caption carries its source. This era is painted as the sources say it was: burnt in 1932." |
-| 1:30 to 1:50 | The refused-claim card from the same film's research (pick at recording time; every refused claim keeps its "No fetched source confirmed it." note) | "What the sources would not confirm is refused, and shown as refused." |
-| 1:50 to 2:10 | The Documentary/Picture-book switch, a few seconds of the picture-book version, one tap in spot the difference | "The same checked facts in simpler words, with picture-book paintings." |
+| 0:00 to 0:15 | Owner on camera | "Nothing existed before; The Witness was built from scratch during the hackathon, from 26 Oct 2026. It turns one photo of something old into a short film of the eras it lived through." |
+| 0:15 to 0:45 | Phone screen recording, edited and time-compressed (caption: "Real run, about 8 minutes, shown in 30 seconds"): take a photo of a windmill, confirm the object, watch the step list (Recognise, Research, Check, Paint, Film) with the working model named at each step; open "Show the model calls" briefly | "One photo in. Research runs on Muse Spark; the checks run on Muse Spark Open on Baseten. The page shows each step and the model doing it, live." |
+| 0:45 to 1:30 | Laptop screen recording: the finished De Adriaan film plays full screen, vertical; pause on the 1932 burnt era, click through to the full source page | "Every caption carries its source. This era is painted as the sources say it was: burnt in 1932." |
+| 1:30 to 1:50 | The Major Oak refused-claim card on the landing page (the July 2020 vandalism claim, kept with its "No fetched source confirmed it." note) | "What the sources would not confirm is refused, and shown as refused. This one is from the oak's research." |
+| 1:50 to 2:10 | The Documentary/Picture-book switch, a few seconds of the picture-book version | "The same checked facts in simpler words, with picture-book paintings." |
 | 2:10 to 2:40 | Short cuts from the other two example films (oak, lighthouse), each with a source on screen | "The same pipeline on other objects, each fact linked to its source." |
-| 2:40 to 3:00 | End card: sources, AI label, repo link | "True, or it is not in the film." |
+| 2:40 to 3:00 | End card: sources, AI label, repo link | "Sourced and checked, or it is not in the film." |
 
 ## Rules the video must follow
 
@@ -25,4 +25,3 @@ English, at most 3:00 (judges stop at 3:00), no slides. The owner presents: a sh
 
 - Public repository, accessible.
 - Video link, accessible.
-- Optional: a post on X with the demo (Most Viral prize, engagement counted until 8 November).

@@ -103,10 +103,10 @@ def test_timeline_never_films_an_age_range():
 
 def test_anchor_card_for_age_range_and_for_year():
     assert builder.anchor_card(age_scene()) == {
-        "line": "I have stood here for",
-        "label": "about 800 to 1,200 years"}
+        "line": "My story starts",
+        "label": "about 800 to 1,200 years ago."}
     assert builder.anchor_card(scene(1899)) == {
-        "line": "I have stood here since", "label": "1899"}
+        "line": "My story starts in", "label": "1899."}
 
 
 def test_anchor_card_never_shows_a_computed_sort_year():
@@ -130,8 +130,8 @@ def test_write_film_anchors_on_the_first_filmed_scene(tmp_path):
                              {"1779": "e/1779.png", "1932": "e/1932.png"},
                              photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
-    assert film["anchor"] == {"line": "I have stood here since",
-                             "label": "1932"}
+    assert film["anchor"] == {"line": "My story starts in",
+                             "label": "1932."}
 
 
 def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
@@ -147,8 +147,8 @@ def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
                              photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert [entry["year"] for entry in film["scenes"]] == [1790]
-    assert film["anchor"] == {"line": "I have stood here for",
-                             "label": "about 800 to 1,200 years"}
+    assert film["anchor"] == {"line": "My story starts",
+                             "label": "about 800 to 1,200 years ago."}
 
 
 def test_caption_is_a_date_stamp_and_one_sentence():
@@ -160,7 +160,27 @@ def test_caption_is_a_date_stamp_and_one_sentence():
     stamped = scene(1932)
     stamped["date_label"] = "23 April 1932"
     stamp, _ = builder.caption_for(stamped)
+    assert stamp == "1932"
+
+
+def test_stamp_shows_full_date_only_from_quote():
+    dated = scene(1932, sentence="I burnt down.")
+    dated["date_label"] = "23 April 1932"
+    dated["caption_sentence"]["evidence"]["quote"] = (
+        "On the evening of April 23, 1932 the windmill burnt down.")
+    stamp, _ = builder.caption_for(dated)
     assert stamp == "23 April 1932"
+    bare = scene(1900, sentence="I stood.")
+    bare["date_label"] = "1 April 1900"
+    bare["caption_sentence"]["evidence"]["quote"] = "It happened in 1900."
+    stamp, _ = builder.caption_for(bare)
+    assert stamp == "1900"
+    season = scene(2016, sentence="I got a new stair.")
+    season["date_label"] = "spring 2016"
+    season["caption_sentence"]["evidence"]["quote"] = (
+        "The staircase was renewed in 2016.")
+    stamp, _ = builder.caption_for(season)
+    assert stamp == "2016"
 
 
 def child_scene(year, line):
@@ -244,6 +264,60 @@ def test_child_timeline_skips_scenes_without_childrens_sentences():
     eras = [seg for seg in plan if seg["kind"] == "era"]
     assert [seg["year"] for seg in eras] == [1779]
     assert eras[0]["caption"] == ["1779", "Little mill words."]
+
+
+def test_rendered_pair_switch_round_trips_through_served_routes(tmp_path):
+    import re
+    import shutil
+    from urllib.parse import urljoin
+
+    from fastapi.testclient import TestClient
+    from PIL import Image
+
+    from witness import webapp
+
+    era = tmp_path / "era_1850.png"
+    Image.new("RGB", (16, 24), "red").save(era)
+    scenes = [child_scene(1850, "Little mill words.")]
+    research = {"object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+                "outcome": {"outcome": "full_film"},
+                "claims": claims_for(scenes), "scenes": scenes,
+                "timeline": [], "timings": {}}
+    job = tmp_path / "job"
+    builder.write_film(job, research, {"1850": "era_1850.png"},
+                       photo="today.jpg", photo_credit="me",
+                       era_files={"1850": str(era)},
+                       sibling="child/film.json")
+    builder.write_film(job, research, {"1850": "era_1850.png"},
+                       photo="today.jpg", photo_credit="me",
+                       era_files={"1850": str(era)},
+                       folder="film/child", audience="child",
+                       sibling="../film.json")
+    shutil.copytree(job / "film", tmp_path / "examples" / "mill")
+    deps = webapp.WebDeps(store=webapp.MemoryStore(), authority=None,
+                          runner=lambda ref: None,
+                          jobs_root=tmp_path / "jobs",
+                          examples_root=tmp_path / "examples",
+                          examples=[{"slug": "mill", "name": "Mill"}])
+    client = TestClient(webapp.create_app(deps))
+    adult = client.get("/examples/mill/")
+    assert adult.status_code == 200
+    payload = json.loads(re.search(
+        r'<script id="film-data" type="application/json">(.*?)</script>',
+        adult.text, re.S).group(1))
+    assert payload["sibling_page"] == "child/film.html"
+    child_url = urljoin("https://served.invalid/examples/mill/",
+                        payload["sibling_page"])
+    assert "undefined" not in child_url
+    child = client.get("/examples/mill/child/film.html")
+    assert child.status_code == 200
+    back = json.loads(re.search(
+        r'<script id="film-data" type="application/json">(.*?)</script>',
+        child.text, re.S).group(1))
+    assert back["sibling_page"] == "../film.html"
+    assert urljoin(child_url, back["sibling_page"]).endswith(
+        "/examples/mill/film.html")
+    assert client.get("/examples/mill/film.html").status_code == 200
 
 
 def test_write_film_builds_a_sibling_child_film(tmp_path):
@@ -867,35 +941,20 @@ def test_film_captions_cite_own_year_claims(tmp_path):
         assert entry["caption_claim"]["year"] == entry["year"]
 
 
-def test_today_card_names_a_stale_photo_year():
-    last = scene(2026, "standing", "canopy leafless",
-                 sentence="I stand leafless.")
-    line, sub = builder.today_card(2006, False, last, [])
-    assert line == "And here I stand today."
-    assert sub == "Photographed in 2006."
-
-
-def test_today_card_silent_for_fresh_or_own_photos():
+def test_today_card_shows_photo_date_or_your_photo():
     last = scene(2002, "rebuilt", "whole again", sentence="I was rebuilt.")
+    assert builder.today_card(2006, False, last, []) == (
+        "Photographed in 2006.", "")
     assert builder.today_card(2012, False, last, []) == (
-        "And here I stand today.", "")
+        "Photographed in 2012.", "")
     assert builder.today_card(2006, True, last, []) == (
-        "And here I stand today.", "")
-    assert builder.today_card(None, False, last, []) == (
-        "And here I stand today.", "")
-
-
-def test_today_card_never_repeats_the_last_line():
-    died = scene(2026, "standing", "canopy leafless",
-                 sentence="The RSPB announced I died.")
-    claims = [{"year": 2026, "url": "https://a.example/x", "event": "died",
-               "verdict": "supported"}]
-    assert builder.today_card(2006, False, died, claims) == (
-        "", "Photographed in 2006.")
+        "Photographed in 2006.", "")
+    assert builder.today_card(None, False, last, []) == ("Your photo.", "")
     gone = scene(1990, "demolished", "torn down",
                  sentence="I was torn down.")
-    assert builder.today_card(None, False, gone, []) == (
-        "And here I stood.", "")
+    assert builder.today_card(None, False, gone, []) == ("Your photo.", "")
+    assert builder.today_card(2006, False, gone, []) == (
+        "Photographed in 2006.", "")
 
 
 def test_film_drops_scenes_without_written_sentences(tmp_path):

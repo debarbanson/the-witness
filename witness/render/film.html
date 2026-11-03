@@ -139,7 +139,7 @@ function render(t) {
   }
   if (seg.kind === "anchor") {
     const first = FILM.scenes[0];
-    const anchor = FILM.anchor || { line: "I have stood here since",
+    const anchor = FILM.anchor || { line: "My story starts in",
       label: first ? first.date_label : "" };
     imgA.src = FILM.photo; imgA.style.opacity = 1;
     card.style.display = "flex";
@@ -205,7 +205,7 @@ function render(t) {
     caption.style.display = "block";
     document.getElementById("cap1").className = "";
     document.getElementById("cap1").textContent =
-      FILM.today_line ?? "And here I stand today.";
+      FILM.today_line ?? "Your photo.";
     document.getElementById("cap2").textContent = FILM.today_sub || "";
     document.getElementById("capsite").textContent = FILM.photo_credit || "";
     showClock(); return;
@@ -288,7 +288,7 @@ function start(film) {
     pauseBtn.onclick = () => togglePause(pauseBtn);
     document.getElementById("replay").onclick = replayFilm;
     const audienceBtn = document.getElementById("audience");
-    if (film.sibling) {
+    if (film.sibling_page) {
       audienceBtn.textContent = film.audience === "child" ? "Documentary" : "Picture-book";
       audienceBtn.classList.remove("hidden");
       audienceBtn.style.display = "";

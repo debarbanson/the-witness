@@ -968,6 +968,58 @@ def test_prune_keeps_the_record_when_deletion_fails(tmp_path, capsys):
     assert "stuck-1" in capsys.readouterr().out
 
 
+def test_prune_commits_before_dropping_any_record(tmp_path):
+    from witness import webapp
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    now = 300000.0
+    for job_id in ("gone-1", "gone-2"):
+        job_dir = tmp_path / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "today.jpg").write_bytes(b"photo")
+        store.create_job(job_id, {"vid": "v", "job_dir": str(job_dir),
+                                 "status": "done",
+                                 "started_at": now - 26 * 3600,
+                                 "ended_at": now - 25 * 3600,
+                                 "events": []})
+    seen = []
+
+    def commit():
+        seen.append(sorted(store.job_ids()))
+        assert not (tmp_path / "gone-1").exists()
+        assert not (tmp_path / "gone-2").exists()
+
+    assert webapp.prune_jobs(store, now, commit=commit) == 2
+    assert seen == [["gone-1", "gone-2"]]
+    assert store.job_ids() == []
+
+
+def test_prune_keeps_every_record_when_the_commit_fails(tmp_path):
+    import pytest
+
+    from witness import webapp
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    now = 300000.0
+    job_dir = tmp_path / "gone-1"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "today.jpg").write_bytes(b"photo")
+    store.create_job("gone-1", {"vid": "v", "job_dir": str(job_dir),
+                               "status": "done",
+                               "started_at": now - 26 * 3600,
+                               "ended_at": now - 25 * 3600,
+                               "events": []})
+
+    def commit():
+        raise OSError("synthetic volume commit failure")
+
+    with pytest.raises(OSError):
+        webapp.prune_jobs(store, now, commit=commit)
+    assert store.job_ids() == ["gone-1"]
+
+
 def test_sweep_counts_only_successful_deletions(tmp_path, monkeypatch):
     import shutil
     from witness import webapp
@@ -1030,6 +1082,61 @@ def test_landing_hides_quota_line_when_unavailable(tmp_path, monkeypatch):
     out = _client(tmp_path).get("/")
     assert out.status_code == 200
     assert "tries a day" not in out.text
+
+
+def test_landing_hides_quota_line_on_authority_error(tmp_path):
+    """r6_03 made safe: a real authority outage hides the line; the
+    job-store count never stands in for the ledger."""
+    from witness import webapp as webapp_module
+
+    class BrokenAuthority(FakeAuthority):
+        daily_films = 10
+        visitor_films = 2
+        network_films = 2
+
+        def quota(self, *args, **kwargs):
+            raise OSError("synthetic ledger outage")
+
+    deps = _deps(tmp_path, authority=BrokenAuthority())
+    assert webapp_module._quota_line_cached(deps, "v", "k", 1000.0) == ""
+    assert deps.quota_cache == {}
+    client = TestClient(create_app(deps), headers=dict(ORIGIN))
+    out = client.get("/")
+    assert out.status_code == 200
+    assert "Films left today" not in out.text
+
+
+def test_quota_cache_evicts_expired_and_stays_bounded(tmp_path):
+    """r6_04 made safe: expired entries leave on the next write and
+    cookie churn cannot grow the cache past its bound."""
+    from witness import webapp as webapp_module
+
+    class CountingAuthority(FakeAuthority):
+        daily_films = 10
+        visitor_films = 2
+        network_films = 2
+
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def quota(self, *args, **kwargs):
+            self.calls += 1
+            return {"films": 0, "visitor": 0, "network": 0}
+
+    authority = CountingAuthority()
+    deps = _deps(tmp_path, authority=authority)
+    bound = webapp_module.QUOTA_LINE_CACHE_MAX
+    for index in range(bound + 50):
+        webapp_module._quota_line_cached(
+            deps, f"visitor-{index}", "k", 1000.0)
+    assert authority.calls == bound + 50
+    assert len(deps.quota_cache) <= bound
+    webapp_module._quota_line_cached(deps, "fresh", "k",
+                                     1000.0 + 61.0)
+    assert len(deps.quota_cache) <= bound
+    assert all(expires > 1000.0 + 61.0
+               for _, expires in deps.quota_cache.values())
 
 
 def test_concurrent_uploads_are_capped_per_container(tmp_path):

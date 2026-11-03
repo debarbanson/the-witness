@@ -132,11 +132,35 @@ def test_try_your_own_says_what_works_and_how_long(tmp_path):
     page = _page(tmp_path)
     assert "windmill, tower, lighthouse, bridge or old tree" in page
     assert "about 8 minutes" in page
+    assert "measured on one film" in page
+    assert "updated after the owner's phone films" not in page
     assert "checked facts instead" in page
     assert "by design" in page
     assert 'id="upload"' in page
     assert 'id="geo"' in page
     assert 'href="/privacy"' in page
+
+
+def test_how_it_works_names_both_checking_models(tmp_path):
+    page = _page(tmp_path)
+    assert ("Muse Spark Open and Muse Spark check every claim against "
+            "the page it came from. Anything that can't be checked is "
+            "left out.") in page
+    assert "state-setting follow-ups" not in page
+
+
+def test_examples_intro_promises_no_game(tmp_path):
+    page = _page(tmp_path)
+    assert ("Three landmarks, researched and painted. Each also has a "
+            "picture-book version.") in page
+    assert "with a spot-the-difference game" not in page
+
+
+def test_privacy_notice_explains_the_saved_job_id(tmp_path):
+    privacy = " ".join(_client(tmp_path).get("/privacy").text.split())
+    assert ("Your browser keeps the job id (localStorage) so you can come "
+            "back to a running film; it is cleared when the film ends or "
+            "is gone.") in privacy
 
 
 def test_phone_hero_shows_the_film_first(tmp_path):
@@ -457,6 +481,44 @@ def test_step_list_labels_follow_the_event_model(tmp_path):
     target = tmp_path / "landing.html"
     target.write_text(page)
     check = Path(__file__).parent / "steps_check.cjs"
+    out = subprocess.run([node, str(check), str(target)],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[:500]
+
+
+def test_confirm_question_names_the_place(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "confirm_check.cjs"
+    out = subprocess.run([node, str(check), str(target)],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[:500]
+
+
+def test_model_calls_toggle_lists_the_job_rows(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "calls_check.cjs"
     out = subprocess.run([node, str(check), str(target)],
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr[:500]

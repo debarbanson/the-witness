@@ -2,7 +2,7 @@
 
 Allowlisted image: the witness package only. Never out/, samples/
 or .env.local. The reviewed example films live on a shared Volume,
-discovered at request time. Keys arrive only as the
+read when each app instance starts. Keys arrive only as the
 Modal secret "the-witness-keys". One budget authority serves every
 container through a single-container ledger function over a Dict
 (a Dict alone is not atomic for read-modify-write; the single
@@ -19,10 +19,11 @@ Volume protocol: the web container commits before spawning the
 worker, the worker reloads on start and commits when done, and film
 asset reads reload first, so no container ever serves stale bytes.
 
-Deploy protocol: stop the app before each deploy (modal app stop),
-so the old ledger container never overlaps the new one; a Dict has
-no compare-and-set. The ledger schema version fails closed when a
-newer container meets an older record.
+Deploy protocol: drain running films, then stop the app before
+each deploy (modal app stop), so the old ledger container never
+overlaps the new one; a Dict has no compare-and-set. The ledger
+schema version fails closed when a newer container meets an older
+record.
 """
 
 import os
@@ -677,7 +678,7 @@ def nominatim_slot():
 @app.function(image=image, secrets=[keys],
              volumes={"/jobs": jobs_volume,
                      "/judge-jobs": judge_jobs_volume},
-             timeout=1800)
+             timeout=1800, max_containers=2, max_inputs=1)
 def run_film(ref):
     """One Try-your-own film through the tested runner; only DELETE
     cancels through the job control. `ref` carries only
@@ -758,23 +759,31 @@ def prune_hourly():
     """Enforce the 24 h retention rule across job files and records,
     sweep job folders the store no longer knows, and expire visitor
     hashes in the ledger (the totals stay). A failed ledger scrub
-    heals on the next hour. Staging and judge mode are pruned
-    together, from their separate state."""
+    heals on the next hour. Each backend reloads, deletes, commits
+    and drops on its own, so one backend's failure never skips the
+    other's cleanup; records are dropped only after their volume
+    commit succeeds. The first backend error surfaces after both
+    were attempted."""
     import time as _time
     from datetime import date as _date
     from datetime import timedelta as _timedelta
 
     from witness.webapp import prune_jobs, sweep_job_dirs
 
-    jobs_volume.reload()
-    judge_jobs_volume.reload()
     now = _time.time()
-    pruned = (prune_jobs(_worker_store("staging"), now)
-              + prune_jobs(_worker_store("judge"), now))
-    swept = (sweep_job_dirs(_worker_store("staging"), "/jobs", now)
-             + sweep_job_dirs(_worker_store("judge"), "/judge-jobs", now))
-    jobs_volume.commit()
-    judge_jobs_volume.commit()
+    pruned, swept, errors = 0, 0, []
+    for backend, volume, jobs_root in (
+            ("staging", jobs_volume, "/jobs"),
+            ("judge", judge_jobs_volume, "/judge-jobs")):
+        try:
+            volume.reload()
+            store = _worker_store(backend)
+            pruned += prune_jobs(store, now, commit=volume.commit)
+            swept += sweep_job_dirs(store, jobs_root, now)
+            volume.commit()
+        except Exception as exc:
+            print(f"prune_hourly: {backend} failed: {exc}")
+            errors.append(exc)
     expired = 0
     today = _date.today()
     for backend, handle in (("staging", ledger_dict),
@@ -793,6 +802,8 @@ def prune_hourly():
             else:
                 handle.pop(f"spending-{day}", None)
     print(f"prune_hourly: pruned={pruned} swept={swept} expired={expired}")
+    if errors:
+        raise errors[0]
     return {"pruned": pruned, "swept": swept, "expired": expired}
 
 
@@ -809,14 +820,15 @@ def try_switch(enable: bool):
 @app.function(image=image, secrets=[keys],
              volumes={"/jobs": jobs_volume,
                      "/examples": examples_volume},
-             memory=2048)  # 4 upload slots times ~200 MB per 25 MP decode
+             memory=2048,  # 4 upload slots times ~200 MB per 25 MP decode
+             max_containers=2)
 @modal.asgi_app(requires_proxy_auth=True)
 def web():
     """The private page: examples plus Try your own. Proxy auth keeps
     staging off the public internet (Modal proxy-auth docs:
     https://modal.com/docs/guide/webhook-proxy-auth). Examples are
-    discovered from the shared Volume at request time, never baked
-    in at import time."""
+    read from the shared Volume when the app instance starts; upload
+    them before deploying, or redeploy after uploading."""
     from witness.webapp import WebDeps, create_app
 
     def spawn(ref):
@@ -858,7 +870,8 @@ def web():
 @app.function(image=image, secrets=[keys],
               volumes={"/judge-jobs": judge_jobs_volume,
                       "/examples": examples_volume},
-              memory=2048)  # same upload gate as staging
+              memory=2048,  # same upload gate as staging
+              max_containers=2)
 @modal.asgi_app()
 def judge():
     """Judge mode: the public, unlisted page. No proxy auth; the link

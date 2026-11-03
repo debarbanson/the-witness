@@ -1119,6 +1119,34 @@ def test_baseten_support_passes_timeout_and_falls_back_to_meta(monkeypatch):
     assert cli_module.baseten_support_respond("claim") == {"fallback": True}
 
 
+def test_support_votes_note_the_provider_that_answered(monkeypatch):
+    from witness import cli as cli_module
+    from witness import models
+
+    class FakeChat:
+        def create(self, **kwargs):
+            return {"choices": [{"message": {"content": '{"verdict": "ok"}'}}]}
+
+    class FakeClient:
+        chat = type("chat", (), {"completions": FakeChat()})()
+
+    monkeypatch.setattr(cli_module, "_respond_for", lambda spec: FakeClient())
+    cli_module.baseten_support_respond("claim")
+    assert models.last_support_provider() == "Muse Spark Open on Baseten"
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("cold start")
+
+    class FakeAnswer:
+        def model_dump_json(self):
+            return '{"verdict": "supported"}'
+
+    monkeypatch.setattr(models, "chat", boom)
+    monkeypatch.setattr(models, "respond", lambda *a, **k: FakeAnswer())
+    cli_module.baseten_support_respond("claim")
+    assert models.last_support_provider() == "Muse Spark"
+
+
 def test_baseten_votes_use_low_reasoning_effort(monkeypatch):
     from witness import cli as cli_module
 
@@ -1707,7 +1735,8 @@ def test_cmd_render_photo_year_overrides_exif(tmp_path, monkeypatch):
         segment_call=lambda call_sam, path, subject: cutout)
     assert code == 0
     film = json.loads((out_dir / "film" / "film.json").read_text())
-    assert film["today_sub"] == "Photographed in 2009."
+    assert film["today_line"] == "Photographed in 2009."
+    assert film["today_sub"] == ""
 
 
 def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
@@ -1769,7 +1798,7 @@ def test_cmd_render_builds_film_dir(tmp_path, monkeypatch):
     assert (film_dir / "cutout.png").exists()
     film = json.loads((film_dir / "film.json").read_text())
     assert film["object"] == "Test Mill"
-    assert film["today_line"] == "And here I stand today."
+    assert film["today_line"] == "Your photo."
     assert film["today_sub"] == ""
     assert film["scenes"][0]["caption"][0] == "1850"
 

@@ -1,6 +1,7 @@
 """Step 7: build a live film page. Every frame is a pure function of t."""
 
 import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -52,11 +53,42 @@ def refusal_reason(scene, claims, audience="adult") -> str | None:
     return None
 
 
+_STAMP_MONTHS = ("january", "february", "march", "april", "may",
+                  "june", "july", "august", "september", "october",
+                  "november", "december")
+
+
+def stamp_for(label, year, quote) -> str:
+    """The shown stamp: the full date only when the bound quote carries
+    that exact date (day, month and year, any order); otherwise the
+    year alone."""
+    if (label or "").strip() == str(year):
+        return str(year)
+    found = re.search(r"(\d{1,2})\s+([A-Za-z]+),?\s*(\d{4})", label or "")
+    if found:
+        day, month, date_year = found.groups()
+    else:
+        found = re.search(r"([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})",
+                           label or "")
+        if not found:
+            return str(year)
+        month, day, date_year = found.groups()
+    if month.lower() not in _STAMP_MONTHS:
+        return str(year)
+    text = quote or ""
+    if (re.search(rf"\b{int(day)}\b", text)
+            and month[:3].lower() in text.lower()
+            and re.search(rf"\b{date_year}\b", text)):
+        return label.strip()
+    return str(year)
+
+
 def caption_for(scene, audience="adult"):
     """A date stamp plus one sentence: the written sentence for the
     scene, or nothing. Never cut, never borrowed."""
-    stamp = scene.get("date_label") or str(scene.get("from_year"))
     stored = scene.get("caption_sentence") or {}
+    quote = (stored.get("evidence") or {}).get("quote", "")
+    stamp = stamp_for(scene.get("date_label"), scene.get("from_year"), quote)
     if audience == "child":
         return (stamp, (stored.get("child") or {}).get("text", ""))
     return (stamp, stored.get("text", ""))
@@ -125,37 +157,13 @@ def end_title(url, cache=None) -> str:
     return source_title(url)
 
 
-DEATH_EVENTS = frozenset({"died", "dead", "demolished", "destroyed"})
-
-
-def last_claim_event(last_scene, claims) -> str:
-    """The event behind the last scene's caption, if it cites one."""
-    cited = last_scene.get("caption_sentence") or {}
-    if not cited.get("text"):
-        return ""
-    for claim in claims:
-        if (claim.get("year") == cited.get("claim_year")
-                and claim.get("url") == cited.get("claim_url")):
-            return (claim.get("event") or "").lower()
-    return ""
-
-
 def today_card(photo_year, own_photo, last_scene, claims=()) -> tuple:
-    """The today caption agrees with the last verified state: a stale
-    stock photo is dated, and a dead or gone object never claims to
-    stand. The last scene's line is never repeated: with a photo note
-    the note speaks alone, otherwise a past-tense line does."""
-    year = last_scene.get("from_year")
-    condition = (last_scene.get("state") or {}).get("condition", "standing")
-    gone = (condition == "demolished"
-            or last_claim_event(last_scene, claims) in DEATH_EVENTS)
-    sub = ""
-    if (not own_photo and isinstance(photo_year, int)
-            and isinstance(year, int) and photo_year < year):
-        sub = f"Photographed in {photo_year}."
-    if gone:
-        return (("", sub) if sub else ("And here I stood.", ""))
-    return ("And here I stand today.", sub)
+    """The closing card names the photo's year and claims nothing about
+    today. Unknown year: just "Your photo"."""
+    del own_photo, last_scene, claims
+    if isinstance(photo_year, int):
+        return (f"Photographed in {photo_year}.", "")
+    return ("Your photo.", "")
 
 
 def scene_site(scene, claims=()) -> str:
@@ -168,18 +176,18 @@ def scene_site(scene, claims=()) -> str:
 
 
 def anchor_card(first_scene) -> dict:
-    """The opening card: one year, or "for" plus the age range. A
-    from_year the scene's own label does not carry is a computed
-    sort key, never shown; the human label speaks instead."""
+    """The opening card: a neutral line plus one year, or the age
+    range. A from_year the scene's own label does not carry is a
+    computed sort key, never shown; the human label speaks instead."""
     label = first_scene.get("date_label", "") or ""
     if states.is_age_range(label):
         words = label[:-4] if label.endswith(" old") else label
-        return {"line": "I have stood here for", "label": words}
+        return {"line": "My story starts", "label": f"{words} ago."}
     year = first_scene.get("from_year")
     if isinstance(year, int) and str(year) in label:
         shown = str(year) if label.strip() == str(year) else label
-        return {"line": "I have stood here since", "label": shown}
-    return {"line": "I have stood here", "label": label or "longer than memory"}
+        return {"line": "My story starts in", "label": f"{shown}."}
+    return {"line": "My story starts", "label": label or "before living memory"}
 
 
 def dated(scenes) -> list:

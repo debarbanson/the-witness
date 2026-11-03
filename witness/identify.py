@@ -115,6 +115,17 @@ class Identification:
     municipality: str | None = None
 
 
+def confirm_question(name: str, kind: str = "", description: str = "") -> str:
+    """Confirm wording naming the place: the description wins,
+    the kind in brackets is the fallback."""
+    detail = (description or "").strip()
+    if detail:
+        return f"Is this {name}, {detail}?"
+    if (kind or "").strip():
+        return f"Is this {name} ({kind})?"
+    return f"Is this {name}?"
+
+
 def object_names(found) -> list:
     """Namings the anchor sentence must use: the name, the kind and
     the known article titles. Anything may be missing; empties drop."""

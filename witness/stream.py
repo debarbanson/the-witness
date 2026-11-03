@@ -31,7 +31,7 @@ def opening_card(name, kind, claims):
         "name": name,
         "kind": kind,
         "since_year": since_year,
-        "text": f"I have stood here since {since_year}." if since_year else None,
+        "text": f"My story starts in {since_year}." if since_year else None,
     }
 
 

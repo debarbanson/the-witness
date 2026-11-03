@@ -60,13 +60,14 @@ def test_image_load_failure_uses_progress_line():
 
 
 def test_empty_today_line_gets_no_default():
-    assert 'FILM.today_line ?? "And here I stand today."' in TEMPLATE.read_text()
+    assert 'FILM.today_line ?? "Your photo."' in TEMPLATE.read_text()
 
 
 def test_player_offers_an_audience_switch_when_a_sibling_exists():
     template = TEMPLATE.read_text()
     assert 'id="audience"' in template
-    assert "film.sibling" in template
+    assert "film.sibling_page" in template
+    assert "if (film.sibling)" not in template
     assert '"Picture-book"' in template
     assert '"Documentary"' in template
     assert '"Adults"' not in template

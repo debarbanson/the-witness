@@ -161,7 +161,9 @@ def prune_jobs(store, now, ttl=RETENTION_SECONDS,
                max_age=MAX_JOB_AGE_SECONDS) -> int:
     """Delete jobs (files and records) ended over `ttl` seconds ago.
     Jobs that never ended are deleted past `max_age` after creation,
-    so no failure path keeps a photo forever."""
+    so no failure path keeps a photo forever. A job whose files fail
+    to delete keeps its record and is not counted; the next hour
+    retries it."""
     pruned = 0
     for job_id in store.job_ids():
         try:
@@ -175,7 +177,15 @@ def prune_jobs(store, now, ttl=RETENTION_SECONDS,
             pass
         else:
             continue
-        shutil.rmtree(job["job_dir"], ignore_errors=True)
+        job_dir = job.get("job_dir")
+        if job_dir:
+            try:
+                shutil.rmtree(job_dir)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                print(f"prune failed for job {job_id}: {exc}")
+                continue
         store.drop_job(job_id)
         pruned += 1
     return pruned
@@ -212,7 +222,13 @@ def sweep_job_dirs(store, jobs_root, now,
         if (not entry.is_dir() or str(entry) in known
                 or entry.stat().st_mtime > now - max_age):
             continue
-        shutil.rmtree(entry, ignore_errors=True)
+        try:
+            shutil.rmtree(entry)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print(f"sweep failed for {entry.name}: {exc}")
+            continue
         swept += 1
     return swept
 
@@ -515,7 +531,7 @@ __EXAMPLES__
 <p>__QUOTA_LINE__</p>
 <p>For adults 18 and over.</p>
 __TRY_BLOCK__
-<p class="fine">Your photo is deleted after your film. Read the <a href="/privacy">privacy notice</a>.</p>
+<p class="fine">Your photo is deleted within about a day of your film, or within about 26 hours if you never finish. Read the <a href="/privacy">privacy notice</a>.</p>
 </section>
 <footer class="site">
 <p>Built for the Meta Global AI Developer Hackathon with Muse Spark, Muse Image and Muse Spark Open (via Baseten). The example films' subject cutouts were made with SAM 3.1.</p>
@@ -838,10 +854,12 @@ or cancel clicks. Please type public places only.</p>
 <li>Wikidata and Wikipedia: facts and source texts.</li>
 </ul>
 <h2>How long it is kept</h2>
-<p>One rule: your photo and every derivative (clean copy, paintings,
+<p>Two rules. Your photo and every derivative (clean copy, paintings,
 film page) are deleted at the hourly sweep once your job ended over
-24 h ago. Your location and typed place are held only until the
-worker reads them, then removed from the job file. No account, no
+24 h ago, so within about a day. A job you abandon without finishing
+is deleted once it is over 25 h old. Your location and typed place
+are held only until the worker reads them, then removed from the
+job file. No account, no
 advertising, no sale. To stop one visitor spending the daily budget,
 uploads are counted per visitor: a cookie, plus a keyed hash of the
 network address that rotates daily and is kept 24 h. The raw address

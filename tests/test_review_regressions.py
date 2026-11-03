@@ -1213,7 +1213,9 @@ def test_r3_15_expired_film_and_photo_reads_refuse(tmp_path):
     now[0] = 24 * 3600 + 2
     assert client.get(route).status_code == 404
     root = _Path(webapp.__file__).resolve().parent.parent
-    assert "modal.Period(hours=1)" in (root / "modal_app.py").read_text()
+    text = (root / "modal_app.py").read_text()
+    assert 'modal.Cron("0 * * * *")' in text
+    assert "modal.Period" not in text
 
 
 def test_r3_20_ledger_visitor_hashes_expire_totals_stay():

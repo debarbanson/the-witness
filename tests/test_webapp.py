@@ -890,3 +890,111 @@ def test_robots_txt_disallows_everything(tmp_path):
     assert out.status_code == 200
     assert "User-agent: *" in out.text
     assert "Disallow: /" in out.text
+
+
+def _prune_fixture(tmp_path, name):
+    from witness import webapp
+    from witness.webapp import MemoryStore
+
+    root = tmp_path / name
+    root.mkdir(parents=True, exist_ok=True)
+    store = MemoryStore()
+    now = 300000.0
+    old_end = now - 25 * 3600
+    old_start = now - 26 * 3600
+
+    def job_dir(job_id):
+        folder = root / job_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "today.jpg").write_bytes(b"photo")
+        return str(folder)
+
+    jobs = {}
+    for job_id, status in (("done-1", "done"), ("cancel-1", "cancelled"),
+                           ("fail-1", "failed")):
+        jobs[job_id] = {"job_dir": job_dir(job_id), "status": status,
+                        "started_at": old_start, "ended_at": old_end,
+                        "events": []}
+    jobs["lost-1"] = {"job_dir": job_dir("lost-1"), "status": "working",
+                      "started_at": old_start, "ended_at": None, "events": []}
+    jobs["fresh-1"] = {"job_dir": job_dir("fresh-1"), "status": "working",
+                       "started_at": now - 60, "ended_at": None, "events": []}
+    for job_id, record in jobs.items():
+        store.create_job(job_id, {"vid": "v", **record})
+    orphan = root / "orphan-1"
+    orphan.mkdir(parents=True, exist_ok=True)
+    (orphan / "today.jpg").write_bytes(b"photo")
+    import os
+
+    old = now - 26 * 3600
+    os.utime(orphan, (old, old))
+    return store, root, now
+
+
+def test_prune_deletes_all_ended_states_and_never_ended(tmp_path):
+    import os
+    from witness import webapp
+
+    for backend in ("staging", "judge"):
+        store, root, now = _prune_fixture(tmp_path, backend)
+        assert webapp.prune_jobs(store, now) == 4
+        for job_id in ("done-1", "cancel-1", "fail-1", "lost-1"):
+            assert job_id not in store.jobs
+            assert not os.path.exists(root / job_id)
+        assert "fresh-1" in store.jobs
+        assert os.path.isdir(root / "fresh-1")
+        assert webapp.sweep_job_dirs(store, str(root), now) == 1
+        assert not os.path.exists(root / "orphan-1")
+
+
+def test_prune_keeps_the_record_when_deletion_fails(tmp_path, capsys):
+    from witness import webapp
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    now = 300000.0
+    blocker = tmp_path / "not-a-dir.jpg"
+    blocker.write_bytes(b"photo")
+    store.create_job("stuck-1", {"vid": "v", "job_dir": str(blocker),
+                                 "status": "done",
+                                 "started_at": now - 26 * 3600,
+                                 "ended_at": now - 25 * 3600,
+                                 "events": []})
+    assert webapp.prune_jobs(store, now) == 0
+    assert "stuck-1" in store.jobs
+    assert "stuck-1" in capsys.readouterr().out
+
+
+def test_sweep_counts_only_successful_deletions(tmp_path, monkeypatch):
+    import shutil
+    from witness import webapp
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    now = 300000.0
+    root = tmp_path / "jobs"
+    root.mkdir(parents=True, exist_ok=True)
+    orphan = root / "orphan-9"
+    orphan.mkdir(parents=True, exist_ok=True)
+    import os
+
+    old = now - 26 * 3600
+    os.utime(orphan, (old, old))
+    real_rmtree = shutil.rmtree
+
+    def boom(path, **kwargs):
+        raise OSError("synthetic disk error")
+
+    monkeypatch.setattr(shutil, "rmtree", boom)
+    assert webapp.sweep_job_dirs(store, str(root), now) == 0
+    assert orphan.is_dir()
+    monkeypatch.setattr(shutil, "rmtree", real_rmtree)
+    assert webapp.sweep_job_dirs(store, str(root), now) == 1
+    assert not orphan.exists()
+
+
+def test_privacy_notice_states_both_retention_windows(tmp_path):
+    out = _client(tmp_path).get("/privacy")
+    assert out.status_code == 200
+    assert "24 h" in out.text
+    assert "25 h" in out.text

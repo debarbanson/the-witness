@@ -408,3 +408,9 @@ def test_try_your_own_promises_no_second_version(tmp_path):
     assert "Making spot-the-difference" not in page
     readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
     assert "Uploads make the adult film only." in readme
+
+
+def test_landing_states_photo_retention_plainly(tmp_path):
+    page = _page(tmp_path)
+    assert "within about a day" in page
+    assert "26 hours" in page

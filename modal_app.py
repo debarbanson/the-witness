@@ -755,8 +755,10 @@ def run_film(ref):
     return outcome
 
 
-@app.function(image=image, secrets=[keys], volumes={"/jobs": jobs_volume},
-             schedule=modal.Period(hours=1))
+@app.function(image=image, secrets=[keys],
+             volumes={"/jobs": jobs_volume,
+                      "/judge-jobs": judge_jobs_volume},
+             schedule=modal.Cron("0 * * * *"))
 def prune_hourly():
     """Enforce the 24 h retention rule across job files and records,
     sweep job folders the store no longer knows, and expire visitor

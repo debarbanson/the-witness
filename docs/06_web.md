@@ -107,6 +107,10 @@ export MODAL_PROXY_KEY=<token-id> MODAL_PROXY_SECRET=<token-secret>
 3. After the abuse run, remove the three test flags from the secret (`WITNESS_ABUSE_RESET`, `WITNESS_FAKE_PROVIDER`, `WITNESS_FAKE_DELAY_S`), redeploy, and confirm judge mode starts: the judge URL answers 200 and serves an example film. Judge mode refuses to start while either of the first two flags is set, and its worker refuses fake films.
 4. Put the dated numbers in the README and here, and set `WITNESS_JUDGE_CAP_USD` so judging (5 to 8 Nov) plus the community vote (until 16 Nov) fits the remaining credits.
 
+### Freeze
+
+The repo is frozen at the deadline: Wed 4 Nov 21:00 ET (Thu 5 Nov 03:00 in the Netherlands). Aim to finish code and README by Wednesday 18:00 Dutch time. After the deadline the judge app runs the submitted commit unchanged: only the off switch and the limit values in the secret or Dict may change; no new code and no redeploys of new code. The `v1.0-submission` tag waits for the owner's go.
+
 ## Out of scope
 
 Sharing links, galleries, user history, payments.

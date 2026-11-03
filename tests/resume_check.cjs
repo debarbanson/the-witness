@@ -44,9 +44,10 @@ const lis = ["identify", "research", "check", "paint", "film"].map((step) => {
 });
 
 const byId = {};
-const saved = mode === "cancel" ? {} : { "witness.job": "job-9" };
+const saved = { "witness.job": "job-9" };
 const calls = [];
 let pollCount = 0;
+let cancelled = false;
 
 function jsonResponse(obj, status = 200) {
   return { ok: status >= 200 && status < 300, status,
@@ -66,11 +67,16 @@ async function fakeFetch(url, opts = {}) {
     return jsonResponse({ detail: "gone" }, 403);
   }
   if (/\/api\/jobs\/job-9(\/|$)/.test(url) && method === "DELETE") {
+    cancelled = true;
     return jsonResponse({ cancelled: true });
   }
   if (url === "/api/jobs/job-9" && method === "GET") {
     pollCount += 1;
     if (mode === "cancel") {
+      if (cancelled) {
+        return jsonResponse({ status: "cancelled", events: [],
+          result: { message: "job cancelled" } });
+      }
       return jsonResponse({ status: "working", events: [] });
     }
     if (pollCount < 2) {
@@ -115,15 +121,21 @@ vm.createContext(sandbox);
   vm.runInContext(script[1], sandbox);
   const flush = () => new Promise((r) => setImmediate(r));
   if (mode === "cancel") {
-    saved["witness.job"] = "job-9";
-    for (let i = 0; i < 20; i++) { await flush(); }
     const btn = sandbox.document.getElementById("cancel");
+    const result = sandbox.document.getElementById("result");
     assert(btn.onclick, "Cancel button has no handler");
-    await btn.onclick();
+    const clicked = btn.onclick();
+    assert(btn.disabled === true, "cancel not disabled on click");
+    assert(result.textContent.includes("Cancelling"),
+      "no cancelling feedback");
+    await clicked;
     for (let i = 0; i < 20; i++) { await flush(); }
     assert(calls.includes("DELETE /api/jobs/job-9"),
       `no cancel DELETE in ${JSON.stringify(calls)}`);
-    console.log("cancel button deletes: OK");
+    assert(result.textContent.includes("Cancelled"),
+      "no cancelled confirmation");
+    assert(btn.style.display === "none", "cancel visible after end");
+    console.log("cancel feedback then cancelled: OK");
     return;
   }
   for (let i = 0; i < 60; i++) { await flush(); }
@@ -136,6 +148,9 @@ vm.createContext(sandbox);
     const kids = sandbox.document.getElementById("result").children.length;
     assert(text.includes("/film/job-9/tok/film.html") || kids > 0,
       "film link not shown");
+    assert.strictEqual(
+      sandbox.document.getElementById("cancel").style.display, "none",
+      "cancel visible after end");
     console.log("resume keeps the film with no second admission: OK");
   } else if (mode === "misses") {
     assert.strictEqual(posts.length, 0, "misses admitted a job");

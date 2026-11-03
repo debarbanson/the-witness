@@ -673,6 +673,41 @@ def test_full_fake_upload_verifies_a_fact_with_no_network(tmp_path, monkeypatch)
     assert 0 < job["result"]["cost_usd"] < 0.05
 
 
+def test_not_identified_without_location_hints_at_where_is_it(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    spec["lat"], spec["lon"] = 52.0, 4.0  # browser fix, like the owner run
+    assert spec["place"] in ("", None) and spec["location"] is None
+    monkeypatch.setattr(webfilm_module.cli, "run_job",
+                        lambda *a, **k: {"confirmed": False,
+                                         "identified": False})
+    try:
+        assert run_web_film(spec, store, authority=None)["status"] == "not_identified"
+    finally:
+        models.configure_spending(None)
+    assert store.get_job("job-1")["result"]["message"] == (
+        "We couldn't tell which landmark this is. Type its name and "
+        "town under 'Where is it?' and try again.")
+
+
+def test_not_identified_with_a_place_keeps_the_short_hint(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    spec["place"] = "Test Town"
+    monkeypatch.setattr(webfilm_module.cli, "run_job",
+                        lambda *a, **k: {"confirmed": False,
+                                         "identified": False})
+    try:
+        assert run_web_film(spec, store, authority=None)["status"] == "not_identified"
+    finally:
+        models.configure_spending(None)
+    assert "Where is it" not in store.get_job("job-1")["result"]["message"]
+
+
 def test_paint_step_events_name_the_model(tmp_path, monkeypatch):
     import witness.webfilm as webfilm_module
     from witness.webfilm import run_web_film

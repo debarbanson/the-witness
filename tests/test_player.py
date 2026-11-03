@@ -68,7 +68,8 @@ def test_player_offers_an_audience_switch_when_a_sibling_exists():
     assert 'id="audience"' in template
     assert "film.sibling" in template
     assert '"Picture-book"' in template
-    assert '"Adults"' in template
+    assert '"Documentary"' in template
+    assert '"Adults"' not in template
 
 
 def test_audience_switch_navigates_to_the_sibling_page():

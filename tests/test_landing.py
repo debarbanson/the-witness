@@ -55,9 +55,11 @@ def _page(tmp_path, **overrides):
 
 def test_hero_says_what_it_does_with_a_preview(tmp_path):
     page = _page(tmp_path)
-    assert "The turning points of its history, painted from your photo." in page
+    assert "One photo. The turning points it has witnessed, painted and sourced." in page
     assert '<h1 class="hero-title">' in page
-    assert "every fact sourced" in page.lower()
+    assert "checks every fact against a source" in page
+    assert "The film ends on your own photo." in page
+    assert "De Adriaan, Haarlem: opened 1779, burnt 1932, rebuilt 2002." in page
     assert re.search(r'<video[^>]*muted[^>]*loop[^>]*playsinline', page)
     assert "/assets/landing/hero.mp4" in page
     assert "/assets/landing/hero-poster.jpg" in page
@@ -86,9 +88,9 @@ def test_how_it_works_has_three_steps_with_real_frames(tmp_path):
     client = _client(tmp_path)
     page = client.get("/").text
     assert "Your photo" in page
-    assert "sourced history" in page
-    assert "Painted eras" in page
-    assert "returns to your photo" in page
+    assert "Its history, with sources" in page
+    assert "Painted through time" in page
+    assert "The film ends on your photo." in page
     for src in ("/assets/landing/step1.jpg", "/assets/landing/step3.webp"):
         assert src in page
         assert client.get(src).status_code == 200
@@ -96,8 +98,9 @@ def test_how_it_works_has_three_steps_with_real_frames(tmp_path):
 
 def test_accuracy_promise_states_the_code(tmp_path):
     page = _page(tmp_path)
-    assert "every fact shown links to the page it came from" in page.lower()
-    assert "claims without a source are left out" in page.lower()
+    assert "every fact on screen links to the page it came from" in page.lower()
+    assert "a claim without a confirming source is left out" in page.lower()
+    assert "it doesn't guarantee historical truth" in page.lower()
     assert REFUSED in page
     assert "Major Oak" in page
 
@@ -127,9 +130,9 @@ def test_gallery_without_a_child_hides_the_pill(tmp_path):
 
 def test_try_your_own_says_what_works_and_how_long(tmp_path):
     page = _page(tmp_path)
-    assert "tower, windmill, lighthouse, old tree or bridge" in page
+    assert "windmill, tower, lighthouse, bridge or old tree" in page
     assert "about 8 minutes" in page
-    assert "facts instead of a film" in page
+    assert "checked facts instead" in page
     assert "by design" in page
     assert 'id="upload"' in page
     assert 'id="geo"' in page
@@ -191,30 +194,29 @@ def test_try_your_own_has_a_styled_picker_with_preview(tmp_path):
     assert "img-src 'self' blob:" in csp
 
 
-def test_try_your_own_privacy_is_three_bullets(tmp_path):
-    import re as _re
-
+def test_try_your_own_usage_is_one_compact_paragraph(tmp_path):
     page = _page(tmp_path)
-    notice = _re.search(r'<section id="notice">(.*?)</section>', page,
-                        _re.S).group(1)
-    assert notice.count("<li>") == 3
-    assert "Full notice" in notice
+    assert '<section id="notice">' not in page
+    assert "Step 3: How your photo is used" in page
+    assert "Your photo is sent to Meta and Baseten" in page
+    assert "OpenStreetMap services, Wikidata and Wikipedia" in page
+    assert "Full notice" in page
     assert 'name="ack"' in page
-    for name in ("Meta", "Baseten", "Modal", "Nominatim", "Overpass",
-                 "Wikidata", "Wikipedia"):
-        assert name in notice
+    assert "I understand how my photo is used." in page
 
 
-def test_try_your_own_shows_tries_and_left(tmp_path):
+def test_try_your_own_shows_films_left(tmp_path):
     page = _page(tmp_path)
-    assert "tries a day" in page
-    assert "left today" in page
+    assert "Films left today in this browser:" in page
+    assert "daily limit per network and overall" in page
     assert "Resets tomorrow" in page
+    assert ("Every started film uses one of your tries, even when the "
+            "landmark can't be recognised.") in page
 
 
 def test_try_your_own_progress_is_a_step_list(tmp_path):
     page = _page(tmp_path)
-    for step in ("Identify", "Research", "Check", "Paint", "Film"):
+    for step in ("Recognise", "Research", "Check", "Paint", "Film"):
         assert step in page
     assert 'data-step="identify"' in page
     assert ".done::before" in page or ".step-done" in page
@@ -342,9 +344,49 @@ def test_family_wording_replaces_children_version(tmp_path):
     assert "8+" not in page
 
 
-def test_try_your_own_carries_the_18plus_line(tmp_path):
+def test_no_adult_words_in_user_facing_text(tmp_path):
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
     page = _page(tmp_path)
-    assert "For adults 18 and over" in page
+    privacy = _client(tmp_path).get("/privacy").text
+    texts = {"landing": page, "privacy": privacy}
+    for name in ("README.md", "docs/01_brief.md", "docs/02_pipeline.md",
+                 "docs/04_demo.md", "docs/06_web.md", "docs/07_test_set.md",
+                 "docs/08_picture_book.md", "witness/render/film.html",
+                 "witness/render/spot.html"):
+        texts[name] = (root / name).read_text()
+    for where, text in texts.items():
+        clean = re.sub(r"`[^`]*`", "", text).lower()
+        assert "adult" not in clean, where
+
+
+def test_no_age_line_on_landing_page(tmp_path):
+    page = _page(tmp_path)
+    assert "18 and over" not in page
+    assert "18 or older" not in page
+
+
+def test_privacy_notice_has_one_age_sentence(tmp_path):
+    privacy = _client(tmp_path).get("/privacy").text
+    assert privacy.count("You must be 18 or older to upload a photo.") == 1
+    assert "For adults 18 and over" not in privacy
+
+
+def test_recognising_phase_names_the_model(tmp_path):
+    page = _page(tmp_path)
+    assert 'recognising: "Recognising the landmark (Muse Spark)"' in page
+    assert "recognising: 0" in page
+
+
+def test_place_field_has_label_and_placeholder(tmp_path):
+    import re
+
+    page = _page(tmp_path)
+    assert re.search(r"<label[^>]*>.*?<input[^>]*name=\"place\"",
+                     page, re.S), "place field has no label"
+    assert 'placeholder="De Adriaan, Haarlem"' in page
 
 
 def test_player_audience_button_says_family():
@@ -427,7 +469,7 @@ def test_try_your_own_promises_no_second_version(tmp_path):
     assert "Writing the family version" not in page
     assert "Making spot-the-difference" not in page
     readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
-    assert "Uploads make the adult film only." in readme
+    assert "Uploads make the film only." in readme
 
 
 def test_landing_states_photo_retention_plainly(tmp_path):

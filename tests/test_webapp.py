@@ -118,9 +118,9 @@ def _client(tmp_path, **overrides):
 def test_index_shows_notice_examples_and_place_hint(tmp_path):
     out = _client(tmp_path).get("/")
     assert out.status_code == 200
-    body = out.text
-    for word in ("De Adriaan", "Meta", "Baseten", "Nominatim", "Overpass",
-                 "Wikidata", "Wikipedia", "24", "owner@example.com",
+    body = out.text.lower()
+    for word in ("de adriaan", "meta", "baseten", "openstreetmap services",
+                 "wikidata", "wikipedia", "24", "owner@example.com",
                  "public places only"):
         assert word in body, word
 
@@ -134,10 +134,11 @@ def test_privacy_page_is_fuller(tmp_path):
     assert "24 h" in out.text
 
 
-def test_privacy_page_carries_the_18plus_line(tmp_path):
+def test_privacy_page_keeps_one_quiet_age_sentence(tmp_path):
     out = _client(tmp_path).get("/privacy")
     assert out.status_code == 200
-    assert "For adults 18 and over" in out.text
+    assert out.text.count("You must be 18 or older to upload a photo.") == 1
+    assert "For adults 18 and over" not in out.text
     assert "children's version" not in out.text.lower()
     assert "8+" not in out.text
 

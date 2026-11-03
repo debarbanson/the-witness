@@ -26,7 +26,7 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 
 ## Two versions
 
-Uploads make the adult film only. The three examples also carry a picture-book version: the same checked facts in simpler words with picture-book paintings, ending in a "spot the difference" game between a painted era and today's photo. Both need enough verified material. Simple, but still true: every picture-book caption is verified again. Details: [08_picture_book.md](08_picture_book.md).
+Uploads make the film only. The three examples also carry a picture-book version: the same checked facts in simpler words with picture-book paintings, ending in a "spot the difference" game between a painted era and today's photo. Both need enough verified material. Simple, but still true: every picture-book caption is verified again. Details: [08_picture_book.md](08_picture_book.md).
 
 ## Out of scope for the hackathon
 
@@ -40,4 +40,4 @@ Uploads make the adult film only. The three examples also carry a picture-book v
 - Three films from three real photos (a windmill, an old tree, a lighthouse), each about 30 to 37 seconds.
 - Every caption has a working source link, shown on screen and in an end card.
 - In every era the object matches its verified state for that year (for example De Adriaan: built 1779, burnt 1932, rebuilt 2002).
-- Generated in a few minutes per film, for under $1 in API cost. Modelled 30 Oct from measured call counts: about $0.30 to $0.50 per painted adult film, the picture-book set roughly doubling the painting and caption checks. End-to-end time is measured on staging.
+- Generated in a few minutes per film, for under $1 in API cost. Modelled 30 Oct from measured call counts: about $0.30 to $0.50 per painted film, the picture-book set roughly doubling the painting and caption checks. End-to-end time is measured on staging.

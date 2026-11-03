@@ -289,7 +289,7 @@ function start(film) {
     document.getElementById("replay").onclick = replayFilm;
     const audienceBtn = document.getElementById("audience");
     if (film.sibling) {
-      audienceBtn.textContent = film.audience === "child" ? "Adults" : "Picture-book";
+      audienceBtn.textContent = film.audience === "child" ? "Documentary" : "Picture-book";
       audienceBtn.classList.remove("hidden");
       audienceBtn.style.display = "";
       audienceBtn.onclick = () => {

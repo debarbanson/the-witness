@@ -105,7 +105,7 @@ The thresholds are first guesses; tune them on the demo subjects.
 Pattern from Meta's cookbook [Keep an image series consistent](https://dev.meta.ai/docs/cookbook/anchored-image-series.md):
 
 - Responses API, model `muse-image-1.0`. Every era branches from the anchor turn (`previous_response_id` = the anchor's id) and paints in parallel (the limit is 150 images a minute).
-- **Parallel decided the evening of 27 October on De Adriaan:** 6 of 6 eras in 79 s against 5 of 6 in 195 s for the serial chain, framing drift 0.3% against 3.6% by SAM box, and no expired-id cascade. That evidence is from one object. Adult and child paint from separate anchors made from the same photo.
+- **Parallel decided the evening of 27 October on De Adriaan:** 6 of 6 eras in 79 s against 5 of 6 in 195 s for the serial chain, framing drift 0.3% against 3.6% by SAM box, and no expired-id cascade. That evidence is from one object. The two versions paint from separate anchors made from the same photo.
 - **Anchor turn:** the user's photo as `input_image`, with an instruction to keep the place's viewpoint and composition and to establish the painted style.
 - **Era turns:** the object's verified state for that year (from the state timeline) plus the verified surroundings (season, period dress and transport) and the shared style words. The object is painted as it was then: whole, burnt, a stump, under scaffolding, rebuilt.
 - **Settings go inside the image tool** (proven 26 Oct; top-level parameters return 400 `unknown parameter`): `tools: [{"type": "image_generation", "size": "1024x1536", "enable_image_search": false}]`. `"1080x1920"` and `"1024x1792"` are rejected; `"1024x1536"` returns 1280x1920, which the renderer crops to 1080x1920.
@@ -136,7 +136,7 @@ The User-Agent for all of them: `the-witness/0.1 (https://github.com/debarbanson
 
 ## Step 5b: Spot the difference (picture-book version)
 
-One painted era next to today's photo; `muse-spark-1.3` (vision) answers with grounded reveal lines quoted from the verified changes, each checked against what is visible and against the object's verified state. Full specification, and the picture-book captions and painting style: [08_picture_book.md](08_picture_book.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Adults/Picture-book switch.
+One painted era next to today's photo; `muse-spark-1.3` (vision) answers with grounded reveal lines quoted from the verified changes, each checked against what is visible and against the object's verified state. Full specification, and the picture-book captions and painting style: [08_picture_book.md](08_picture_book.md). The audience setting (`adult` or `child`) runs through research and captions; both versions are written, cached and rendered behind the Documentary/Picture-book switch.
 
 ## Step 6: Cut, see Planned
 
@@ -174,14 +174,14 @@ Measured 30 Oct: one Baseten support vote takes 15 s on average (12-case eval, v
 
 Prices live in `witness/models.py`: Muse Spark $1.25 per M tokens in, $4.25 out; Baseten open-weights $1.25 per M in and out; Muse Image $0.01 a picture; SAM $0.0025 a picture; web search $0.0025 a search. A measured Baseten support vote costs $0.007.
 
-| Item | Count per adult film | Cost |
+| Item | Count per film | Cost |
 |---|---|---|
 | Research (Meta, with ~12 searches) | 1 call | ~$0.10 |
 | Support votes (Baseten) | ~25 | ~$0.18 |
 | Paintings | up to 4 eras, first scene doubling as the anchor | ~$0.04 |
 | Painting checks (Meta vision) plus caption checks (Meta text) | ~8 | ~$0.05 |
 | SAM cut-out | 0 on uploads; 1 on command-line renders with --subject | under $0.01 |
-| **Adult total** | | **about $0.30 to $0.50** |
+| **Film total** | | **about $0.30 to $0.50** |
 | Picture-book extra (paintings, checks, captions, game) | ~10 calls | ~$0.12 to $0.15 |
 
 Every billable call reserves its ceiling with one budget authority before it runs; the web page refuses new films past the daily quota.

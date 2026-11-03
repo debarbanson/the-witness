@@ -556,7 +556,7 @@ Not built; scheduled Wed-Thu after the painting. What this round
 put in place: `research.json` already holds, per scene, the state
 plus caption lines with their claim year and text, and per claim
 the quote, source URL and verdict. Picture-book captions fit there as
-a rewrite next to each adult caption line (same claim, same quote),
+a rewrite next to each documentary caption line (same claim, same quote),
 re-verified against that quote per docs/08_picture_book.md; the
 audience setting (`adult` or `child`) will run from research
 through captions, painting, the check and the renderer, with both

@@ -12,7 +12,7 @@ Built for the Meta Global AI Developer Hackathon (kicked off 26 October 2026, 17
 
 The public judge page: **[JUDGE_URL_TO_FILL_IN_BY_OWNER]** (the owner adds the URL here on their go).
 
-Watch the three example films first, then Try your own: take or choose a photo of an old, well-documented landmark, confirm the object, and watch the finished film. Tries are limited per visitor and per day (the page shows how many are left); past the limit, or when Try your own is resting, the page says so and points back to the examples. For adults 18 and over. No access codes; nothing to install.
+Watch the three example films first, then Try your own: take or choose a photo of an old, well-documented landmark, confirm the object, and watch the finished film. Tries are limited per visitor and per day (the page shows how many are left); past the limit, or when Try your own is resting, the page says so and points back to the examples. No access codes; nothing to install.
 
 ## How it works
 
@@ -32,9 +32,7 @@ Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/0
 
 ## The picture-book version, in the examples
 
-For adults 18 and over.
-
-Uploads make the adult film only. The three examples also carry a picture-book version: the same checked facts in simpler words, with picture-book paintings from the same anchor, plus a "spot the difference" game between a painted era and the photo of today. Both need enough verified material. See [docs/08_picture_book.md](docs/08_picture_book.md).
+Uploads make the film only. The three examples also carry a picture-book version: the same checked facts in simpler words, with picture-book paintings from the same anchor, plus a "spot the difference" game between a painted era and the photo of today. Both need enough verified material. See [docs/08_picture_book.md](docs/08_picture_book.md).
 
 ## Principles
 
@@ -45,8 +43,6 @@ Uploads make the adult film only. The three examples also carry a picture-book v
 - **No war, no politics.** Eras dominated by conflict or political events are left out (hackathon rule, and the films are about places, not battles).
 
 ## Run it yourself
-
-For adults 18 and over.
 
 ### macOS
 
@@ -123,7 +119,7 @@ Measured 30 Oct from the saved token counts (research) plus the shipped painting
 
 Caption and check text tokens and web-search counts are tallied in process but not saved, so they are missing from these totals. The support vote was evaluated on two developer-written sets from the 3 demo films, mostly from Wikipedia: 53 cases (open 52 valid correct; Meta 47 valid with 5 errors failing closed; 1 shared false rejection) plus 28 harder cases with prompt injections (open 28; Meta 25 valid with 3 errors failing closed). Both arms agree on every accept or not-accept decision, so the sets are regression evidence on these cases but do not separate the models; the open model matches Meta at lower cost and higher latency. The eval tests isolated support votes only, not anchors, captions, state, painting or rendering. See [docs/04_demo.md](docs/04_demo.md) and [docs/07_test_set.md](docs/07_test_set.md).
 
-Measured 2 Nov on staging (De Adriaan, one full Try-your-own, paid): Identify 33 s, Research 49 s, Check 91 s, Paint 272 s (captions 47 s, painting 225 s), Film 3 s; 454 s wall to the adult film (about 8 minutes). Model-API ledger delta $1.03 (56 paid calls; adult job ledger $0.52, extras started). Modal compute about $0.005 for the film ($0.01 metered for the whole staging session, $0.00 billed after credits).
+Measured 2 Nov on staging (De Adriaan, one full Try-your-own, paid): Identify 33 s, Research 49 s, Check 91 s, Paint 272 s (captions 47 s, painting 225 s), Film 3 s; 454 s wall to the film (about 8 minutes). Model-API ledger delta $1.03 (56 paid calls; film job ledger $0.52, extras started). Modal compute about $0.005 for the film ($0.01 metered for the whole staging session, $0.00 billed after credits).
 
 ## Planned, not built
 

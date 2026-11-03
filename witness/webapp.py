@@ -383,17 +383,14 @@ def _quota_line_cached(deps, vid, vkey, now) -> str:
 
 
 def _quota_line(deps, vid, vkey, now) -> str:
-    """Plain-words tries before upload: each limit and how many are
-    left for this visitor today."""
-    daily, visitor, network = _film_limits(deps)
+    """Plain-words tries before upload: this browser's films left,
+    with the network and overall limits named in small print."""
+    _, visitor, _ = _film_limits(deps)
     used = _quota_used(deps, vid, vkey, now)
-    daily_left = max(0, daily - used["films"])
     visitor_left = max(0, visitor - used["visitor"])
-    network_left = max(0, network - used["network"])
-    return (f"{visitor} tries a day in this browser ({visitor_left} "
-            f"left today), {network} per network ({network_left} "
-            f"left), {daily} total a day ({daily_left} left). "
-            "Resets tomorrow.")
+    return (f"Films left today in this browser: {visitor_left}. "
+            f"<small>To keep this demo running, there's also a daily "
+            f"limit per network and overall. Resets tomorrow.</small>")
 
 
 INDEX_PAGE = """<!doctype html>
@@ -464,7 +461,9 @@ section.block{margin-bottom:56px}
 #notice ul{margin:0 0 12px;padding-left:22px}
 #notice li{margin-bottom:6px}
 form p{margin:0 0 12px}
+form h3{margin:20px 0 8px;font-size:19px}
 input[type="text"]{font:inherit;max-width:100%}
+input[name="place"]{display:block;width:100%;box-sizing:border-box;border:2px solid var(--ink);border-radius:8px;padding:10px 12px;margin-top:6px}
 .file-btn{display:inline-block;background:var(--ink);color:var(--paper);border-radius:999px;padding:10px 22px;cursor:pointer}
 .file-btn input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 #preview{max-width:200px;height:auto;border-radius:8px;margin-top:4px}#preview.hidden{display:none}
@@ -492,16 +491,17 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 </header>
 <section class="hero" aria-label="Introduction">
 <div class="hero-left">
-<h1 class="hero-title">The turning points of its history, painted from your photo.</h1>
+<h1 class="hero-title">One photo. The turning points it has witnessed, painted and sourced.</h1>
 <div class="hero-body">
-<p class="lede">Your landmark, researched and painted back through time, every fact sourced.</p>
-<p class="actions"><a class="btn" href="#examples">Watch the examples</a> <a class="btn ghost" href="#try">Try your own photo</a></p>
+<p class="lede">Take a photo of an old windmill, tower, lighthouse, bridge or tree. The Witness recognises it, researches its history, checks every fact against a source and paints each turning point. The film ends on your own photo.</p>
+<p class="actions"><a class="btn" href="#examples">Watch an example</a> <a class="btn ghost" href="#try">Try your own photo</a></p>
 <ol class="years" aria-label="De Adriaan through time">
 <li>1779</li>
 <li>1932</li>
 <li>2002</li>
 <li>today</li>
 </ol>
+<p>De Adriaan, Haarlem: opened 1779, burnt 1932, rebuilt 2002.</p>
 <p class="hero-facts">__HERO_FACTS__</p>
 </div>
 </div>
@@ -515,23 +515,23 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <div class="steps">
 <article class="step">
 <div class="step-media"><img src="/assets/landing/step1.jpg" width="1200" height="900" loading="lazy" alt="Today's photo of De Adriaan windmill in Haarlem"></div>
-<div><h3>1. Your photo</h3><p>Start with an old, well-documented landmark.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
+<div><h3>1. Your photo</h3><p>Take or upload a photo of an old, well-documented landmark.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
 </article>
 <article class="step">
-<div><h3>2. Its sourced history</h3><p>We research what happened here, and check every claim against its sources.</p><figure class="fact"><blockquote>De Adriaan was officially opened on May 19, 1779.</blockquote><figcaption>1779 · <a href="https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem">Wikipedia: De Adriaan, Haarlem</a></figcaption></figure></div>
+<div><h3>2. Its history, with sources</h3><p>Muse Spark researches what happened there. A second model, Muse Spark Open, checks every claim against the page it came from, with Muse Spark judging state-setting follow-ups. Anything that can't be checked is left out.</p><figure class="fact"><blockquote>De Adriaan was officially opened on May 19, 1779.</blockquote><figcaption>1779 · <a href="https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem">Wikipedia: De Adriaan, Haarlem</a></figcaption></figure></div>
 </article>
 <article class="step">
 <div class="step-media"><img src="/assets/landing/step3.webp" width="1280" height="1920" loading="lazy" alt="De Adriaan painted in 1932, the year it burnt down"></div>
-<div><h3>3. Painted eras</h3><p>Each era is painted from checked evidence. Then the film returns to your photo.</p></div>
+<div><h3>3. Painted through time</h3><p>Muse Image paints each turning point from the checked facts. The film ends on your photo.</p></div>
 </article>
 </div>
 </section>
 <section class="block promise" aria-label="The accuracy promise">
-<h2>Sourced and checked, or it is not in the film</h2>
+<h2>Sourced and checked, or it's not in the film</h2>
 <ul>
-<li>Every fact shown links to the page it came from.</li>
-<li>Claims without a source are left out of the film.</li>
-<li>That is what the sources support, not a guarantee of historical truth.</li>
+<li>Every fact on screen links to the page it came from.</li>
+<li>A claim without a confirming source is left out.</li>
+<li>The film shows what the sources say. It doesn't guarantee historical truth.</li>
 </ul>
 <figure>
 <blockquote>Not in the film: in July 2020 the tree was reported as vandalised, with a three-foot section of bark fallen off. No fetched source confirmed it.</blockquote>
@@ -540,19 +540,18 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 </section>
 <section class="block" id="examples" aria-label="Example films">
 <h2>Example films</h2>
-<p>Three landmarks, researched and painted. Each card opens the film player.</p>
+<p>Three landmarks, researched and painted. Each has a documentary version and a picture-book version with a spot-the-difference game.</p>
 <div class="gallery">
 __EXAMPLES__
 </div>
 </section>
 <section class="block try" id="try" aria-label="Try your own photo">
 <h2>Try your own photo</h2>
-<p>Works best with old, well-documented landmarks: a tower, windmill, lighthouse, old tree or bridge.</p>
 <p>__TRY_DURATION__</p>
-<p>Sometimes the sources are thin. Then you get the verified facts instead of a film. That is by design.</p>
-<p>Uploads make the adult film only. The examples include the picture-book version and the spot-the-difference game.</p>
+<p class="fine">You can lock your phone or switch apps: your film keeps going. Come back to this page in the same browser to see it.</p>
 <p>__QUOTA_LINE__</p>
-<p>For adults 18 and over.</p>
+<p class="fine">Every started film uses one of your tries, even when the landmark can't be recognised.</p>
+<p>Sometimes the sources are too thin for a film. Then you get the checked facts instead. That's by design.</p>
 __TRY_BLOCK__
 <p class="fine">Your photo is deleted within about a day of your film, or within about 26 hours if you never finish. Read the <a href="/privacy">privacy notice</a>.</p>
 </section>
@@ -591,6 +590,7 @@ if (heroVid && yearItems.length) {
 const form = document.getElementById("upload");
 const PHASES = {
   identifying: "Finding your object…",
+  recognising: "Recognising the landmark (Muse Spark)",
   researched: "Researching its history…",
   verifying: "Checking the facts…",
   captions: "Writing captions…",
@@ -603,7 +603,7 @@ function phaseWords(name) {
   if (Object.prototype.hasOwnProperty.call(PHASES, name)) { return PHASES[name]; }
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ") + "…";
 }
-const STEP_FOR = {identifying: 0, identified: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, verify: 2, captions: 3, painting: 3, render: 4};
+const STEP_FOR = {identifying: 0, identified: 0, recognising: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, verify: 2, captions: 3, painting: 3, render: 4};
 function updateSteps(ev) {
   const items = document.querySelectorAll("#steps li");
   if (!items.length) { return; }
@@ -655,14 +655,21 @@ async function watch(id) {
   const box = document.getElementById("job");
   box.style.display = "block";
   box.dataset.id = id;
+  document.getElementById("result").textContent = "";
+  const cancelBtn = document.getElementById("cancel");
+  cancelBtn.style.display = "";
+  cancelBtn.disabled = false;
   saveJob(id);
   const t0 = Date.now();
   const timer = setInterval(() => {
-    document.getElementById("clock").textContent = Math.floor((Date.now() - t0) / 1000);
+    const s = Math.floor((Date.now() - t0) / 1000);
+    document.getElementById("clock").textContent =
+      Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }, 500);
   const finish = () => {
     clearInterval(timer);
     box.dataset.finished = "yes";
+    document.getElementById("cancel").style.display = "none";
     clearJob();
   };
   let missed = 0;
@@ -704,7 +711,11 @@ async function watch(id) {
     } else { confirmBox.style.display = "none"; }
     if (["done", "cancelled", "failed", "expired"].includes(st.status)) {
       finish();
-      showResult(document.getElementById("result"), st);
+      if (st.status === "cancelled") {
+        document.getElementById("result").textContent = "Cancelled.";
+      } else {
+        showResult(document.getElementById("result"), st);
+      }
       break;
     }
     await new Promise(r => setTimeout(r, 2000));
@@ -726,6 +737,10 @@ form.onsubmit = async ev => {
 document.getElementById("cancel").onclick = async () => {
   const id = currentId();
   if (!id) { return; }
+  const btn = document.getElementById("cancel");
+  btn.disabled = true;
+  document.getElementById("result").textContent =
+    "Cancelling: the step in progress finishes, then nothing new starts.";
   try {
     await fetch("/api/jobs/" + id, {method: "DELETE"});
   } catch (err) {}
@@ -745,35 +760,34 @@ if (resumed) { watch(resumed); }
 </html>
 """
 
-TRY_DURATION_LINE = ("A staging film measured 2 Nov took about 8 minutes "
-                     "to the adult film; uploads now make the adult film "
-                     "only. This line is updated after the phone tests.")
+TRY_DURATION_LINE = ("Works best with an old, well-documented landmark: "
+                     "a windmill, tower, lighthouse, bridge or old tree. "
+                     "Your photo becomes one painted film with its sources, "
+                     "in about 8 minutes (one film measured 2 Nov; updated "
+                     "after the owner's phone films).")
 
-TRY_FORM = """<section id="notice">
-<p><strong>Before you upload:</strong></p>
-<ul>
-<li>Your photo is processed to find and tell the story of the landmark it shows.</li>
-<li>It is sent to Meta (recognition, painting, checks) and Baseten (fact checking), on hosting by Modal. Nearby-place lookups go to Nominatim, Overpass (including the community mirror), Wikidata and Wikipedia.</li>
-<li>Your photo and everything made from it are deleted within about a day of your film, or within about 26 hours if you never finish. Questions: __CONTACT__. <a href="/privacy">Full notice</a></li>
-</ul>
-</section>
-<form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
+TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
+<h3>Step 1: Your photo</h3>
 <p><label class="file-btn">Take or choose a photo<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></p>
 <p><img id="preview" class="hidden" alt="Preview of your chosen photo"></p>
+<h3>Step 2: Where is it?</h3>
+<p><label>Landmark and town<input type="text" name="place" autocomplete="off" placeholder="De Adriaan, Haarlem"></label></p>
+<p class="fine">Type the landmark and town. Leave it empty if the photo has its location, or to let Muse Spark recognise the landmark.</p>
+<p class="fine">Public places only, never a home address.</p>
+<p><button type="button" id="geo">Standing in front of it? Use my location</button></p>
+<h3>Step 3: How your photo is used</h3>
+<p class="fine">Your photo is sent to Meta and Baseten to recognise, research, check and paint, on hosting by Modal. Place lookups go to OpenStreetMap services, Wikidata and Wikipedia. Your photo and film are deleted within about a day. <a href="/privacy">Full notice</a></p>
 <p><label><input type="checkbox" name="ack" value="on" required>
-I understand the notice above.</label></p>
-<p>No location in your photo?
-<button type="button" id="geo">Use my location</button>
-or type public places only: <input type="text" name="place" autocomplete="off"></p>
+I understand how my photo is used.</label></p>
 <p><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"></p>
 <p><button type="submit">Make my film</button></p>
 </form>
 <div id="job" class="hidden">
-<p>Working: <span id="clock">0</span> s</p>
-<ol id="steps"><li data-step="identify">Identify<span class="model"></span></li><li data-step="research">Research<span class="model"></span></li><li data-step="check">Check<span class="model"></span></li><li data-step="paint">Paint<span class="model"></span></li><li data-step="film">Film<span class="model"></span></li></ol>
+<p>Making your film: <span id="clock">0:00</span></p>
+<ol id="steps"><li data-step="identify">Recognise<span class="model"></span></li><li data-step="research">Research<span class="model"></span></li><li data-step="check">Check<span class="model"></span></li><li data-step="paint">Paint<span class="model"></span></li><li data-step="film">Film<span class="model"></span></li></ol>
 <div id="confirm" class="hidden">
 <p>Is this <strong id="confirm-name"></strong> (<span id="confirm-kind"></span>)?</p>
-<p><button id="yes">Yes</button> <button id="no">No</button></p>
+<p><button id="yes">Yes, that's it</button> <button id="no">No</button></p>
 </div>
 <ul id="events"></ul>
 <p id="result"></p>
@@ -894,7 +908,7 @@ PRIVACY_PAGE = """<!doctype html>
 <h1>Privacy notice</h1>
 <p>The Witness turns your photo of a public landmark into a short film
 about that landmark. This page says what is processed, why, by whom
-and for how long. For adults 18 and over.</p>
+and for how long.</p>
 <h2>What you send us</h2>
 <p>Your photo (possibly with embedded location), an optional typed
 place or browser location when the photo has none, and your confirm
@@ -919,6 +933,7 @@ advertising, no sale. To stop one visitor spending the daily budget,
 uploads are counted per visitor: a cookie, plus a keyed hash of the
 network address that rotates daily and is kept 24 h. The raw address
 is never stored.</p>
+<p>You must be 18 or older to upload a photo.</p>
 <h2>Contact</h2>
 <p>Questions or deletion sooner: __CONTACT__.</p>
 <p><a href="/">Back</a></p>

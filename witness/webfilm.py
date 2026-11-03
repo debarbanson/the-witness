@@ -171,9 +171,12 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
     if result.get("capped") or result.get("deadline"):
         return finish({"message": result.get("error", "stopped")}, "stopped")
     if not result.get("identified"):
-        return finish(
-            {"message": "Not identified. Try a closer photo or a public place."},
-            "not_identified")
+        if not spec.get("location") and not (spec.get("place") or "").strip():
+            message = ("We couldn't tell which landmark this is. Type its "
+                       "name and town under 'Where is it?' and try again.")
+        else:
+            message = "Not identified. Try a closer photo or a public place."
+        return finish({"message": message}, "not_identified")
     if not result.get("confirmed"):
         message = ("Not confirmed. Only the identification ran; "
                    "no research or painting was paid for.")

@@ -112,7 +112,7 @@ Location data identifies the object. On the web page it is held in the job's pri
 
 ### Example films
 
-The three example films are on the judge page and in the video. They're not in this repository, to keep it small (67 MB of images). All three today photos carry a recorded licence in their `film.json` (CC0, CC BY 3.0 and CC BY 4.0, with author and file link).
+The three example films are on the judge page and in the video. They're not in this repository, to keep it small (67 MB of images). All three source photos carry a recorded licence in their `film.json` (CC0, CC BY 3.0 and CC BY 4.0, with author and file link).
 
 ## Cost and speed
 

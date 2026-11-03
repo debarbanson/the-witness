@@ -518,7 +518,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <li>1779</li>
 <li>1932</li>
 <li>2002</li>
-<li>today</li>
+<li>photo</li>
 </ol>
 <p>De Adriaan, Haarlem: opened 1779, burnt 1932, rebuilt 2002.</p>
 <p class="hero-facts">__HERO_FACTS__</p>
@@ -534,7 +534,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 <div class="steps">
 <article class="step">
 <div class="step-media"><img src="/assets/landing/step1.jpg" width="1200" height="900" loading="lazy" alt="Today's photo of De Adriaan windmill in Haarlem"></div>
-<div><h3>1. Your photo</h3><p>Take or upload a photo of an old, well-documented landmark.</p><p class="fine">Today photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
+<div><h3>1. Your photo</h3><p>Take or upload a photo of an old, well-documented landmark.</p><p class="fine">Photo: Bj.schoenmakers, CC0, via Wikimedia Commons.</p></div>
 </article>
 <article class="step">
 <div><h3>2. Its history, with sources</h3><p>Muse Spark researches what happened there. Muse Spark Open and Muse Spark check every claim against the page it came from. Anything that can't be checked is left out.</p><figure class="fact"><blockquote>De Adriaan was officially opened on May 19, 1779.</blockquote><figcaption>1779 · <a href="https://en.wikipedia.org/wiki/De_Adriaan,_Haarlem">Wikipedia: De Adriaan, Haarlem</a></figcaption></figure></div>
@@ -1151,7 +1151,7 @@ def _gallery_cards(examples_root, examples) -> str:
         thumbs = "".join(
             f"<img src=\"/examples/{slug}/{shot}\" loading=\"lazy\" "
             f"alt=\"{_html.escape(name)}: "
-            f"{'a painted era' if shot != 'today.jpg' else 'today'}\">"
+            f"{'a painted era' if shot != 'today.jpg' else 'photo'}\">"
             for shot in (era, today) if shot)
         pair = (f"<a class=\"pair\" href=\"/examples/{slug}/\" "
                 f"aria-label=\"Watch {_html.escape(name)}\">{thumbs}</a>"
@@ -1160,7 +1160,7 @@ def _gallery_cards(examples_root, examples) -> str:
         if not credit:
             source = film.get("photo_source") or {}
             if isinstance(source, dict) and source.get("author"):
-                credit = (f"Today photo: {source.get('author')}, "
+                credit = (f"Photo: {source.get('author')}, "
                           f"{source.get('licence', 'unknown licence')}")
         credit_line = (f"<p class=\"credit\">"
                        f"{_html.escape(credit)}</p>" if credit else "")

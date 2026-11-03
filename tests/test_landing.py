@@ -337,7 +337,14 @@ def test_landing_palette_meets_aa_contrast():
     assert ratio(paper, tokens["ink"]) >= 4.5
 
 
-def test_gallery_credits_today_photo_from_source(tmp_path):
+def test_archival_photo_labels_say_photo_not_today(tmp_path):
+    page = _page(tmp_path)
+    assert "<li>photo</li>" in page
+    assert "<li>today</li>" not in page
+    assert "Today photo:" not in page
+
+
+def test_gallery_credits_photo_from_source(tmp_path):
     import json as _json
 
     from fastapi.testclient import TestClient
@@ -354,8 +361,9 @@ def test_gallery_credits_today_photo_from_source(tmp_path):
     cards = _gallery_cards(tmp_path / "examples",
                            [{"slug": "rubjerg-knude",
                              "name": "Rubjerg Knude lighthouse, Denmark"}])
-    assert "Tomasz Sienicki" in cards
+    assert "Photo: Tomasz Sienicki" in cards
     assert "CC BY 4.0" in cards
+    assert "Today photo:" not in cards
     client = TestClient(create_app(_deps(tmp_path)),
                         headers=dict(ORIGIN))
     assert client.get("/").status_code == 200

@@ -177,7 +177,7 @@ function render(t) {
     if (FILM.photo_source) {
       const src = FILM.photo_source;
       credit.appendChild(document.createTextNode(
-        "Today photo: " + src.author + ", "));
+        "Photo: " + src.author + ", "));
       credit.appendChild(link(src.licence_url, src.licence));
       credit.appendChild(document.createTextNode(" ("));
       credit.appendChild(link(src.file_url, "file page"));

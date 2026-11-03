@@ -58,27 +58,53 @@ _STAMP_MONTHS = ("january", "february", "march", "april", "may",
                   "november", "december")
 
 
-def stamp_for(label, year, quote) -> str:
-    """The shown stamp: the full date only when the bound quote carries
-    that exact date (day, month and year, any order); otherwise the
-    year alone."""
-    if (label or "").strip() == str(year):
-        return str(year)
-    found = re.search(r"(\d{1,2})\s+([A-Za-z]+),?\s*(\d{4})", label or "")
+_FULL_DATE_RES = (r"(\d{1,2})\s+([A-Za-z]+),?\s*(\d{4})",
+                  r"([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})")
+
+
+def _norm_date(text) -> str:
+    """Date words compared loosely: case, ordinals and punctuation go,
+    so 'April 23, 1932' meets '23 April 1932'. Anything else must
+    match word for word."""
+    lowered = (text or "").lower()
+    lowered = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", lowered)
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", lowered)).strip()
+
+
+def _full_date_parts(label):
+    """(day, month, year) when the label is just one full date, else
+    None. A label with extra words is a description, not a date."""
+    found = re.search(_FULL_DATE_RES[0], label or "")
     if found:
         day, month, date_year = found.groups()
     else:
-        found = re.search(r"([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})",
-                           label or "")
+        found = re.search(_FULL_DATE_RES[1], label or "")
         if not found:
-            return str(year)
+            return None
         month, day, date_year = found.groups()
     if month.lower() not in _STAMP_MONTHS:
+        return None
+    want = {_norm_date(f"{int(day)} {month} {date_year}"),
+            _norm_date(f"{month} {int(day)} {date_year}")}
+    if _norm_date(label) not in want:
+        return None
+    return int(day), month, date_year
+
+
+def stamp_for(label, year, quote) -> str:
+    """The shown stamp: the full date only when the label is just a
+    date and that exact date (day, month and year together, either
+    order) appears in the bound quote; otherwise the year alone."""
+    if (label or "").strip() == str(year):
         return str(year)
-    text = quote or ""
-    if (re.search(rf"\b{int(day)}\b", text)
-            and month[:3].lower() in text.lower()
-            and re.search(rf"\b{date_year}\b", text)):
+    parts = _full_date_parts(label)
+    if parts is None:
+        return str(year)
+    day, month, date_year = parts
+    norm_quote = _norm_date(quote)
+    forms = {_norm_date(f"{day} {month} {date_year}"),
+             _norm_date(f"{month} {day} {date_year}")}
+    if any(form in norm_quote for form in forms):
         return label.strip()
     return str(year)
 
@@ -185,7 +211,12 @@ def anchor_card(first_scene) -> dict:
         return {"line": "My story starts", "label": f"{words} ago."}
     year = first_scene.get("from_year")
     if isinstance(year, int) and str(year) in label:
-        shown = str(year) if label.strip() == str(year) else label
+        if _full_date_parts(label) is not None:
+            evidence = ((first_scene.get("caption_sentence") or {})
+                        .get("evidence") or {})
+            shown = stamp_for(label, year, evidence.get("quote", ""))
+        else:
+            shown = label
         return {"line": "My story starts in", "label": f"{shown}."}
     return {"line": "My story starts", "label": label or "before living memory"}
 

@@ -1279,25 +1279,47 @@ def _csp(nonce: str, style_hashes=()) -> str:
 
 
 class BodyCapMiddleware:
-    """Refuse an over-cap upload body at the ASGI receive level.
+    """Gate upload bodies at the ASGI receive level, before buffering.
 
-    The content-length guard only sees a declared length, and the
-    form parser below would otherwise drink a chunked body in full
-    before the handler's spool gate runs. So for uploads this
-    middleware counts the raw request bytes itself: past the cap it
-    answers 400 at once and never reads the rest. Bodies within the
-    cap are replayed to the app untouched. The cap is read per
-    request so tests can shrink it."""
+    Only four uploads may hold a body at once: without a free slot
+    the middleware answers 503 at once and never reads the body, so
+    parallel large uploads cannot exhaust the container. Past the
+    byte cap it answers 400 at once and never reads the rest, since
+    the content-length guard only sees a declared length and the form
+    parser below would otherwise drink a chunked body in full.
+    Bodies within the cap are replayed to the app untouched. The cap
+    is read per request so tests can shrink it."""
 
-    def __init__(self, app, noindex=False):
+    def __init__(self, app, slots, noindex=False):
         self.app = app
+        self.slots = slots
         self.noindex = noindex
+
+    async def _deny(self, send, detail, status):
+        payload = ('{"error":"%s"}' % detail).encode()
+        headers = [(b"content-type", b"application/json"),
+                   (b"content-length", str(len(payload)).encode()),
+                   (b"x-content-type-options", b"nosniff")]
+        if self.noindex:
+            headers.append((b"x-robots-tag", b"noindex"))
+        await send({"type": "http.response.start", "status": status,
+                    "headers": headers})
+        await send({"type": "http.response.body", "body": payload})
 
     async def __call__(self, scope, receive, send):
         if (scope.get("type") != "http" or scope.get("method") != "POST"
                 or scope.get("path") != "/api/jobs"):
             await self.app(scope, receive, send)
             return
+        if not self.slots.acquire(blocking=False):
+            await self._deny(send, "busy, try again in a minute", 503)
+            return
+        try:
+            await self._capped(scope, receive, send)
+        finally:
+            self.slots.release()
+
+    async def _capped(self, scope, receive, send):
         cap = photo_module.MAX_UPLOAD_BYTES + FORM_SLACK_BYTES
         buffered = []
         total = 0
@@ -1315,15 +1337,7 @@ class BodyCapMiddleware:
             if not message.get("more_body"):
                 break
         if capped:
-            payload = b'{"error":"bad photo: upload too large"}'
-            headers = [(b"content-type", b"application/json"),
-                       (b"content-length", str(len(payload)).encode()),
-                       (b"x-content-type-options", b"nosniff")]
-            if self.noindex:
-                headers.append((b"x-robots-tag", b"noindex"))
-            await send({"type": "http.response.start", "status": 400,
-                        "headers": headers})
-            await send({"type": "http.response.body", "body": payload})
+            await self._deny(send, "bad photo: upload too large", 400)
             return
         buffered_iter = iter(buffered)
 
@@ -1343,7 +1357,8 @@ def create_app(deps: WebDeps) -> FastAPI:
     clock = deps.clock or _time.time
     store = deps.store
     app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
-    app.add_middleware(BodyCapMiddleware, noindex=deps.noindex)
+    app.add_middleware(BodyCapMiddleware, slots=deps.upload_slots,
+                         noindex=deps.noindex)
 
     def _head(response, request, nonce, correlation):
         response.headers["Strict-Transport-Security"] = (
@@ -1493,79 +1508,74 @@ def create_app(deps: WebDeps) -> FastAPI:
         day = clock()
         vkey = visitor_key(deps.ip_secret, client_ip,
                            int(day // (24 * 3600)))
-        if not deps.upload_slots.acquire(blocking=False):
-            return _deny(request, "busy, try again in a minute", 503)
+        data = b""
+        while len(data) <= photo_module.MAX_UPLOAD_BYTES:
+            piece = await photo.read(65536)
+            if not piece:
+                break
+            data += piece
+        if len(data) > photo_module.MAX_UPLOAD_BYTES or not data:
+            return _deny(request, "bad photo", 400)
         try:
-            data = b""
-            while len(data) <= photo_module.MAX_UPLOAD_BYTES:
-                piece = await photo.read(65536)
-                if not piece:
-                    break
-                data += piece
-            if len(data) > photo_module.MAX_UPLOAD_BYTES or not data:
-                return _deny(request, "bad photo", 400)
+            photo_module.check_upload_header(data)
+        except photo_module.PhotoError as exc:
+            return _deny(request, f"bad photo: {exc}", 400)
+        job_id = uuid.uuid4().hex
+        token = secrets.token_hex(16)
+        directory = job_dir(deps.jobs_root)
+        upload_fd, upload_path = tempfile.mkstemp(dir=directory,
+                                                  suffix=".upload")
+        with os.fdopen(upload_fd, "wb") as handle:
+            handle.write(data)
+        tmp = Path(upload_path)
+        try:
+            location, today = photo_module.ingest_upload(tmp, directory)
+        except photo_module.PhotoError as exc:
+            shutil.rmtree(directory, ignore_errors=True)
+            return _deny(request, f"bad photo: {exc}", 400)
+        try:
+            admit_upload(deps, vid, vkey, day)
+        except models.SpendingCapExceeded as exc:
+            shutil.rmtree(directory, ignore_errors=True)
+            return _deny(request, _quota_refusal(deps, str(exc)), 429)
+        started = clock()
+        store.create_job(job_id, {
+            "vid": vid, "vkey": vkey, "token": token,
+            "job_dir": str(directory), "status": "started", "events": [],
+            "started_at": started, "last_poll": started, "ended_at": None,
+            "confirm": None, "decision": None, "cancel": False,
+            "result": None})
+        spec = {"job_id": job_id, "token": token, "vid": vid,
+                "job_dir": str(directory), "photo": str(today),
+                "place": place or "", "lat": fix_lat, "lon": fix_lon,
+                "location": ((location.lat, location.lon)
+                             if location is not None else None)}
+        (directory / "spec.json").write_text(json.dumps(spec))
+        from witness import webfilm as webfilm_module
+        try:
+            receipt = deps.runner({"job_id": job_id,
+                                   "job_dir": str(directory)})
+        except Exception:
             try:
-                photo_module.check_upload_header(data)
-            except photo_module.PhotoError as exc:
-                return _deny(request, f"bad photo: {exc}", 400)
-            job_id = uuid.uuid4().hex
-            token = secrets.token_hex(16)
-            directory = job_dir(deps.jobs_root)
-            upload_fd, upload_path = tempfile.mkstemp(dir=directory,
-                                                      suffix=".upload")
-            with os.fdopen(upload_fd, "wb") as handle:
-                handle.write(data)
-            tmp = Path(upload_path)
+                webfilm_module.scrub_hand_off(directory)
+            except OSError:
+                pass
+            release_upload(deps, vid, vkey)
+            store.end_job(job_id, "failed",
+                          {"message": "the worker did not start"})
+            raise
+        if receipt is None:
             try:
-                location, today = photo_module.ingest_upload(tmp, directory)
-            except photo_module.PhotoError as exc:
-                shutil.rmtree(directory, ignore_errors=True)
-                return _deny(request, f"bad photo: {exc}", 400)
-            try:
-                admit_upload(deps, vid, vkey, day)
-            except models.SpendingCapExceeded as exc:
-                shutil.rmtree(directory, ignore_errors=True)
-                return _deny(request, _quota_refusal(deps, str(exc)), 429)
-            started = clock()
-            store.create_job(job_id, {
-                "vid": vid, "vkey": vkey, "token": token,
-                "job_dir": str(directory), "status": "started", "events": [],
-                "started_at": started, "last_poll": started, "ended_at": None,
-                "confirm": None, "decision": None, "cancel": False,
-                "result": None})
-            spec = {"job_id": job_id, "token": token, "vid": vid,
-                    "job_dir": str(directory), "photo": str(today),
-                    "place": place or "", "lat": fix_lat, "lon": fix_lon,
-                    "location": ((location.lat, location.lon)
-                                 if location is not None else None)}
-            (directory / "spec.json").write_text(json.dumps(spec))
-            from witness import webfilm as webfilm_module
-            try:
-                receipt = deps.runner({"job_id": job_id,
-                                       "job_dir": str(directory)})
-            except Exception:
-                try:
-                    webfilm_module.scrub_hand_off(directory)
-                except OSError:
-                    pass
+                webfilm_module.scrub_hand_off(directory)
+            except OSError:
                 release_upload(deps, vid, vkey)
-                store.end_job(job_id, "failed",
-                              {"message": "the worker did not start"})
-                raise
-            if receipt is None:
-                try:
-                    webfilm_module.scrub_hand_off(directory)
-                except OSError:
-                    release_upload(deps, vid, vkey)
-                    store.drop_job(job_id)
-                    shutil.rmtree(directory, ignore_errors=True)
-                    return _deny(request, "the worker did not start", 500)
-            out = JSONResponse({"job_id": job_id})
-            out.set_cookie("vid", vid, httponly=True, samesite="lax",
-                           secure=deps.secure_cookies)
-            return out
-        finally:
-            deps.upload_slots.release()
+                store.drop_job(job_id)
+                shutil.rmtree(directory, ignore_errors=True)
+                return _deny(request, "the worker did not start", 500)
+        out = JSONResponse({"job_id": job_id})
+        out.set_cookie("vid", vid, httponly=True, samesite="lax",
+                       secure=deps.secure_cookies)
+        return out
 
     @app.get("/api/jobs/{job_id}")
     async def job_status(request: Request, job_id: str):

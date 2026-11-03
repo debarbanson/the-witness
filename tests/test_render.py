@@ -183,6 +183,37 @@ def test_stamp_shows_full_date_only_from_quote():
     assert stamp == "2016"
 
 
+def test_stamp_never_combines_two_dates_into_one():
+    mixed = scene(1900, sentence="I stood.")
+    mixed["date_label"] = "1 April 1900"
+    mixed["caption_sentence"]["evidence"]["quote"] = (
+        "The tower opened on 1 April 1899. It was rebuilt on 2 May 1900.")
+    stamp, _ = builder.caption_for(mixed)
+    assert stamp == "1900"
+
+
+def test_stamp_rejects_a_label_that_is_not_just_a_date():
+    labelled = scene(1899, sentence="My construction began.")
+    labelled["date_label"] = "1899; first lit 27 December 1900"
+    labelled["caption_sentence"]["evidence"]["quote"] = (
+        "The lighthouse was first lit on 27 December 1900.")
+    stamp, _ = builder.caption_for(labelled)
+    assert stamp == "1899"
+
+
+def test_anchor_card_uses_the_same_stamp_rule():
+    first = scene(1900, sentence="I stood.")
+    first["date_label"] = "1 April 1900"
+    first["caption_sentence"]["evidence"]["quote"] = (
+        "The tower opened on 1 April 1899. It was rebuilt on 2 May 1900.")
+    assert builder.anchor_card(first)["label"] == "1900."
+    dated = scene(1932, sentence="I burnt down.")
+    dated["date_label"] = "23 April 1932"
+    dated["caption_sentence"]["evidence"]["quote"] = (
+        "On the evening of April 23, 1932 the windmill burnt down.")
+    assert builder.anchor_card(dated)["label"] == "23 April 1932."
+
+
 def child_scene(year, line):
     made = scene(year, sentence=f"Adult words for {year}.")
     made["caption_sentence"]["child"] = {"text": line}

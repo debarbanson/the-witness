@@ -1201,6 +1201,71 @@ def test_concurrent_uploads_are_capped_per_container(tmp_path):
     assert out.status_code == 200, out.text[:200]
 
 
+def test_upload_gate_answers_busy_before_reading():
+    import asyncio
+    import threading
+
+    from witness.webapp import BodyCapMiddleware
+
+    slots = threading.Semaphore(4)
+
+    async def downstream(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200,
+                    "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    app = BodyCapMiddleware(downstream, slots=slots)
+    scope = {"type": "http", "method": "POST", "path": "/api/jobs"}
+
+    def burst(count):
+        results = {}
+
+        def one(index):
+            reads = []
+
+            async def receive():
+                reads.append(1)
+                return {"type": "http.request", "body": b"x" * 100,
+                        "more_body": False}
+
+            sent = []
+
+            async def send(message):
+                sent.append(message)
+
+            asyncio.run(app(scope, receive, send))
+            results[index] = (
+                [m.get("status") for m in sent
+                 if m["type"] == "http.response.start"][0], len(reads))
+
+        threads = [threading.Thread(target=one, args=(index,))
+                   for index in range(count)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+            assert not thread.is_alive()
+        return results
+
+    for _ in range(4):
+        assert slots.acquire(blocking=False)
+    try:
+        refused = burst(4)
+    finally:
+        for _ in range(4):
+            slots.release()
+    assert sorted(status for status, _ in refused.values()) == [503] * 4
+    for status, reads in refused.values():
+        assert reads == 0, "a refused body was read"
+    admitted = burst(4)
+    assert sorted(status for status, _ in admitted.values()) == [200] * 4
+    for status, reads in admitted.values():
+        assert reads >= 1
+    for _ in range(4):
+        assert slots.acquire(blocking=False), "a slot leaked"
+        slots.release()
+
+
 def test_cancel_on_a_finished_job_keeps_the_film(tmp_path):
     from fastapi.testclient import TestClient
 

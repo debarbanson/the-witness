@@ -50,7 +50,7 @@ One deploy carries both surfaces: the staging page (`web`, behind proxy auth) an
 modal deploy modal_app.py
 ```
 
-This deploys staging (`web`) and judge mode together; test on the staging URL first. Upload each reviewed example film to the shared Volume (the app discovers them at request time and skips missing ones with a log line):
+This deploys staging (`web`) and judge mode together; test on the staging URL first. Upload each reviewed example film to the shared Volume before deploying (the app reads the example list once at startup and skips missing ones with a log line); if you upload later, redeploy afterwards:
 
 ```bash
 modal volume put witness-examples out/de-adriaan/film de-adriaan
@@ -110,6 +110,10 @@ export MODAL_PROXY_KEY=<token-id> MODAL_PROXY_SECRET=<token-secret>
 ### Freeze
 
 The repo is frozen at the deadline: Wed 4 Nov 21:00 ET (Thu 5 Nov 03:00 in the Netherlands). Aim to finish code and README by Wednesday 18:00 Dutch time. After the deadline the judge app runs the submitted commit unchanged: only the off switch and the limit values in the secret or Dict may change; no new code and no redeploys of new code. The `v1.0-submission` tag waits for the owner's go.
+
+### Known limits
+
+A failed spawn refunds the visitor quota even when the worker may have started (the spawn reply was lost but the worker runs), and refunds carry no ticket id, so a lost reply can free a quota another film then spends. No public route triggers this on purpose; the window is one lost spawn reply. A ticketed fix did not fit before the freeze.
 
 ## Out of scope
 

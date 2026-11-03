@@ -1249,3 +1249,21 @@ def test_read_location_rejects_non_photo_formats(tmp_path, monkeypatch):
         identify.read_location(bmp)
     assert set(seen.get("formats", ())) <= {"JPEG", "PNG", "WEBP"}
     assert seen.get("formats")
+
+
+def test_identify_forwards_pace_to_reverse(tmp_path, monkeypatch):
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (8, 8)).save(photo)
+    seen = {}
+    sentinel = object()
+
+    def fake_reverse(lat, lon, get=None, sleep=None, pace=None):
+        seen["pace"] = pace
+        return ("nl", "Haarlem")
+
+    monkeypatch.setattr(identify, "reverse", fake_reverse)
+    with pytest.raises(identify.NotIdentifiedError):
+        identify.identify(photo, post=None, get=routed(),
+                          respond=vision_pick(), sleep=lambda s: None,
+                          pace=sentinel, location=(52.4, 4.6))
+    assert seen.get("pace") is sentinel

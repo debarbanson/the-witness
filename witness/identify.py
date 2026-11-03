@@ -275,7 +275,8 @@ def _identify_once(photo, place=None, post=None, get=None, respond=None, sleep=t
     overpass_thread.start()
     if not from_place:
         country_code, municipality = guarded(
-            "reverse", (None, None), reverse, lat, lon, get=get, sleep=sleep)
+            "reverse", (None, None), reverse, lat, lon, get=get, sleep=sleep,
+            pace=pace)
     order = read_langs(country_code, lang)
     pool = ThreadPoolExecutor(max_workers=2)
     try:

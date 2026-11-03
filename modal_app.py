@@ -31,6 +31,7 @@ import threading
 from pathlib import Path
 
 import modal
+from modal.exception import ConflictError
 
 from witness.webapp import (MAX_FILMS_PER_DAY, MAX_NETWORK_FILMS_PER_DAY,
                             MAX_VISITOR_FILMS_PER_DAY)
@@ -43,6 +44,18 @@ TRY_NETWORK_FILMS = MAX_NETWORK_FILMS_PER_DAY
 LEDGER_SCHEMA = 1
 
 _LEDGER_LOCK = threading.Lock()
+
+
+def try_reload(volume) -> None:
+    """Reload a volume before serving from it, best effort. Under
+    concurrent inputs Modal refuses a reload while another request
+    still streams a file (ConflictError); the request then serves
+    the snapshot it has instead of failing. Any other error still
+    raises."""
+    try:
+        volume.reload()
+    except ConflictError:
+        pass
 
 app = modal.App("the-witness")
 
@@ -860,9 +873,9 @@ def web():
         async def __call__(self, scope, receive, send):
             path = scope.get("path", "")
             if path.startswith("/film/"):
-                volume.reload()
+                try_reload(volume)
             elif path.startswith("/examples/"):
-                shared.reload()
+                try_reload(shared)
             await self._wrapped(scope, receive, send)
 
     return _Reload(app)
@@ -916,9 +929,9 @@ def judge():
         async def __call__(self, scope, receive, send):
             path = scope.get("path", "")
             if path.startswith("/film/"):
-                volume.reload()
+                try_reload(volume)
             elif path.startswith("/examples/"):
-                shared.reload()
+                try_reload(shared)
             await self._wrapped(scope, receive, send)
 
     return _Reload(app)

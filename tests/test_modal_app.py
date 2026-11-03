@@ -1026,3 +1026,31 @@ def test_watch_job_ignores_stale_polls_but_honors_cancel():
             _time.sleep(0.01)
     finally:
         stop.set()
+
+
+def test_reload_serves_on_when_files_are_open():
+    from modal.exception import ConflictError
+
+    class BusyVolume:
+        def __init__(self):
+            self.calls = 0
+
+        def reload(self):
+            self.calls += 1
+            raise ConflictError("there are open files preventing "
+                                "the operation")
+
+    volume = BusyVolume()
+    modal_app.try_reload(volume)  # must not raise: serve the snapshot
+    assert volume.calls == 1
+
+
+def test_reload_passes_other_errors_through():
+    class BrokenVolume:
+        def reload(self):
+            raise OSError("disk gone")
+
+    import pytest
+
+    with pytest.raises(OSError):
+        modal_app.try_reload(BrokenVolume())

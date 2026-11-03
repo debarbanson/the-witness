@@ -60,7 +60,13 @@ modal volume put witness-examples out/q2206180-rubjerg-knude-fyr/film rubjerg-kn
 modal volume ls witness-examples
 ```
 
-One `put` per reviewed example: the finished `film/` folder (film pages, paintings, `evidence.html`) under its public slug.
+One `put` per reviewed example: the finished `film/` folder (film pages, paintings, `evidence.html`) under its public slug. `put` refuses to overwrite, and it leaves deleted files behind, so replacing an example means removing its folder first (`modal volume rm witness-examples <slug> -r`), then putting the fresh one. After every upload and every deploy, prove the judge page serves what is built here:
+
+```bash
+python scripts/check_examples.py <judge-url>
+```
+
+It compares each live film.json (both versions) with the local one and requires each evidence page to answer; anything stale fails loudly. Example asset reads reload the volume first, best effort: under concurrent inputs a reload can meet an open file, in which case the request serves the snapshot it has instead of failing.
 
 ### Redeploys: drain first
 

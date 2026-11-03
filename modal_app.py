@@ -678,7 +678,7 @@ def nominatim_slot():
 @app.function(image=image, secrets=[keys],
              volumes={"/jobs": jobs_volume,
                      "/judge-jobs": judge_jobs_volume},
-             timeout=1800, max_containers=2, max_inputs=1)
+             timeout=1800, max_containers=2, single_use_containers=True)
 def run_film(ref):
     """One Try-your-own film through the tested runner; only DELETE
     cancels through the job control. `ref` carries only
@@ -822,6 +822,7 @@ def try_switch(enable: bool):
                      "/examples": examples_volume},
              memory=2048,  # 4 upload slots times ~200 MB per 25 MP decode
              max_containers=2)
+@modal.concurrent(max_inputs=32)  # one upload must never stall the page
 @modal.asgi_app(requires_proxy_auth=True)
 def web():
     """The private page: examples plus Try your own. Proxy auth keeps
@@ -872,6 +873,7 @@ def web():
                       "/examples": examples_volume},
               memory=2048,  # same upload gate as staging
               max_containers=2)
+@modal.concurrent(max_inputs=32)  # polls and images run beside uploads
 @modal.asgi_app()
 def judge():
     """Judge mode: the public, unlisted page. No proxy auth; the link

@@ -576,22 +576,132 @@ __TRY_BLOCK__
 </div>
 <script nonce="__NONCE__">
 "use strict";
-document.getElementById("geo").onclick = () => {
+function jpegGpsPresent(buf) {
+  function tiffHasGps(b, start) {
+    if (start + 8 > b.length) { return "unknown"; }
+    let le;
+    if (b[start] === 0x49 && b[start + 1] === 0x49) { le = true; }
+    else if (b[start] === 0x4d && b[start + 1] === 0x4d) { le = false; }
+    else { return "unknown"; }
+    const u16 = o => le ? b[start + o] | (b[start + o + 1] << 8)
+      : (b[start + o] << 8) | b[start + o + 1];
+    const u32 = o => le ? b[start + o] | (b[start + o + 1] << 8) |
+      (b[start + o + 2] << 16) | (b[start + o + 3] << 24)
+      : (b[start + o] << 24) | (b[start + o + 1] << 16) |
+      (b[start + o + 2] << 8) | b[start + o + 3];
+    if (u16(2) !== 42) { return "unknown"; }
+    const ifd0 = u32(4);
+    if (ifd0 < 8 || start + ifd0 + 2 > b.length) { return "unknown"; }
+    const count = u16(ifd0);
+    for (let i = 0; i < count; i++) {
+      const e = ifd0 + 2 + i * 12;
+      if (start + e + 12 > b.length) { return "unknown"; }
+      if (u16(e) === 0x8825) {
+        const gps = u32(e + 8);
+        if (start + gps + 2 > b.length) { return "unknown"; }
+        const gcount = u16(gps);
+        for (let j = 0; j < gcount; j++) {
+          const ge = gps + 2 + j * 12;
+          if (start + ge + 12 > b.length) { return "unknown"; }
+          if (u16(ge) <= 6) { return true; }
+        }
+        return false;
+      }
+    }
+    return false;
+  }
+  try {
+    const b = new Uint8Array(buf);
+    if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) { return "unknown"; }
+    let pos = 2;
+    while (pos + 2 <= b.length) {
+      if (b[pos] !== 0xff) { return "unknown"; }
+      const marker = b[pos + 1];
+      if (marker === 0xd9 || marker === 0xda) { return false; }
+      if (pos + 4 > b.length) { return "unknown"; }
+      const len = (b[pos + 2] << 8) | b[pos + 3];
+      if (len < 2 || pos + 2 + len > b.length + 1024) { return "unknown"; }
+      if (marker === 0xe1 && b[pos + 4] === 0x45 && b[pos + 5] === 0x78 &&
+          b[pos + 6] === 0x69 && b[pos + 7] === 0x66 &&
+          b[pos + 8] === 0 && b[pos + 9] === 0) {
+        return tiffHasGps(b, pos + 10);
+      }
+      pos += 2 + len;
+    }
+    return "unknown";
+  } catch (err) { return "unknown"; }
+}
+async function photoHasGps(file) {
+  try {
+    if (!file || (file.type || "").toLowerCase() !== "image/jpeg") { return "unknown"; }
+    return jpegGpsPresent(await file.slice(0, 131072).arrayBuffer());
+  } catch (err) { return "unknown"; }
+}
+function decideSubmitState(locNeeded, locChoice, placeText) {
+  if (!locNeeded) { return false; }
+  if (locChoice) { return false; }
+  return (placeText || "").trim() === "";
+}
+let locNeeded = false;
+let locChoice = null;
+function hideLocQ() {
+  document.getElementById("locq").classList.add("hidden");
+}
+function updateSubmit() {
+  const btn = document.querySelector('#upload button[type="submit"]');
+  if (!btn) { return; }
+  const place = document.querySelector('#upload input[name="place"]');
+  btn.disabled = decideSubmitState(locNeeded, locChoice,
+    place ? place.value : "");
+}
+function requestGeo() {
   navigator.geolocation.getCurrentPosition(pos => {
     document.getElementById("lat").value = pos.coords.latitude;
     document.getElementById("lon").value = pos.coords.longitude;
-  });
+    document.getElementById("geo-note").textContent = "Location added.";
+    locChoice = "here";
+    hideLocQ();
+    updateSubmit();
+  }, () => {
+    document.getElementById("geo-note").textContent =
+      "Location blocked or unavailable. Type the name and town instead.";
+  }, {timeout: 10000});
+}
+document.getElementById("geo").onclick = requestGeo;
+document.getElementById("loc-here").onclick = requestGeo;
+document.getElementById("loc-type").onclick = () => {
+  document.querySelector('#upload input[name="place"]').focus();
 };
+document.getElementById("loc-auto").onclick = () => {
+  locChoice = "auto";
+  hideLocQ();
+  updateSubmit();
+};
+function notConfirmedHint(message) {
+  if ((message || "").indexOf("Not confirmed.") === 0) {
+    return "Type its name and town under 'Where is it?' and try again. " +
+      "This run used one of your tries.";
+  }
+  return "";
+}
 const photoInput = document.querySelector('input[name="photo"]');
 const preview = document.getElementById("preview");
 if (photoInput && preview) {
-  photoInput.addEventListener("change", () => {
+  photoInput.addEventListener("change", async () => {
     const picked = photoInput.files && photoInput.files[0];
-    if (picked) {
-      preview.src = URL.createObjectURL(picked);
-      preview.classList.remove("hidden");
-    }
+    if (!picked) { return; }
+    preview.src = URL.createObjectURL(picked);
+    preview.classList.remove("hidden");
+    locChoice = null;
+    const gps = await photoHasGps(picked);
+    locNeeded = gps !== true;
+    document.getElementById("locq").classList.toggle("hidden", !locNeeded);
+    updateSubmit();
   });
+  const placeInput = document.querySelector('#upload input[name="place"]');
+  if (placeInput) {
+    placeInput.addEventListener("input", updateSubmit);
+  }
 }
 const heroVid = document.querySelector(".hero-video");
 const yearItems = [...document.querySelectorAll(".years li")];
@@ -634,6 +744,8 @@ function updateSteps(ev) {
 function showResult(box, st) {
   const r = st.result || {};
   const parts = [r.film_url ? "Ready." : (r.message || st.status)];
+  const hint = notConfirmedHint(r.film_url ? "" : (r.message || ""));
+  if (hint) { parts.push(hint); }
   for (const c of r.claims || []) {
     parts.push((c.year ? c.year + ": " : "") + c.claim);
   }
@@ -675,6 +787,39 @@ function renderCalls(st) {
     item.textContent = (d.model || "?") + " · " + (d.provider || "?") + " · " + (d.phase || "?") + " · " + (d.duration_s ?? "?") + "s";
     list.appendChild(item);
   }
+}
+function renderFacts(st) {
+  const box = document.getElementById("facts");
+  const list = document.getElementById("facts-list");
+  const count = document.getElementById("paint-count");
+  if (!box || !list || !count) { return; }
+  const evs = st.events || [];
+  const shown = [...evs].reverse().find(e => e.event === "checked_facts");
+  list.textContent = "";
+  if (!shown || !((shown.data || {}).items || []).length) {
+    box.style.display = "none";
+    count.textContent = "";
+    return;
+  }
+  box.style.display = "block";
+  for (const item of shown.data.items) {
+    const li = document.createElement("li");
+    const stamp = document.createElement("strong");
+    stamp.textContent = (item.stamp || "") + " ";
+    li.appendChild(stamp);
+    li.appendChild(document.createTextNode(item.text || ""));
+    if (typeof item.url === "string" && item.url.indexOf("https:" + "//") === 0) {
+      const a = document.createElement("a");
+      a.href = item.url; a.textContent = " (source)";
+      li.appendChild(a);
+    }
+    list.appendChild(li);
+  }
+  const last = [...evs].reverse().find(e => e.event === "painted");
+  if (!last) { count.textContent = ""; return; }
+  const d = last.data || {};
+  const total = (d.attempted || 0) - (d.dropped || 0);
+  count.textContent = "Painted " + (d.accepted || 0) + " of " + total;
 }
 function showConfirm(st) {
   const confirmBox = document.getElementById("confirm");
@@ -736,10 +881,11 @@ async function watch(id) {
     }
     missed = 0;
     const evs = st.events || [];
-    const lastEv = [...evs].reverse().find(e => e.event !== "call") || {event: st.status};
+    const lastEv = [...evs].reverse().find(e => !["call", "checked_facts", "painted"].includes(e.event)) || {event: st.status};
     document.getElementById("events").textContent = phaseWords(lastEv.event);
     updateSteps(lastEv);
     renderCalls(st);
+    renderFacts(st);
     showConfirm(st);
     if (["done", "cancelled", "failed", "expired"].includes(st.status)) {
       finish();
@@ -801,11 +947,18 @@ TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multip
 <h3>Step 1: Your photo</h3>
 <p><label class="file-btn">Take or choose a photo<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></p>
 <p><img id="preview" class="hidden" alt="Preview of your chosen photo"></p>
+<div id="locq" class="hidden">
+<p>This photo has no location. Where is the landmark?</p>
+<p><button type="button" id="loc-here">I'm standing in front of it now</button></p>
+<p><button type="button" id="loc-type">I'll type its name and town</button></p>
+<p><button type="button" id="loc-auto">Let Muse Spark recognise it</button></p>
+</div>
 <h3>Step 2: Where is it?</h3>
 <p><label>Landmark and town<input type="text" name="place" autocomplete="off" placeholder="De Adriaan, Haarlem"></label></p>
 <p class="fine">Type the landmark and town. Leave it empty if the photo has its location, or to let Muse Spark recognise the landmark.</p>
 <p class="fine">Public places only, never a home address.</p>
 <p><button type="button" id="geo">Standing in front of it? Use my location</button></p>
+<p class="fine" id="geo-note"></p>
 <h3>Step 3: How your photo is used</h3>
 <p class="fine">Your photo is sent to Meta and Baseten to recognise, research, check and paint, on hosting by Modal. Place lookups go to OpenStreetMap services, Wikidata and Wikipedia. Your photo and film are deleted within about a day. <a href="/privacy">Full notice</a></p>
 <p><label><input type="checkbox" name="ack" value="on" required>
@@ -816,6 +969,7 @@ I understand how my photo is used.</label></p>
 <div id="job" class="hidden">
 <p>Making your film: <span id="clock">0:00</span></p>
 <ol id="steps"><li data-step="identify">Recognise<span class="model"></span></li><li data-step="research">Research<span class="model"></span></li><li data-step="check">Check<span class="model"></span></li><li data-step="paint">Paint<span class="model"></span></li><li data-step="film">Film<span class="model"></span></li></ol>
+<div id="facts" class="hidden"><h3>Checked so far</h3><ol id="facts-list"></ol><p id="paint-count"></p></div>
 <details id="calls-box"><summary>Show the model calls</summary><ul id="calls"></ul></details>
 <div id="confirm" class="hidden">
 <p>Is this <strong id="confirm-name"></strong><span id="confirm-detail"></span>?</p>
@@ -943,8 +1097,9 @@ about that landmark. This page says what is processed, why, by whom
 and for how long.</p>
 <h2>What you send us</h2>
 <p>Your photo (possibly with embedded location), an optional typed
-place or browser location when the photo has none, and your confirm
-or cancel clicks. Please type public places only.</p>
+place, or a browser location you share by tapping a button when the
+photo has none, and your confirm or cancel clicks. Please type
+public places only.</p>
 <h2>Who processes it</h2>
 <ul>
 <li>Meta: object recognition, era paintings, painting checks.</li>

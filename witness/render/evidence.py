@@ -62,7 +62,7 @@ def _scene_block(scene, filmed, claims, paintings, votes_label):
     quote = ev.get("quote", "")
     url = ev.get("url", "")
     esc = html.escape
-    parts = [f"<h2>{esc(str(stamp))} — {esc(sentence)}</h2>"]
+    parts = [f"<h2>{esc(str(stamp))}: {esc(sentence)}</h2>"]
     parts.append(f'<img src="{esc(filmed.get("image", ""))}" '
                  f'alt="Painted era: {esc(str(stamp))}">')
     parts.append(f"<p><strong>Caption:</strong> {esc(sentence)}</p>")

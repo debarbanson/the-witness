@@ -8,7 +8,7 @@ call is injected, so tests run without live calls.
 import hashlib
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from witness import children, models
 
@@ -581,16 +581,32 @@ def paint_scene(call, check_call, scene, object_name, municipality, prev_id,
             "note": verdict["note"]}
 
 
+def _report(on_era, result, accepted, dropped, attempted) -> tuple:
+    """Count one finished era and tell the listener, if any. Returns
+    the updated (accepted, dropped) pair; only a match counts as
+    painted."""
+    if result["verdict"] == "matches":
+        accepted += 1
+    elif result["verdict"] == "dropped":
+        dropped += 1
+    if on_era is not None:
+        on_era(result["year"], result["verdict"], accepted, dropped,
+               attempted)
+    return accepted, dropped
+
+
 def paint_chain(call, photo_bytes, scenes, object_name, municipality,
                 check_call=None, season=None, excluded=None,
                 claims=(), audience="adult", photo_month=None,
-                country_code=None, zone=None) -> list:
+                country_code=None, zone=None, on_era=None) -> list:
     """Eras one after another, each chained on the previous turn. The
     first scene carries the photo; a scene with no predecessor id
     does too. A dated era takes its own season from its month in the
-    object's country; undated eras share the anchor's."""
+    object's country; undated eras share the anchor's. `on_era`
+    hears each finished era with running counts."""
     prev_id = None
     out = []
+    accepted = dropped = 0
     for scene in scenes:
         try:
             year_excluded = (excluded or {}).get(scene.get("from_year"), ())
@@ -615,6 +631,8 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
             out.append({"year": scene.get("from_year"), "image": None,
                         "response_id": None, "verdict": "dropped", "attempts": 1,
                         "note": f"paint crashed: {exc}"})
+        accepted, dropped = _report(on_era, out[-1], accepted, dropped,
+                                    len(scenes))
         if out[-1]["response_id"]:
             prev_id = out[-1]["response_id"]
     return out
@@ -623,11 +641,14 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
 def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
                    check_call=None, max_workers=6, season=None,
                    excluded=None, claims=(), audience="adult",
-                   photo_month=None, country_code=None, zone=None) -> list:
+                   photo_month=None, country_code=None, zone=None,
+                   on_era=None) -> list:
     """The first scene carries the photo; the rest branch from its
     turn, painted at once. No spare anchor turn: its image was always
     discarded. A dated era takes its own season from its month in the
-    object's country; undated eras share the anchor's."""
+    object's country; undated eras share the anchor's. `on_era`
+    hears each finished era with running counts; the returned list
+    stays in scene order."""
     if not scenes:
         return []
 
@@ -654,6 +675,7 @@ def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
                     "note": f"paint crashed: {exc}"}
 
     base = one(scenes[0], None, photo_bytes)
+    accepted, dropped = _report(on_era, base, 0, 0, len(scenes))
     if len(scenes) == 1:
         return [base]
     base_id = base["response_id"]
@@ -662,7 +684,13 @@ def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
     try:
         futures = [models.submit_context(pool, one, scene, base_id, photo)
                    for scene in scenes[1:]]
-        rest = [future.result() for future in futures]
+        order = {future: index for index, future in enumerate(futures)}
+        rest = [None] * len(futures)
+        for future in as_completed(futures):
+            result = future.result()
+            rest[order[future]] = result
+            accepted, dropped = _report(on_era, result, accepted,
+                                        dropped, len(scenes))
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
     return [base, *rest]

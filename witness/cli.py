@@ -1510,7 +1510,8 @@ def verify_scene_states(eras, name, support_respond) -> list:
 
 def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               paint_call=None, check_call=None, photo_call=None, out_dir="out",
-              audience="adult", photo_month=None, support_call=None):
+              audience="adult", photo_month=None, support_call=None,
+              progress=None):
     """Paint an object's eras from its research, checked per era. The
     location in the prompts is the canonical municipality from the
     research, never typed text. The children run paints a second set
@@ -1585,20 +1586,27 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
         print(f"anchor elements held back: "
               f"{sorted({el for els in directives['excluded'].values() for el in els})}")
     started = time.perf_counter()
+    if progress is None:
+        on_era = None
+    else:
+        def on_era(year, verdict, accepted, dropped, attempted):
+            progress("painted", {"year": year, "verdict": verdict,
+                                 "accepted": accepted, "dropped": dropped,
+                                 "attempted": attempted})
     if mode == "chain":
         results = paint.paint_chain(call, photo_bytes, eras, name, municipality,
                                     check_call=checker, season=directives["season"],
                                     excluded=directives["excluded"],
                                     claims=data.get("claims", []),
                                     audience=audience, photo_month=photo_month,
-                                    zone=season_zone)
+                                    zone=season_zone, on_era=on_era)
     else:
         results = paint.paint_parallel(call, photo_bytes, eras, name, municipality,
                                        check_call=checker, season=directives["season"],
                                        excluded=directives["excluded"],
                                        claims=data.get("claims", []),
                                        audience=audience, photo_month=photo_month,
-                                       zone=season_zone)
+                                       zone=season_zone, on_era=on_era)
     base = f"{mode}_{tag}" if tag else mode
     suffix = f"{base}_child" if audience == "child" else base
     era_dir = out_dir / f"eras_{suffix}"

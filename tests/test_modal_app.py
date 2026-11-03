@@ -276,36 +276,50 @@ def test_nominatim_slot_runs_single_flight():
 
 
 def test_fleet_bounds_pin_two_films_at_once():
-    """run_film enforces the cap rule's two-films-at-once assumption;
-    the two web surfaces stay at two containers each; run_film keeps
-    one input per container (the spend state is process-global)."""
+    """run_film enforces the cap rule's two-films-at-once assumption
+    with a fresh container per film (the spend state is
+    process-global); the two web surfaces stay at two containers
+    each but take concurrent requests, or one phone upload would
+    stall the whole page; the ledger stays single-container so
+    quota counters stay atomic."""
     import ast
     from pathlib import Path
 
     tree = ast.parse(Path(modal_app.__file__).read_text())
     found = {}
+    concurrent = {}
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
-        if node.name not in ("run_film", "web", "judge"):
+        if node.name not in ("run_film", "web", "judge", "ledger_op"):
             continue
         for deco in node.decorator_list:
             target = deco.func if isinstance(deco, ast.Call) else deco
             if (isinstance(target, ast.Attribute)
                     and target.attr == "concurrent"):
-                raise AssertionError(f"{node.name} allows concurrent inputs")
+                for key in deco.keywords:
+                    if key.arg == "max_inputs":
+                        concurrent[node.name] = key.value.value
+                continue
             if not isinstance(deco, ast.Call):
                 continue
             if not (isinstance(deco.func, ast.Attribute)
                     and deco.func.attr == "function"):
                 continue
             for key in deco.keywords:
-                if key.arg in ("max_containers", "max_inputs"):
+                if key.arg in ("max_containers", "single_use_containers",
+                               "max_inputs"):
                     found[(node.name, key.arg)] = key.value.value
     assert found[("run_film", "max_containers")] == 2
-    assert found[("run_film", "max_inputs")] == 1
+    assert found[("run_film", "single_use_containers")] is True
+    assert ("run_film", "max_inputs") not in found
+    assert "run_film" not in concurrent
     assert found[("web", "max_containers")] == 2
     assert found[("judge", "max_containers")] == 2
+    assert concurrent["web"] == 32
+    assert concurrent["judge"] == 32
+    assert found[("ledger_op", "max_containers")] == 1
+    assert "ledger_op" not in concurrent
 
 
 def _prune_stores(tmp_path):

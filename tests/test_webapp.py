@@ -1139,6 +1139,45 @@ def test_quota_cache_evicts_expired_and_stays_bounded(tmp_path):
                for _, expires in deps.quota_cache.values())
 
 
+def test_quota_cache_survives_concurrent_page_views(tmp_path):
+    """The web containers take concurrent requests: hammer the
+    per-visitor cache from threads; every view gets a line, the
+    cache stays bounded, nothing raises."""
+    import threading
+
+    from witness import webapp as webapp_module
+
+    class CountingAuthority(FakeAuthority):
+        daily_films = 10
+        visitor_films = 2
+        network_films = 2
+
+        def quota(self, *args, **kwargs):
+            return {"films": 0, "visitor": 0, "network": 0}
+
+    deps = _deps(tmp_path, authority=CountingAuthority())
+    errors = []
+    lines = []
+
+    def view(index):
+        try:
+            lines.append(webapp_module._quota_line_cached(
+                deps, f"visitor-{index % 40}", "k", 1000.0))
+        except Exception as exc:  # noqa: BLE001 - collected, then raised
+            errors.append(exc)
+
+    threads = [threading.Thread(target=view, args=(index,))
+               for index in range(200)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    assert len(lines) == 200
+    assert all("Films left today" in line for line in lines)
+    assert len(deps.quota_cache) <= webapp_module.QUOTA_LINE_CACHE_MAX
+
+
 def test_concurrent_uploads_are_capped_per_container(tmp_path):
     from fastapi.testclient import TestClient
 

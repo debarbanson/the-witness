@@ -6,7 +6,7 @@ Point The Witness at a windmill, an old tree or a lighthouse. It works out which
 
 A heritage group can prepare a reviewed film per monument and link it from a QR plaque or the heritage register. Visitors point their phones at the plaque and watch what the place witnessed, with every fact linked to its source.
 
-> "I burnt down." — De Adriaan, 23 April 1932 (source shown on screen)
+> De Adriaan, 23 April 1932: "I burnt down." (source shown on screen)
 
 Built for the Meta Global AI Developer Hackathon (kicked off 26 October 2026, 17:00 Dutch time; runs to 4 November), track **Build for Your World**.
 
@@ -112,7 +112,7 @@ Location data identifies the object. On the web page it is held in the job's pri
 
 ### Example films
 
-The three example films are not in the repo, so a judge without keys cannot see them here; watch them on the judge page above instead. Proposal, for the owner to decide: do not commit them. The finished folders are 69 MB of images (23, 21 and 25 MB), which would bloat every clone. All three today photos now carry a recorded licence in their `film.json` (CC0, CC BY 3.0 and CC BY 4.0, with author and file link). If they are committed, keep only the finished `film/` folders.
+The three example films are on the judge page and in the video. They're not in this repository, to keep it small (67 MB of images). All three today photos carry a recorded licence in their `film.json` (CC0, CC BY 3.0 and CC BY 4.0, with author and file link).
 
 ## Cost and speed
 

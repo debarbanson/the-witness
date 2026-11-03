@@ -524,6 +524,44 @@ def test_model_calls_toggle_lists_the_job_rows(tmp_path):
     assert out.returncode == 0, out.stderr[:500]
 
 
+def test_checked_facts_panel_lists_film_facts(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "facts_check.cjs"
+    out = subprocess.run([node, str(check), str(target)],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[:2000]
+
+
+def test_location_help_asks_only_when_needed(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "location_check.cjs"
+    out = subprocess.run([node, str(check), str(target)],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[:2000]
+
+
 def test_try_your_own_promises_no_second_version(tmp_path):
     from pathlib import Path
 
@@ -558,3 +596,22 @@ def test_locked_phone_resume_keeps_the_film(tmp_path):
         out = subprocess.run([node, str(check), str(target), mode],
                              capture_output=True, text=True, timeout=60)
         assert out.returncode == 0, f"{mode}: {out.stderr[:500]}"
+
+
+def test_painting_shows_checked_facts_then_the_film(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "resume_check.cjs"
+    out = subprocess.run([node, str(check), str(target), "facts"],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[:2000]

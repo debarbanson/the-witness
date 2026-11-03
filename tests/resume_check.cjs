@@ -1,7 +1,8 @@
 // Drives the landing page script with a stub DOM: resume from a saved
 // job id without a new admission, lost-contact without cancel, gone
-// jobs clearing the save, and the Cancel button. Usage:
-// node resume_check.cjs <landing.html> <resume|misses|gone|cancel>
+// jobs clearing the save, the Cancel button, and the checked-facts
+// panel while painting. Usage:
+// node resume_check.cjs <landing.html> <resume|misses|gone|cancel|facts>
 "use strict";
 const fs = require("fs");
 const vm = require("vm");
@@ -16,7 +17,7 @@ assert(html.includes('id="cancel"'), "no Cancel button");
 
 function makeEl(id) {
   const el = {
-    id, style: {}, dataset: {}, textContent: "", innerHTML: "",
+    id, style: {}, dataset: {}, innerHTML: "",
     className: "", files: [], value: "",
     children: [],
     appendChild(c) { this.children.push(c); return c; },
@@ -25,6 +26,11 @@ function makeEl(id) {
     addEventListener: () => {},
     click() { if (typeof el.onclick === "function") { return el.onclick(); } },
   };
+  let text = "";
+  Object.defineProperty(el, "textContent", {
+    get: () => text,
+    set: (v) => { text = String(v); el.children.length = 0; },
+  });
   return el;
 }
 
@@ -78,6 +84,33 @@ async function fakeFetch(url, opts = {}) {
           result: { message: "job cancelled" } });
       }
       return jsonResponse({ status: "working", events: [] });
+    }
+    if (mode === "facts") {
+      const items = [
+        { stamp: "1850", text: "The mill stood tall.",
+          url: "https://a.example/mill",
+          guess: "Poldertoren", lat: 52.1 },
+        { stamp: "1932", text: "The mill burnt down.",
+          url: "https://a.example/fire" },
+      ];
+      const base = [
+        { event: "checked_facts", data: { items } },
+      ];
+      if (pollCount < 2) {
+        return jsonResponse({ status: "working", events: [
+          { event: "painting", data: { model: "Muse Image" } }, ...base] });
+      }
+      if (pollCount < 3) {
+        return jsonResponse({ status: "working", events: [
+          { event: "painting", data: { model: "Muse Image" } }, ...base,
+          { event: "painted", data: { year: 1850, verdict: "matches",
+            accepted: 1, dropped: 0, attempted: 2 } }] });
+      }
+      return jsonResponse({ status: "done",
+        events: [{ event: "render", data: {} }, ...base,
+          { event: "painted", data: { year: 1932, verdict: "matches",
+            accepted: 2, dropped: 0, attempted: 2 } }],
+        result: { film_url: "/film/job-9/tok/film.html" } });
     }
     if (pollCount < 2) {
       return jsonResponse({ status: "working",
@@ -165,5 +198,26 @@ vm.createContext(sandbox);
     assert.strictEqual(
       sandbox.document.getElementById("job").style.display, "none");
     console.log("gone job clears the save: OK");
+  } else if (mode === "facts") {
+    assert.strictEqual(posts.length, 0, "facts admitted a second job");
+    assert.strictEqual(
+      sandbox.document.getElementById("facts").style.display, "block",
+      "facts panel hidden during painting");
+    const list = sandbox.document.getElementById("facts-list");
+    assert.strictEqual(list.children.length, 2, "both facts listed");
+    assert.strictEqual(list.children[0].children[0].textContent, "1850 ");
+    assert.strictEqual(list.children[0].children[2].href,
+      "https://a.example/mill");
+    assert.strictEqual(
+      sandbox.document.getElementById("paint-count").textContent,
+      "Painted 2 of 2");
+    const rendered = JSON.stringify(list);
+    assert(!rendered.includes("Poldertoren"), "a guess reached the page");
+    assert(!rendered.includes("52.1"), "a coordinate reached the page");
+    const text = sandbox.document.getElementById("result").textContent;
+    const kids = sandbox.document.getElementById("result").children.length;
+    assert(text.includes("/film/job-9/tok/film.html") || kids > 0,
+      "film link not shown after the facts");
+    console.log("checked facts then the film with no second admission: OK");
   }
 })().catch((e) => { process.stderr.write(String(e)); process.exit(1); });

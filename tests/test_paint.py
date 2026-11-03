@@ -909,3 +909,74 @@ def test_save_era_normalises_to_webp(tmp_path):
     path = paint.save_era(tmp_path, 2019, web.getvalue())
     assert path.name == "2019.webp"
     assert path.read_bytes() == web.getvalue()
+
+
+def test_paint_parallel_reports_each_era_as_it_finishes():
+    import time
+
+    def call(prompt, prev_id, photo_bytes=None):
+        if prev_id is None:
+            return {"image": b"base", "response_id": "r-base"}
+        if "1950" in prompt:
+            time.sleep(0.2)
+        return {"image": b"img", "response_id": "rx"}
+
+    seen = []
+
+    def on_era(year, verdict, accepted, dropped, attempted):
+        seen.append((year, verdict, accepted, dropped, attempted))
+
+    results = paint.paint_parallel(
+        call, None, [scene(1850), scene(1950), scene(2000)],
+        "Mill", "Town",
+        check_call=lambda image, prompt: "MATCHES fine",
+        on_era=on_era)
+    assert [item["year"] for item in results] == [1850, 1950, 2000]
+    assert [year for year, _, _, _, _ in seen] == [1850, 2000, 1950]
+    assert [verdict for _, verdict, _, _, _ in seen] == ["matches"] * 3
+    assert [(accepted, dropped, attempted)
+            for _, _, accepted, dropped, attempted in seen] == [
+                (1, 0, 3), (2, 0, 3), (3, 0, 3)]
+
+
+def test_paint_parallel_reports_dropped_eras():
+    def call(prompt, prev_id, photo_bytes=None):
+        if prev_id is None:
+            return {"image": b"base", "response_id": "r-base"}
+        if "1950" in prompt:
+            raise RuntimeError("timed out")
+        return {"image": b"img", "response_id": "rx"}
+
+    seen = []
+
+    def on_era(year, verdict, accepted, dropped, attempted):
+        seen.append((year, verdict, accepted, dropped, attempted))
+
+    results = paint.paint_parallel(
+        call, None, [scene(1850), scene(1950)], "Mill", "Town",
+        check_call=lambda image, prompt: "MATCHES fine",
+        on_era=on_era)
+    assert [item["year"] for item in results] == [1850, 1950]
+    assert seen[-1] == (1950, "dropped", 1, 1, 2)
+
+
+def test_paint_chain_reports_running_counts():
+    def check_call(image, prompt):
+        if "ruins" in prompt:
+            return "DIFFERS the roof is wrong."
+        return "MATCHES whole mill."
+
+    seen = []
+
+    def on_era(year, verdict, accepted, dropped, attempted):
+        seen.append((year, verdict, accepted, dropped, attempted))
+
+    results = paint.paint_chain(
+        lambda prompt, prev_id, photo_bytes=None: {
+            "image": b"img", "response_id": "rx"},
+        None, [scene(1850, description="The mill stands whole."),
+               scene(1950, description="The mill lies in ruins.")],
+        "Mill", "Town", check_call=check_call, on_era=on_era)
+    assert [item["year"] for item in results] == [1850, 1950]
+    assert seen == [(1850, "matches", 1, 0, 2),
+                    (1950, "dropped", 1, 1, 2)]

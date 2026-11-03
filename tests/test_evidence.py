@@ -110,3 +110,5 @@ def test_steps_name_models_and_recorded_verdicts(tmp_path):
     assert "I was opened." in page
     assert "era_1850.webp" in page
     assert "newly built with four sails" in page
+    assert "<h2>1850: I was opened.</h2>" in page
+    assert " — " not in page

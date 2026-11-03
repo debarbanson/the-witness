@@ -1045,3 +1045,122 @@ def test_stale_heartbeat_does_not_cancel_the_film(tmp_path, monkeypatch):
         assert store.get_job("job-1")["status"] == "done"
     finally:
         models.configure_spending(None)
+
+
+def _research_with_captions():
+    claim = {"year": 1850, "url": "https://a.example/mill",
+             "claim": "The mill stood.", "quote": "The mill stood in 1850.",
+             "verdict": "supported"}
+    return {
+        "claims": [claim],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "caption_sentence": {
+                 "text": "The mill stood tall.", "claim_year": 1850,
+                 "evidence": {"claim": "The mill stood.",
+                              "url": "https://a.example/mill",
+                              "quote": "The mill stood in 1850."}}},
+            {"from_year": 1900, "date_label": "1900"},
+        ],
+    }
+
+
+def test_painting_start_publishes_checked_facts(tmp_path, monkeypatch):
+    import json as _json
+    import pathlib as _pathlib
+
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+
+    def save(*args, **kwargs):
+        slug_dir = _pathlib.Path(spec["job_dir"]) / "q1-mill"
+        slug_dir.mkdir(parents=True, exist_ok=True)
+        (slug_dir / "research.json").write_text(
+            _json.dumps(_research_with_captions()))
+        return str(slug_dir)
+
+    def paint(*args, **kwargs):
+        kwargs["progress"]("painted", {"year": 1850, "verdict": "matches",
+                                       "accepted": 1, "dropped": 0,
+                                       "attempted": 1})
+        return 0
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", _film_run(_mill()))
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save", save)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", paint)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        events = [(row["event"], row.get("data") or {})
+                  for row in store.get_job("job-1")["events"]]
+        facts = [data for event, data in events if event == "checked_facts"]
+        assert len(facts) == 1
+        assert facts[0]["items"] == [
+            {"stamp": "1850", "text": "The mill stood tall.",
+             "url": "https://a.example/mill"}]
+        kinds = [event for event, _ in events]
+        assert kinds.index("checked_facts") < kinds.index("painted")
+        painted = [data for event, data in events if event == "painted"]
+        assert painted == [{"year": 1850, "verdict": "matches",
+                            "accepted": 1, "dropped": 0, "attempted": 1}]
+    finally:
+        models.configure_spending(None)
+
+
+def test_real_paint_reports_facts_then_the_counter(tmp_path, monkeypatch):
+    import io
+    import json as _json
+    import pathlib as _pathlib
+
+    import witness.webfilm as webfilm_module
+    from PIL import Image
+
+    store, spec = _store(), _spec(tmp_path)
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), "red").save(buf, "PNG")
+    photo = buf.getvalue()
+    _pathlib.Path(spec["photo"]).write_bytes(photo)
+
+    def save(*args, **kwargs):
+        slug_dir = _pathlib.Path(spec["job_dir"]) / "q1-mill"
+        slug_dir.mkdir(parents=True, exist_ok=True)
+        data = _research_with_captions()
+        data["object"] = {"name": "Mill"}
+        data["photo_month"] = 5
+        (slug_dir / "research.json").write_text(_json.dumps(data))
+        return str(slug_dir)
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", _film_run(_mill()))
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save", save)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(
+        webfilm_module.cli, "paint_respond",
+        lambda prompt, prev_id, photo_bytes=None: {
+            "image": photo, "response_id": "r-x"})
+
+    def look(image, prompt):
+        if prompt.startswith("Look at this"):
+            return "Season: summer\nNone"
+        return "MATCHES whole mill."
+
+    monkeypatch.setattr(webfilm_module.cli, "check_respond", look)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        events = [(row["event"], row.get("data") or {})
+                  for row in store.get_job("job-1")["events"]]
+        kinds = [event for event, _ in events]
+        assert kinds.index("checked_facts") < kinds.index("painted")
+        facts = [data for event, data in events if event == "checked_facts"]
+        assert facts[0]["items"] == [
+            {"stamp": "1850", "text": "The mill stood tall.",
+             "url": "https://a.example/mill"}]
+        painted = [data for event, data in events if event == "painted"]
+        assert painted[-1] == {"year": 1850, "verdict": "matches",
+                               "accepted": 1, "dropped": 0, "attempted": 1}
+        assert (_pathlib.Path(spec["job_dir"]) / "q1-mill"
+                / "eras_parallel" / "1850.webp").exists()
+    finally:
+        models.configure_spending(None)

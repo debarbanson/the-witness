@@ -16,7 +16,7 @@
 
 - The painted eras are illustrations, not documents. The end card says so: "Scenes are AI-generated illustrations based on the sources listed."
 - Scene details (dress, transport, surroundings) follow the era in general; specific events are only depicted when a verified claim names them.
-- **The object is shown in its verified state for each era.** If it burned, it is shown burnt; if it was rebuilt, the rebuilt form appears from that year. With no sourced change, it keeps the form of the previous era. Each painting is checked against that state and the final caption before it is used.
+- **The object is shown in its verified state for each era.** If it burned, it is shown burnt; if it was rebuilt, the rebuilt form appears from that year. With no sourced change, it keeps the form of the previous era. Each painting is checked against that state and the final caption before it is used. The check judges the stated condition, not every detail: a wrong detail can still pass (the dropped Rubjerg 2016 showed a round tower with an outside stair, and houses the sources say were gone), so the owner's review of the contact sheet is the last guard before an era ships.
 - Each final scene carries an immutable evidence reference (claim, URL, quote); the renderer refuses a scene without one. A caption sentence counts only when fully supported, rechecked after every rewrite.
 - The film ends on the user's own photo, the only photographic image in it.
 

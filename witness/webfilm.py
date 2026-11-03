@@ -7,6 +7,7 @@ from pathlib import Path
 
 from witness import cli, models
 from witness.cache import Cache
+from witness.render import builder as render_builder
 from witness.verify import filmed
 from witness.webapp import DECIDE_TIMEOUT_SECONDS
 
@@ -17,6 +18,25 @@ def public_claims(kept) -> list:
     return [{"year": claim.get("year"), "claim": claim.get("claim", ""),
              "url": claim.get("url"), "quote": claim.get("quote", "")}
             for claim in kept if filmed(claim)]
+
+
+def checked_facts(slug_dir) -> list:
+    """The caption-checked scenes in film order: date stamp, sentence
+    and source page, exactly as the film shows them. Refused scenes
+    never appear; painting may still drop an era, which the painted
+    count then reflects."""
+    data = _json.loads((Path(slug_dir) / "research.json").read_text(
+        encoding="utf-8"))
+    claims = data.get("claims", [])
+    facts = []
+    for scene in data.get("scenes", []):
+        if not render_builder.filmable(scene, claims):
+            continue
+        stamp, text = render_builder.caption_for(scene)
+        evidence = (scene.get("caption_sentence") or {}).get("evidence") or {}
+        facts.append({"stamp": stamp, "text": text,
+                      "url": evidence.get("url", "")})
+    return facts
 
 
 def load_spec(job_dir):
@@ -218,8 +238,19 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                          "claims": public_claims(result["kept"]),
                          "cost_usd": total_cost()}, "facts_only")
                 progress("painting", {"slug": slug, "model": "Muse Image"})
+                try:
+                    progress("checked_facts", {"items": checked_facts(
+                        Path(spec["job_dir"]) / slug)})
+                except (OSError, ValueError):
+                    pass  # no facts panel; painting still decides
+
+                def paint_progress(event, data):
+                    if event == "painted":
+                        progress("painted", data)
+
                 if cli.cmd_paint(slug, spec["photo"], mode="parallel",
-                                 out_dir=spec["job_dir"]) != 0:
+                                 out_dir=spec["job_dir"],
+                                 progress=paint_progress) != 0:
                     return finish(
                         {"message": "Research is done but painting failed.",
                          "claims": public_claims(result["kept"]),

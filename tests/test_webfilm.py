@@ -165,8 +165,7 @@ def test_captions_run_before_paint(tmp_path, monkeypatch):
                         lambda *a, **k: order.append("render") or 0)
     try:
         assert run_web_film(spec, store, authority=None) == {"status": "film"}
-        assert order == ["save", "captions", "paint", "render", "children",
-                         "child_paint", "spot", "render"]
+        assert order == ["save", "captions", "paint", "render"]
     finally:
         models.configure_spending(None)
 
@@ -185,84 +184,6 @@ def _film_run(found):
 def _mill():
     return SimpleNamespace(name="Mill", kind="mill", qid="Q1",
                            articles={}, municipality=None)
-
-
-def test_child_set_runs_before_render(tmp_path, monkeypatch):
-    import witness.webfilm as webfilm_module
-
-    store, spec = _store(), _spec(tmp_path)
-    seen = {}
-    monkeypatch.setattr(webfilm_module.cli, "run_job", _film_run(_mill()))
-    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
-                        lambda *a, **k: "out/q1-mill")
-    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
-
-    def paint(*args, **kwargs):
-        seen[kwargs.get("audience", "adult")] = args
-        return 0
-
-    def children(*args, **kwargs):
-        seen["children"] = args
-        return 0
-
-    def spot(*args, **kwargs):
-        seen["spot"] = args
-        return 0
-
-    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", paint)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_children", children)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_spot", spot)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
-    try:
-        assert run_web_film(spec, store, authority=None) == {"status": "film"}
-        assert set(seen) == {"adult", "child", "children", "spot"}
-        assert seen["child"][0] == "q1-mill"
-        assert store.get_job("job-1")["result"]["audiences"] == "both"
-    finally:
-        models.configure_spending(None)
-
-
-def test_failed_children_still_ships_the_adult_film(tmp_path, monkeypatch):
-    import witness.webfilm as webfilm_module
-
-    store, spec = _store(), _spec(tmp_path)
-    rendered = []
-    monkeypatch.setattr(webfilm_module.cli, "run_job", _film_run(_mill()))
-    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
-                        lambda *a, **k: "out/q1-mill")
-    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_children", lambda *a, **k: 2)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_spot", lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_render",
-                        lambda *a, **k: rendered.append(a) or 0)
-    try:
-        assert run_web_film(spec, store, authority=None) == {"status": "film"}
-        assert rendered != []
-        assert store.get_job("job-1")["result"]["audiences"] == "adult"
-    finally:
-        models.configure_spending(None)
-
-
-def test_failed_child_paint_still_ships_the_adult_film(tmp_path, monkeypatch):
-    import witness.webfilm as webfilm_module
-
-    store, spec = _store(), _spec(tmp_path)
-    monkeypatch.setattr(webfilm_module.cli, "run_job", _film_run(_mill()))
-    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
-                        lambda *a, **k: "out/q1-mill")
-    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
-    monkeypatch.setattr(
-        webfilm_module.cli, "cmd_paint",
-        lambda *a, **k: 2 if k.get("audience") == "child" else 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_children", lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_spot", lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
-    try:
-        assert run_web_film(spec, store, authority=None) == {"status": "film"}
-        assert store.get_job("job-1")["result"]["audiences"] == "adult"
-    finally:
-        models.configure_spending(None)
 
 
 def test_film_cost_covers_captions_paint_and_render(tmp_path, monkeypatch):
@@ -285,7 +206,7 @@ def test_film_cost_covers_captions_paint_and_render(tmp_path, monkeypatch):
     try:
         assert run_web_film(spec, store, authority=None) == {"status": "film"}
         result = store.get_job("job-1")["result"]
-        assert result["cost_usd"] == 0.01 + 2 * 0.01
+        assert result["cost_usd"] == 0.01 + 0.01
     finally:
         models.configure_spending(None)
 
@@ -627,86 +548,6 @@ def _full_film_result():
             "cost_usd": 0.0}
 
 
-def test_adult_publishes_and_commits_before_extras(tmp_path, monkeypatch):
-    import witness.webfilm as webfilm_module
-    from witness.webfilm import run_web_film
-
-    store, spec = _store(), _spec(tmp_path)
-    spec["job_id"] = "job-1"
-    order = []
-    film = tmp_path / "job" / "job" / "film" / "film.html"
-
-    def render(*a, **kw):
-        film.parent.mkdir(parents=True, exist_ok=True)
-        film.write_text("<html>synthetic</html>")
-        return 0
-
-    def children(*a, **kw):
-        order.append("children")
-        published = store.get_job("job-1").get("result") or {}
-        assert published.get("film_url")
-        assert published.get("audiences") == "adult"
-        assert order[0] == "commit"
-        return 0
-
-    monkeypatch.setattr(webfilm_module.cli, "run_job",
-                        lambda *a, **k: _full_film_result())
-    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
-                        lambda *a, **k: None)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
-                        lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
-                        lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_render", render)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_children", children)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_spot",
-                        lambda *a, **k: 0)
-    try:
-        out = run_web_film(spec, store, authority=None,
-                           commit=lambda: order.append("commit"))
-    finally:
-        models.configure_spending(None)
-    assert out == {"status": "film"}
-    assert order[0] == "commit"
-    final = store.get_job("job-1").get("result") or {}
-    assert final.get("audiences") == "both"
-    assert final.get("film_url")
-
-
-def test_cancel_in_extras_still_cancels(tmp_path, monkeypatch):
-    import witness.webfilm as webfilm_module
-    from witness.webfilm import run_web_film
-
-    store, spec = _store(), _spec(tmp_path)
-    spec["job_id"] = "job-1"
-    film = tmp_path / "job" / "job" / "film" / "film.html"
-
-    def render(*a, **kw):
-        film.parent.mkdir(parents=True, exist_ok=True)
-        film.write_text("<html>synthetic</html>")
-        return 0
-
-    def cancelled(*a, **kw):
-        raise models.JobCancelled("synthetic tab close")
-
-    monkeypatch.setattr(webfilm_module.cli, "run_job",
-                        lambda *a, **k: _full_film_result())
-    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
-                        lambda *a, **k: None)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
-                        lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
-                        lambda *a, **k: 0)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_render", render)
-    monkeypatch.setattr(webfilm_module.cli, "cmd_children", cancelled)
-    try:
-        out = run_web_film(spec, store, authority=None)
-    finally:
-        models.configure_spending(None)
-    assert out == {"status": "cancelled"}
-    assert store.get_job("job-1")["status"] == "cancelled"
-
-
 def test_declined_says_only_identification_ran(tmp_path, monkeypatch):
     import witness.webfilm as webfilm_module
     from witness.webfilm import run_web_film
@@ -806,3 +647,85 @@ def test_paint_step_events_name_the_model(tmp_path, monkeypatch):
         assert events["painting"].get("model") == "Muse Image"
     finally:
         models.configure_spending(None)
+
+
+def _film_spec(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Mill", kind="mill", qid="Q1",
+                            articles={}, municipality=None)
+
+    def fake_run(*args, **kwargs):
+        return {"confirmed": True, "identified": True, "cached": False,
+                "slug": "q1-mill", "found": found, "order": ["en"],
+                "kept": [], "timeline": [], "chosen": [],
+                "result": {"outcome": "short_film"}, "timings": {},
+                "failures": [], "comparison": None, "tokens": {},
+                "cost_usd": 0.01}
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/q1-mill")
+    return store, spec
+
+
+def test_upload_ends_at_adult_publication(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _film_spec(tmp_path, monkeypatch)
+    calls = []
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
+                        lambda *a, **k: calls.append("captions") or 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                        lambda *a, **k: calls.append("paint") or 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render",
+                        lambda *a, **k: calls.append("render") or 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_children",
+                        lambda *a, **k: calls.append("children") or 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_spot",
+                        lambda *a, **k: calls.append("spot") or 0)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        assert calls == ["captions", "paint", "render"]
+        job = store.get_job("job-1")
+        assert job["status"] == "done"
+        assert job["result"]["film_url"] == "/film/job-1/token-1/film.html"
+    finally:
+        models.configure_spending(None)
+
+
+def test_published_adult_survives_cancel_deadline_and_error(
+        tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    for case, boom in enumerate((models.JobCancelled("gone"),
+                                models.JobDeadlineExceeded("slow"),
+                                RuntimeError("disk"))):
+        case_dir = tmp_path / f"case{case}"
+        case_dir.mkdir(parents=True, exist_ok=True)
+        store, spec = _film_spec(case_dir, monkeypatch)
+        monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
+                            lambda *a, **k: 0)
+        monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                            lambda *a, **k: 0)
+        monkeypatch.setattr(webfilm_module.cli, "cmd_render",
+                            lambda *a, **k: 0)
+        monkeypatch.setattr(webfilm_module.cli, "cmd_children",
+                            lambda *a, **k: 0)
+        monkeypatch.setattr(webfilm_module.cli, "cmd_spot",
+                            lambda *a, **k: 0)
+
+        def commit():
+            raise boom
+
+        try:
+            assert run_web_film(spec, store, authority=None,
+                                commit=commit) == {"status": "film"}
+            job = store.get_job("job-1")
+            assert job["status"] == "done"
+            assert "film_url" in job["result"]
+        finally:
+            models.configure_spending(None)

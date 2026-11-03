@@ -187,6 +187,7 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
         message = ("Not confirmed. Only the identification ran; "
                    "no research or painting was paid for.")
         return finish({"message": message}, "declined")
+    published = False
     try:
         with models.job_ledger() as ledger, models.job_control(control=control):
             slug = result["slug"]
@@ -232,62 +233,23 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                         "unavailable": []}
                 film["cost_usd"] = total_cost()
                 finish(dict(film), "film")
+                published = True
                 if commit is not None:
                     commit()
-                children_done = False
-                try:
-                    progress("children", {"slug": slug})
-                    children_ok = cli.cmd_children(
-                        slug, out_dir=spec["job_dir"],
-                        cache=knowledge) == 0
-                    if children_ok:
-                        children_ok = cli.cmd_paint(
-                            slug, spec["photo"], mode="parallel",
-                            out_dir=spec["job_dir"], audience="child") == 0
-                    if not children_ok:
-                        film["unavailable"].append("children")
-                    else:
-                        try:
-                            progress("spot", {"slug": slug})
-                            if cli.cmd_spot(slug, spec["photo"],
-                                            out_dir=spec["job_dir"]) != 0:
-                                film["unavailable"].append("spot")
-                        except Exception:
-                            film["unavailable"].append("spot")
-                            progress("extra_unavailable", {"extra": "spot"})
-                        progress("render", {"slug": slug,
-                                            "audiences": "both"})
-                        if cli.cmd_render(slug, spec["photo"],
-                                          era_dir="eras_parallel",
-                                          out_dir=spec["job_dir"],
-                                          cache=knowledge) != 0:
-                            film["unavailable"].append("children")
-                        else:
-                            film["audiences"] = "both"
-                            children_done = True
-                except models.JobDeadlineExceeded:
-                    if children_done:
-                        if "spot" not in film["unavailable"]:
-                            film["unavailable"].append("spot")
-                        progress("extra_unavailable", {"extra": "spot"})
-                    else:
-                        if "children" not in film["unavailable"]:
-                            film["unavailable"].append("children")
-                        progress("extra_unavailable",
-                                 {"extra": "children"})
-                except Exception:
-                    if "children" not in film["unavailable"]:
-                        film["unavailable"].append("children")
-                    progress("extra_unavailable", {"extra": "children"})
-                film["cost_usd"] = total_cost()
-                return finish(film, "film")
+                return {"status": "film"}
             return finish(
                 {"message": "Too little evidence for a film; the facts are below.",
                  "claims": public_claims(result["kept"])}, "facts_only")
     except models.JobCancelled as exc:
+        if published:
+            return {"status": "film"}
         return halted("cancelled", str(exc) or "job cancelled")
     except models.JobDeadlineExceeded as exc:
+        if published:
+            return {"status": "film"}
         return halted("expired", str(exc) or "job deadline passed")
     except Exception:
+        if published:
+            return {"status": "film"}
         _traceback.print_exc()
         return halted("failed", "the runner failed; nothing kept")

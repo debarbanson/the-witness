@@ -34,7 +34,7 @@ Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/0
 
 For adults 18 and over.
 
-Films that earn them get a family version and a game: the same verified facts in simpler words, rechecked against the same sources, with picture-book paintings from the same anchor and a "spot the difference" game between a painted era and your photo of today, to play together. The family version is for an adult to watch with younger family members. Both need enough verified material, so some films ship without one or both. See [docs/08_children.md](docs/08_children.md).
+Uploads make the adult film only. The three examples also carry a family version and a game: the same verified facts in simpler words, rechecked against the same sources, with picture-book paintings from the same anchor and a "spot the difference" game between a painted era and the photo of today, to play together. The family version is for an adult to watch with younger family members. Both need enough verified material. See [docs/08_children.md](docs/08_children.md).
 
 ## Principles
 

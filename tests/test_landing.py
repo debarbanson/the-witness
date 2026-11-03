@@ -398,3 +398,13 @@ def test_step_list_labels_follow_the_event_model(tmp_path):
     out = subprocess.run([node, str(check), str(target)],
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr[:500]
+
+
+def test_try_your_own_promises_no_second_version(tmp_path):
+    from pathlib import Path
+
+    page = _page(tmp_path)
+    assert "Writing the family version" not in page
+    assert "Making spot-the-difference" not in page
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+    assert "Uploads make the adult film only." in readme

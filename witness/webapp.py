@@ -556,8 +556,6 @@ const PHASES = {
   verifying: "Checking the facts…",
   captions: "Writing captions…",
   painting: "Painting the eras…",
-  children: "Writing the family version…",
-  spot: "Making spot-the-difference…",
   render: "Cutting the film…",
   confirmed: "Confirmed.",
   working: "Working…"
@@ -566,7 +564,7 @@ function phaseWords(name) {
   if (Object.prototype.hasOwnProperty.call(PHASES, name)) { return PHASES[name]; }
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ") + "…";
 }
-const STEP_FOR = {identifying: 0, identified: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, verify: 2, captions: 3, painting: 3, render: 4, children: 4, spot: 4};
+const STEP_FOR = {identifying: 0, identified: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, verify: 2, captions: 3, painting: 3, render: 4};
 function updateSteps(ev) {
   const items = document.querySelectorAll("#steps li");
   if (!items.length) { return; }

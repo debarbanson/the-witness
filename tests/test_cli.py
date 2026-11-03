@@ -4015,3 +4015,46 @@ def test_judge_batch_reports_the_model_in_events():
     assert events
     assert all(d.get("model") == "Muse Spark Open on Baseten"
                for _, d in events)
+
+
+def test_captions_run_in_parallel_with_identical_results(tmp_path, monkeypatch):
+    import json as _json
+    import time as _time
+
+    import witness.cli as cli_module
+    from witness.cache import Cache
+
+    slug = "q1-mill"
+    out_dir = tmp_path / slug
+    out_dir.mkdir(parents=True)
+    scenes = [{"from_year": year, "date_label": ""} for year in (1850, 1900, 1950)]
+    claims = [{"claim": f"Event of {year}.", "detail": f"Event of {year}.",
+               "year": year, "event": "built", "quote": f"Happened in {year}.",
+               "url": f"https://example.org/{year}", "verdict": "supported"}
+              for year in (1850, 1900, 1950)]
+    (out_dir / "research.json").write_text(_json.dumps(
+        {"object": {"name": "Mill"}, "scenes": scenes, "claims": claims}))
+
+    def rewrite(detail, source, year, plain, stamp=""):
+        _time.sleep(0.5)
+        return "I stood here through the years."
+
+    def support(judged, passages, year=0, keywords=()):
+        _time.sleep(0.5)
+        return {"verdict": "supported", "quote": f"Happened in {year}.",
+                "url": f"https://example.org/{year}"}
+
+    start = _time.monotonic()
+    code = cli_module.cmd_captions(slug, rewrite_call=rewrite,
+                                   support_call=support, out_dir=str(tmp_path),
+                                   cache=Cache(str(tmp_path / "cache")))
+    duration = _time.monotonic() - start
+    assert code == 0
+    assert duration < 2.0, f"serial would take 3 s, took {duration:.1f}"
+    data = _json.loads((out_dir / "research.json").read_text())
+    sentences = [s["caption_sentence"] for s in data["scenes"]]
+    assert [s["text"] for s in sentences] == ["I stood here through the years."] * 3
+    assert [s["claim_year"] for s in sentences] == [1850, 1900, 1950]
+    assert [s["evidence"]["url"] for s in sentences] == [
+        "https://example.org/1850", "https://example.org/1900",
+        "https://example.org/1950"]

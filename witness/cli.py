@@ -1830,6 +1830,7 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
     assigned = captions.assign_claims(data.get("scenes", []),
                                       data.get("claims", []))
     failed = []
+    jobs = []
     for scene in data.get("scenes", []):
         year = scene.get("from_year")
         if not isinstance(year, int) or scene.get("caption_sentence"):
@@ -1840,16 +1841,35 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
         if claim is None:
             print(f"{year}: no claim of its own; dropped from the film")
             continue
-        try:
-            out = captions.write_sentence(
+        jobs.append((scene, year, claim))
+    results = []
+    if jobs:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(job):
+            scene, year, claim = job
+            return captions.write_sentence(
                 rewrite, support, claim, year, claims=data.get("claims", []),
                 stamp=scene.get("date_label", "") or "",
                 object_name=data.get("object", {}).get("name", ""),
                 texts=texts)
-        except models.SpendingCapExceeded as exc:
+
+        with ThreadPoolExecutor(
+                max_workers=min(6, len(jobs)),
+                thread_name_prefix="caption") as pool:
+            futures = [models.submit_context(pool, one, job) for job in jobs]
+            for job, future in zip(jobs, futures):
+                try:
+                    results.append((job, future.result(), None))
+                except Exception as exc:
+                    results.append((job, None, exc))
+    for (scene, year, claim), out, exc in results:
+        if isinstance(exc, models.SpendingCapExceeded):
             path.write_text(json.dumps(data, indent=1))
             print(f"stopping: spending cap reached ({exc})")
             return 2
+        if exc is not None:
+            raise exc
         if not out["verified"]:
             failed.append(year)
             print(f"{year}: sentence failed verification")

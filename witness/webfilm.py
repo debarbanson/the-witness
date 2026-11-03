@@ -80,6 +80,7 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
     scrub_hand_off(spec["job_dir"])
     now = clock or _time.time
     job_id = spec["job_id"]
+    models.reset_timing()
     models.configure_spending(authority=authority)
     control = models.JobControl(deadline_s=spec.get("deadline_s", 1500))
     store.set_status(job_id, "working")
@@ -120,14 +121,35 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
             _time.sleep(1.0)
         return False
 
+    def call_timings():
+        rows = models.timing_rows()
+        try:
+            started = store.get_job(job_id).get("started_at") or 0
+        except KeyError:
+            started = 0
+        base = started or (rows[0]["t"] if rows else 0)
+        calls = []
+        for row in rows:
+            kept = {key: value for key, value in row.items()
+                    if key != "t"}
+            kept["offset_s"] = round(row["t"] - base, 1)
+            calls.append(kept)
+        return {"calls": calls}
+
     def finish(result, status):
         result["ended_at"] = now()
+        timings = result.get("timings")
+        if not isinstance(timings, dict):
+            timings = {}
+            result["timings"] = timings
+        timings["calls"] = call_timings()["calls"]
         store.finish_job(job_id, result)
         return {"status": status}
 
     def halted(status, message):
         store.end_job(job_id, status, {"message": message,
-                                       "ended_at": now()})
+                                       "ended_at": now(),
+                                       "timings": call_timings()})
         return {"status": status}
 
     on_cancel = spec.get("on_cancel")

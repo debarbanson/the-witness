@@ -426,9 +426,11 @@ def call_ceiling(spec, input_tokens: int) -> float:
     return max(spec.ceiling_usd, computed)
 
 
-def _reserve_call(spec, payload) -> object:
+def _reserve_call(spec, payload, phase=None) -> object:
     """Reserve this call's ceiling, refusing oversized inputs first.
-    A refused call holds nothing."""
+    A refused call holds nothing. The reserve round trip is timed."""
+    import time as _time
+
     tokens_in = estimate_input_tokens(payload)
     if (spec.max_input_tokens is not None
             and tokens_in > spec.max_input_tokens):
@@ -436,7 +438,14 @@ def _reserve_call(spec, payload) -> object:
             f"input too large ({tokens_in} estimated tokens); refusing")
     if _DAILY is None:
         return None
-    return _DAILY.reserve(call_ceiling(spec, tokens_in))
+    wall = _time.time()
+    start = _time.monotonic()
+    ticket = _DAILY.reserve(call_ceiling(spec, tokens_in))
+    _record({"op": "reserve", "t": wall,
+             "duration_s": round(_time.monotonic() - start, 3),
+             "phase": phase, "provider": spec.provider,
+             "model": spec.model})
+    return ticket
 
 
 class JobControl:
@@ -517,29 +526,65 @@ def catch_job_halt(fn):
     return wrapper
 
 
-def _paid_call(spec, response, ticket=None):
+def _reconcile_timed(ticket, cost, spec, phase=None) -> None:
+    """Reconcile one reservation, timing the round trip."""
+    import time as _time
+
+    wall = _time.time()
+    start = _time.monotonic()
+    _DAILY.reconcile(ticket, cost)
+    _record({"op": "reconcile", "t": wall,
+             "duration_s": round(_time.monotonic() - start, 3),
+             "phase": phase, "provider": spec.provider,
+             "model": spec.model})
+
+
+def _call_row(spec, phase, wall, duration_s, counts, searches, ok,
+              note=""):
+    row = {"op": "call", "t": wall, "duration_s": round(duration_s, 3),
+           "phase": phase, "provider": spec.provider, "model": spec.model,
+           "prompt_tokens": counts.get("prompt_tokens", 0),
+           "completion_tokens": counts.get("completion_tokens", 0),
+           "total_tokens": counts.get("total_tokens", 0),
+           "searches": searches, "ok": ok}
+    if note:
+        row["note"] = note
+    _record(row)
+
+
+def _paid_call(spec, response, ticket=None, phase=None, wall=None,
+               start=None):
     """Record one finished paid call on the job ledger and reconcile
     the reservation with the authority. Failures never reach here. A
     response without usable usage is charged its reserved ceiling,
     the same as an ambiguous failure: an unreadable bill is charged,
     not forgiven."""
+    import time as _time
+
     usage = getattr(response, "usage", None) if not isinstance(response, dict) else response.get("usage")
+    wall = _time.time() if wall is None else wall
+    duration_s = 0.0 if start is None else _time.monotonic() - start
     if ticket is not None and not _usage_dict(usage):
         cost = current_ledger().note_ceiling(ticket.ceiling_usd)
-        _DAILY.reconcile(ticket, cost)
+        _reconcile_timed(ticket, cost, spec, phase)
+        _call_row(spec, phase, wall, duration_s, {}, 0, True, "ceiling")
         return response
     searches = 0 if spec.provider == "baseten" else _count_searches(response)
     cost = current_ledger().note(spec.provider, spec.model, usage, searches=searches)
     if ticket is not None:
-        _DAILY.reconcile(ticket, cost)
+        _reconcile_timed(ticket, cost, spec, phase)
+    _call_row(spec, phase, wall, duration_s, _usage_dict(usage) or {},
+              searches, True)
     return response
 
 
-def respond(client, spec, **kwargs):
+def respond(client, spec, phase=None, **kwargs):
     """One Responses call: model id, reasoning effort, temperature and
     the output bound injected. The ceiling is reserved first; a failed
     call keeps its reservation, since a timeout cannot prove the
     server did not bill."""
+    import time as _time
+
     if spec.effort is not None:
         kwargs["reasoning"] = {"effort": spec.effort}
     if spec.temperature is not None:
@@ -547,36 +592,46 @@ def respond(client, spec, **kwargs):
     _bound_output("max_output_tokens", spec, kwargs)
     _check_control()
     _admit_call()
-    ticket = _reserve_call(spec, kwargs)
+    wall = _time.time()
+    start = _time.monotonic()
+    ticket = _reserve_call(spec, kwargs, phase)
     try:
         response = client.responses.create(model=spec.model, **kwargs)
-    except Exception:
+    except Exception as exc:
+        _call_row(spec, phase, wall, _time.monotonic() - start, {}, 0,
+                  False, type(exc).__name__)
         if ticket is not None:
-            _DAILY.reconcile(ticket, ticket.ceiling_usd)
+            _reconcile_timed(ticket, ticket.ceiling_usd, spec, phase)
         raise
-    return _paid_call(spec, response, ticket)
+    return _paid_call(spec, response, ticket, phase, wall, start)
 
 
-def chat(client, spec, messages, **kwargs):
+def chat(client, spec, messages, phase=None, **kwargs):
     """One Chat Completions call (the Baseten path): model id,
     temperature and the output bound injected. No reasoning control:
     Muse Spark Open always reasons; read the answer with chat_answer.
     The ceiling is reserved first; a failed call keeps it, since a
     timeout cannot prove the server did not bill."""
+    import time as _time
+
     if spec.temperature is not None:
         kwargs["temperature"] = spec.temperature
     _bound_output("max_tokens", spec, kwargs)
     _check_control()
     _admit_call()
-    ticket = _reserve_call(spec, [messages, kwargs])
+    wall = _time.time()
+    start = _time.monotonic()
+    ticket = _reserve_call(spec, [messages, kwargs], phase)
     try:
         response = client.chat.completions.create(
             model=spec.model, messages=messages, **kwargs)
-    except Exception:
+    except Exception as exc:
+        _call_row(spec, phase, wall, _time.monotonic() - start, {}, 0,
+                  False, type(exc).__name__)
         if ticket is not None:
-            _DAILY.reconcile(ticket, ticket.ceiling_usd)
+            _reconcile_timed(ticket, ticket.ceiling_usd, spec, phase)
         raise
-    return _paid_call(spec, response, ticket)
+    return _paid_call(spec, response, ticket, phase, wall, start)
 
 
 def chat_answer(response) -> dict:
@@ -641,6 +696,30 @@ class SpendingLedger:
 _JOB_LEDGER: contextvars.ContextVar = contextvars.ContextVar(
     "witness_job_ledger", default=None)
 _GLOBAL_LEDGER = SpendingLedger()  # unattributed calls outside any job
+
+_TIMING_LOG: contextvars.ContextVar = contextvars.ContextVar(
+    "witness_timing_log", default=None)
+
+
+def reset_timing() -> None:
+    """Start a fresh per-call timing log for one job. Separate from
+    the job ledger on purpose: one web job runs under two ledgers,
+    and both phases belong in the same timing log."""
+    _TIMING_LOG.set([])
+
+
+def timing_rows() -> list:
+    """One row per model call and per budget-authority round trip.
+    Counts and names only; never prompts, photos, quotes, URLs or keys."""
+    return list(_TIMING_LOG.get() or [])
+
+
+def _record(row: dict) -> None:
+    log = _TIMING_LOG.get()
+    if log is None:
+        log = []
+        _TIMING_LOG.set(log)
+    log.append(row)
 
 
 def current_ledger() -> SpendingLedger:

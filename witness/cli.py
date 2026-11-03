@@ -340,6 +340,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
     Returns the result; callers save and report."""
     if decide is None:
         raise ValueError("run_job needs an explicit decide callback")
+    models.reset_timing()
     if progress is None:
         progress = (lambda event, data: None) if quiet else cli_progress
     if cache is None and not no_cache:
@@ -1269,6 +1270,7 @@ def vision_respond(prompt, jpeg_bytes):
     resp = models.respond(
         _respond_for(models.VISION),
         models.VISION,
+        phase="identify",
         input=[{"role": "user", "content": [
             {"type": "input_text", "text": prompt},
             {"type": "input_image", "image_url": uri},
@@ -1281,6 +1283,7 @@ def lifespan_respond(question):
     resp = models.respond(
         _respond_for(models.RESEARCH),
         models.RESEARCH,
+        phase="research",
         tools=[{"type": "web_search"}],
         include=["web_search_call.results"],
         text={"format": {"type": "json_schema", "name": "object_life",
@@ -1294,6 +1297,7 @@ def support_respond(prompt):
     resp = models.respond(
         _respond_for(models.VERIFY),
         models.VERIFY,
+        phase="verify",
         input=prompt,
     )
     return json.loads(resp.model_dump_json())
@@ -1311,6 +1315,7 @@ def baseten_support_respond(prompt):
             client,
             models.VERIFY_OPEN,
             messages=[{"role": "user", "content": prompt}],
+            phase="verify",
             timeout=180,
         )
         return verify.text_answer(models.chat_answer(resp)["content"])
@@ -1333,7 +1338,8 @@ def paint_respond(prompt, prev_id, photo_bytes=None):
     if prev_id is not None:
         kwargs["previous_response_id"] = prev_id
     try:
-        resp = models.respond(_respond_for(models.PAINT), models.PAINT, **kwargs)
+        resp = models.respond(_respond_for(models.PAINT), models.PAINT,
+                             phase="paint", **kwargs)
     except BadRequestError as exc:
         if paint.is_safety_block(exc):
             raise paint.PaintSafetyError(str(exc))
@@ -1352,6 +1358,7 @@ def spot_respond(era_bytes, photo_bytes, prompt):
     resp = models.respond(
         _respond_for(models.VISION),
         models.VISION,
+        phase="spot",
         text={"format": {"type": "json_schema", "name": "spot_differences",
                          "schema": spot.DIFFERENCE_SCHEMA, "strict": True}},
         input=[{"role": "user", "content": [
@@ -1377,6 +1384,7 @@ def check_respond(image_bytes, prompt):
     resp = models.respond(
         _respond_for(models.CHECK),
         models.CHECK,
+        phase="check",
         input=[{"role": "user", "content": [
             {"type": "input_text", "text": prompt},
             {"type": "input_image", "image_url": uri},
@@ -1629,7 +1637,8 @@ def child_rewrite_respond(adult, source, plain, gentle=False, stamp=""):
     prompt = children.rewrite_prompt(adult, source, gentle=gentle, stamp=stamp)
     if plain:
         prompt += " Use even plainer words."
-    resp = models.respond(_respond_for(models.VERIFY), models.VERIFY, input=prompt)
+    resp = models.respond(_respond_for(models.VERIFY), models.VERIFY,
+                             phase="family", input=prompt)
     data = json.loads(resp.model_dump_json())
     texts = []
     for item in data.get("output", []):
@@ -1662,7 +1671,8 @@ def caption_rewrite_respond(detail, quote, year, plain, stamp=""):
     prompt = captions.sentence_prompt(detail, quote, year, stamp=stamp or None)
     if plain:
         prompt += " Shorter and simpler."
-    resp = models.respond(_respond_for(models.VERIFY), models.VERIFY, input=prompt)
+    resp = models.respond(_respond_for(models.VERIFY), models.VERIFY,
+                             phase="captions", input=prompt)
     data = json.loads(resp.model_dump_json())
     texts = []
     for item in data.get("output", []):
@@ -2017,6 +2027,7 @@ def sam_respond(text, jpeg_bytes):
     client = _respond_for(models.SAM)
     resp = models.respond(
         client, models.SAM,
+        phase="segment",
         input=[{"role": "user", "content": [
             {"type": "input_text", "text": text},
             {"type": "input_image", "image_url": uri},

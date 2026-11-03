@@ -3956,3 +3956,39 @@ def test_render_takes_a_photo_source(tmp_path, monkeypatch):
                             "--photo-source", json.dumps(source)])
     assert code == 0
     assert seen["photo_source"] == source
+
+
+def test_model_wrappers_record_their_phase(monkeypatch):
+    import io
+
+    import witness.cli as cli_module
+    from witness import models
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+
+    def _jpeg(color="blue"):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8), color).save(buf, format="JPEG")
+        return buf.getvalue()
+
+    models.reset_timing()
+    with models.job_ledger():
+        cli_module.vision_respond("Which one does the photo show", _jpeg())
+        cli_module.lifespan_respond("What happened to the mill?")
+        cli_module.support_respond("Claim to check: built.")
+        cli_module.baseten_support_respond("Claim to check: built.")
+        cli_module.paint_respond("paint the era", None)
+        cli_module.spot_respond(_jpeg("red"), _jpeg(), "list differences")
+        cli_module.check_respond(_jpeg(), "MATCHES only if shown")
+        cli_module.child_rewrite_respond("Adult line.", "source", True)
+        cli_module.caption_rewrite_respond("Detail.", "Quote.", 1850, True)
+        cli_module.sam_respond("the mill", _jpeg())
+    phases = [r["phase"] for r in models.timing_rows()
+              if r["op"] == "call"]
+    assert phases == ["identify", "research", "verify", "verify", "paint",
+                      "spot", "check", "family", "captions", "segment"]

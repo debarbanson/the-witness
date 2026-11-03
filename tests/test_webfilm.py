@@ -725,3 +725,50 @@ def test_declined_says_only_identification_ran(tmp_path, monkeypatch):
     assert "nothing spent" not in message.lower()
     assert "identification" in message.lower()
     assert "no research or painting was paid for" in message.lower()
+
+
+def test_film_result_carries_per_call_timings(tmp_path, monkeypatch):
+    import json
+
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Mill", kind="mill", qid="Q1",
+                            articles={}, municipality=None)
+
+    def fake_run(*args, **kwargs):
+        client = models.client_for(models.VERIFY)
+        models.respond(client, models.VERIFY, phase="verify",
+                       input="Claim to check: secret-claim")
+        return {"confirmed": True, "identified": True, "cached": False,
+                "slug": "q1-mill", "found": found, "order": ["en"],
+                "kept": [], "timeline": [], "chosen": [],
+                "result": {"outcome": "short_film"}, "timings": {},
+                "failures": [], "comparison": None, "tokens": {},
+                "cost_usd": 0.01}
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/q1-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_children", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_spot", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        result = store.get_job("job-1")["result"]
+        calls = result["timings"]["calls"]
+        assert len(calls) == 1
+        assert calls[0]["phase"] == "verify"
+        assert calls[0]["offset_s"] >= 0
+        assert "t" not in calls[0]
+        dumped = json.dumps(calls)
+        assert "secret-claim" not in dumped
+        assert "http" not in dumped
+    finally:
+        models.configure_spending(None)

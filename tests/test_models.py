@@ -829,3 +829,88 @@ def test_every_priced_spec_covers_a_real_call_shape(tmp_path):
             models.call_ceiling(models.VERIFY, 100)).ceiling_usd >= 0.0
     finally:
         models.configure_spending(None)
+
+
+def test_timing_log_records_calls_and_authority_round_trips(
+        tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        models.reset_timing()
+        with models.job_ledger():
+            vision = models.client_for(models.VISION)
+            models.respond(vision, models.VISION, phase="identify",
+                           input="Which one does the photo show: secret-mill")
+            opened = models.client_for(models.VERIFY_OPEN)
+            models.chat(opened, models.VERIFY_OPEN, phase="verify",
+                        messages=[{"role": "user", "content": "vote"}])
+        rows = models.timing_rows()
+        calls = [r for r in rows if r["op"] == "call"]
+        authority = [r for r in rows if r["op"] in ("reserve", "reconcile")]
+        assert len(calls) == 2
+        assert len(authority) == 4
+        assert [c["phase"] for c in calls] == ["identify", "verify"]
+        for row in rows:
+            assert row["duration_s"] >= 0
+            assert row["t"] > 0
+        assert calls[0]["model"] == models.VISION.model
+        assert calls[1]["provider"] == "baseten"
+        assert calls[0]["prompt_tokens"] > 0
+        assert all(c["ok"] for c in calls)
+        dumped = json.dumps(rows)
+        assert "secret-mill" not in dumped
+        assert "http" not in dumped
+        assert "MODEL_API_KEY" not in dumped
+        assert "data:image" not in dumped
+    finally:
+        models.configure_spending(None)
+
+
+def test_timing_log_marks_failed_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        models.reset_timing()
+
+        class FailingResponses:
+            def create(self, **kwargs):
+                raise TimeoutError("too slow")
+
+        class FailingClient:
+            responses = FailingResponses()
+
+        with models.job_ledger():
+            try:
+                models.respond(FailingClient(), models.VERIFY,
+                               phase="verify", input="hi")
+            except TimeoutError:
+                pass
+        rows = models.timing_rows()
+        calls = [r for r in rows if r["op"] == "call"]
+        assert len(calls) == 1
+        assert calls[0]["ok"] is False
+        assert calls[0]["phase"] == "verify"
+        assert "TimeoutError" in calls[0]["note"]
+    finally:
+        models.configure_spending(None)
+
+
+def test_timing_log_survives_nested_job_ledgers(monkeypatch):
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    models.reset_timing()
+    client = models.client_for(models.VERIFY)
+    with models.job_ledger():
+        models.respond(client, models.VERIFY, phase="verify", input="one")
+    with models.job_ledger():
+        models.respond(client, models.VERIFY, phase="verify", input="two")
+    calls = [r for r in models.timing_rows() if r["op"] == "call"]
+    assert len(calls) == 2

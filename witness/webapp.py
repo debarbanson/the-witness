@@ -67,8 +67,11 @@ class WebDeps:
     try_enabled: object = None
     noindex: bool = False  # judge mode: unlisted page, never indexed
     # Short-lived display cache for the quota line, per container:
-    # {(vid, vkey): (text, expires)}. Admission never reads it.
+    # {(vid, vkey): (text, expires)}. Admission never reads it. The
+    # lock guards the check, evict and insert steps as one, so
+    # interleaved writers cannot push past the bound.
     quota_cache: object = field(default_factory=dict)
+    quota_lock: object = field(default_factory=threading.Lock)
     upload_slots: object = field(
         default_factory=lambda: threading.Semaphore(MAX_CONCURRENT_UPLOADS))
 
@@ -386,13 +389,17 @@ def _quota_line_cached(deps, vid, vkey, now) -> str:
         text = _quota_line(deps, vid, vkey, now)
     except Exception:
         return ""
-    cache = deps.quota_cache
-    for old in [entry for entry, (_, expires) in list(cache.items())
-                if expires <= now]:
-        cache.pop(old, None)
-    while len(cache) >= QUOTA_LINE_CACHE_MAX and cache:
-        cache.pop(next(iter(cache)), None)
-    cache[key] = (text, now + QUOTA_LINE_TTL_SECONDS)
+    with deps.quota_lock:
+        cache = deps.quota_cache
+        hit = cache.get(key)
+        if hit is not None and hit[1] > now:
+            return hit[0]
+        for old in [entry for entry, (_, expires) in list(cache.items())
+                    if expires <= now]:
+            cache.pop(old, None)
+        while len(cache) >= QUOTA_LINE_CACHE_MAX and cache:
+            cache.pop(next(iter(cache)), None)
+        cache[key] = (text, now + QUOTA_LINE_TTL_SECONDS)
     return text
 
 
@@ -904,6 +911,14 @@ function renderFacts(st) {
     return;
   }
   box.style.display = "block";
+  const dropped = {};
+  for (const e of evs) {
+    const d = e.data || {};
+    if (e.event === "painted" && d.verdict === "dropped" &&
+        typeof d.year === "number") {
+      dropped[d.year] = true;
+    }
+  }
   for (const item of shown.data.items) {
     const li = document.createElement("li");
     const stamp = document.createElement("strong");
@@ -914,6 +929,10 @@ function renderFacts(st) {
       const a = document.createElement("a");
       a.href = item.url; a.textContent = " (source)";
       li.appendChild(a);
+    }
+    const found = /(\d{4})/.exec(item.stamp || "");
+    if (found && dropped[Number(found[1])]) {
+      li.appendChild(document.createTextNode(" (not painted)"));
     }
     list.appendChild(li);
   }

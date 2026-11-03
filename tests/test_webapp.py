@@ -1178,6 +1178,79 @@ def test_quota_cache_survives_concurrent_page_views(tmp_path):
     assert len(deps.quota_cache) <= webapp_module.QUOTA_LINE_CACHE_MAX
 
 
+def test_quota_cache_inserts_hold_one_lock(tmp_path):
+    """r7_08 made safe: the check, evict and insert steps run under
+    one lock, so interleaved writers cannot push past the bound."""
+    import threading
+
+    from witness import webapp as webapp_module
+
+    class CountingAuthority(FakeAuthority):
+        daily_films = 10
+        visitor_films = 2
+        network_films = 2
+
+        def quota(self, *args, **kwargs):
+            return {"films": 0, "visitor": 0, "network": 0}
+
+    deps = _deps(tmp_path, authority=CountingAuthority())
+    bound = webapp_module.QUOTA_LINE_CACHE_MAX
+    deps.quota_cache.update({(str(i), "k"): ("cached", 2000.0)
+                             for i in range(bound)})
+    assert deps.quota_lock.acquire(blocking=False)
+    done = threading.Event()
+
+    def view():
+        webapp_module._quota_line_cached(deps, "new", "k", 1000.0)
+        done.set()
+
+    worker = threading.Thread(target=view)
+    try:
+        worker.start()
+        assert not done.wait(0.3), "the insert must wait for the lock"
+    finally:
+        deps.quota_lock.release()
+    assert done.wait(5.0)
+    worker.join()
+    assert len(deps.quota_cache) <= bound
+
+
+def test_quota_cache_stays_bounded_under_interleaving(tmp_path):
+    import threading
+
+    from witness import webapp as webapp_module
+
+    class CountingAuthority(FakeAuthority):
+        daily_films = 10
+        visitor_films = 2
+        network_films = 2
+
+        def quota(self, *args, **kwargs):
+            return {"films": 0, "visitor": 0, "network": 0}
+
+    deps = _deps(tmp_path, authority=CountingAuthority())
+    bound = webapp_module.QUOTA_LINE_CACHE_MAX
+    deps.quota_cache.update({(str(i), "k"): ("cached", 2000.0)
+                             for i in range(bound - 1)})
+    errors = []
+
+    def view(index):
+        try:
+            webapp_module._quota_line_cached(
+                deps, f"new-{index}", "k", 1000.0)
+        except Exception as exc:  # noqa: BLE001 - collected, then raised
+            errors.append(exc)
+
+    threads = [threading.Thread(target=view, args=(index,))
+               for index in range(32)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    assert len(deps.quota_cache) <= bound, len(deps.quota_cache)
+
+
 def test_concurrent_uploads_are_capped_per_container(tmp_path):
     from fastapi.testclient import TestClient
 

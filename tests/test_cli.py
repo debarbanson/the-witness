@@ -4102,6 +4102,12 @@ def test_captions_run_in_parallel_with_identical_results(tmp_path, monkeypatch):
         return {"verdict": "supported", "quote": f"Happened in {year}.",
                 "url": f"https://example.org/{year}"}
 
+    def no_fetch(*args, **kwargs):
+        raise AssertionError("caption timing must not fetch")
+
+    monkeypatch.setattr(cli_module.verify, "fetch_many", no_fetch)
+    monkeypatch.setattr(cli_module, "caption_texts",
+                        lambda data, cache: {})
     start = _time.monotonic()
     code = cli_module.cmd_captions(slug, rewrite_call=rewrite,
                                    support_call=support, out_dir=str(tmp_path),

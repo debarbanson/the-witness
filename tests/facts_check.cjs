@@ -98,6 +98,21 @@ renderFacts({ events: [
 assert.strictEqual(els["paint-count"].textContent, "Painted 1 of 1",
   "a dropped era leaves the count the film will have");
 
+// A dropped painting marks its fact, so the panel matches the film.
+renderFacts({ events: [
+  { event: "checked_facts", data: { items } },
+  { event: "painted", data: { year: 1850, verdict: "matches",
+    accepted: 1, dropped: 0, attempted: 2 } },
+  { event: "painted", data: { year: 1932, verdict: "dropped",
+    accepted: 1, dropped: 1, attempted: 2 } },
+] });
+const marked = els["facts-list"].children;
+assert.strictEqual(marked.length, 2);
+assert(!JSON.stringify(marked[0]).includes("not painted"),
+  "a painted fact must not be marked");
+assert(JSON.stringify(marked[1]).includes("not painted"),
+  "a dropped full-date fact must be marked not painted");
+
 // A hostile sentence lands as text, never markup.
 renderFacts({ events: [{ event: "checked_facts", data: { items: [
   { stamp: "1850", text: "<img src=x>", url: "https://a.example/mill" },

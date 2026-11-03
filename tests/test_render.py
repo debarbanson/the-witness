@@ -1132,3 +1132,14 @@ def test_end_card_links_photo_source():
     assert "photo_source" in template
     assert "licence_url" in template
     assert "file_url" in template
+
+
+def test_end_card_links_are_large_on_phones():
+    import re
+
+    template = (Path(builder.__file__).parent / "film.html").read_text()
+    sources = re.search(r"#sources \{([^}]*)\}", template).group(1)
+    size = int(re.search(r"font-size: (\d+)px", sources).group(1))
+    assert size >= 40, "source links must read at 390 px stage scale"
+    item = re.search(r"#sources li \{([^}]*)\}", template).group(1)
+    assert "padding:" in item, "source rows need a tappable height"

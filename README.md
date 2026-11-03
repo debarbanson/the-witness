@@ -8,17 +8,25 @@ Point The Witness at a windmill, an old tree or a lighthouse. It works out which
 
 Built for the Meta Global AI Developer Hackathon (kicked off 26 October 2026, 17:00 Dutch time; runs to 4 November), track **Build for Your World**.
 
+## Try it
+
+The public judge page: **[JUDGE_URL_TO_FILL_IN_BY_OWNER]** (the owner adds the URL here on their go).
+
+Watch the three example films first, then Try your own: take or choose a photo of an old, well-documented landmark, confirm the object, and watch the finished film. Tries are limited per visitor and per day (the page shows how many are left); past the limit, or when Try your own is resting, the page says so and points back to the examples. For adults 18 and over. No access codes; nothing to install.
+
 ## How it works
 
 | Step | What happens | Model |
 |---|---|---|
-| 0. Identify | The photo's location finds nearby known objects (OpenStreetMap, Wikidata); the right one is picked from the photo and confirmed by you | Muse Spark (vision) |
-| 1. Cut out | The object is segmented from today's photo, for the closing shot | SAM 3.1 |
-| 2. Research | One grounded web question about the object's own life; every claim needs a URL | Muse Spark (web_search) |
-| 3. Verify | Each claim is checked against the fetched source text; only fully supported claims reach the film, "partly" means no | Muse Spark Open on Baseten, Meta fallback |
-| 4. Paint eras | Up to 4 decisive eras are painted with the object in its verified state, branching in parallel from one anchor so it stays recognisably the same place | Muse Image |
-| 5. Check the painting | Each painted era is looked at and compared with the object's verified state and final caption; a mismatch is repainted, at most twice | Muse Spark (vision) |
-| 6. Film | Captions and citations are rendered to a 1080x1920 page, ending on your photo (MP4 export runs from the command line only) | (our renderer) |
+| 0. Identify | The photo's location finds nearby known objects (OpenStreetMap, Wikidata); the right one is picked from the photo and confirmed by you | Muse Spark (vision), [identify](witness/identify.py) |
+| 1. Cut out | The object is segmented from today's photo, for the closing shot | SAM 3.1, [segment](witness/segment.py) |
+| 2. Research | One grounded web question about the object's own life; every claim needs a URL | Muse Spark (web_search), [research](witness/research.py) |
+| 3. Verify | Each claim is checked against the fetched source text; only fully supported claims reach the film, "partly" means no | Muse Spark Open on Baseten (`meta-models/muse-spark-open-1026`), Meta fallback, [verify](witness/verify.py) |
+| 4. Paint eras | Up to 4 decisive eras are painted with the object in its verified state, branching in parallel from one anchor so it stays recognisably the same place | Muse Image, [paint](witness/paint.py) |
+| 5. Check the painting | Each painted era is looked at and compared with the object's verified state and final caption; a mismatch is repainted, at most twice | Muse Spark (vision), [check](witness/check.py) |
+| 6. Film | Captions and citations are rendered to a 1080x1920 page, ending on your photo (MP4 export runs from the command line only) | (our renderer), [render](witness/render/builder.py) |
+
+Every model called at runtime is a Meta model. Wikidata, Wikipedia and OpenStreetMap are data sources, not models.
 
 Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/03_accuracy.md](docs/03_accuracy.md).
 
@@ -36,22 +44,48 @@ Films that earn them get a family version and a game: the same verified facts in
 - **AI imagery is labelled** in every film, as Meta's Acceptable Use Policy and the EU AI Act expect.
 - **No war, no politics.** Eras dominated by conflict or political events are left out (hackathon rule, and the films are about places, not battles).
 
-## Use it
+## Run it yourself
 
-Set up (Python 3.12; `requirements-lock.txt` pins every dependency):
+For adults 18 and over.
+
+### macOS
 
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements-lock.txt
 .venv/bin/playwright install chromium   # only for recording MP4s
-brew install ffmpeg                     # only for recording MP4s (apt on Linux)
+brew install ffmpeg                     # only for recording MP4s
 ```
 
-- **On your phone (after the deploy; the link stays private until the abuse tests pass):** open the web page, take or pick a photo, allow location (or type the place), confirm the object, watch the finished film. See [docs/06_web.md](docs/06_web.md).
-- **From the command line:** (commands use the project venv)
+### Linux
 
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-lock.txt
+.venv/bin/playwright install chromium   # only for recording MP4s
+sudo apt install ffmpeg                 # only for recording MP4s
 ```
+
+### Windows
+
+Not tested. WSL2 with the Linux steps above should work, but is untested.
+
+### Keys
+
+```bash
 cp .env.example .env.local   # add your keys; the CLI loads this file itself
+```
+
+`.env.example` holds names only:
+
+- `MODEL_API_KEY` (required): the Meta Model API key. Without it every step refuses; nothing runs.
+- `BASETEN_API_KEY` (optional): verification on the open-weights Muse Spark Open. Without it the checks fall back to Meta automatically (tested); films cost a little more and verify a little faster.
+- `EUROPEANA_API_KEY` (not used yet): reserved for historical reference images, which are still in "Planned, not built".
+- `META_API_KEY` (not used by the app): the author's coding-agent key, kept here so it is never committed.
+
+### Make a film
+
+```bash
 .venv/bin/python -m witness film path/to/photo.jpg            # location from the photo's GPS data
 .venv/bin/python -m witness film photo.jpg --place "Haarlem"  # when the photo has none
 .venv/bin/python -m witness research photo.jpg --place "Haarlem"  # story only, no painting
@@ -75,6 +109,10 @@ The same run step by step (the slug is the folder name under
 
 Location data identifies the object. On the web page it is held in the job's private hand-off file only until the worker reads it, then removed; the research keeps only a coarse season zone (north, south or tropical), and the film, the logs and the job store never carry the location at all.
 
+### Example films
+
+The three example films are not in the repo, so a judge without keys cannot see them here; watch them on the judge page above instead. Proposal, for the owner to decide: do not commit them. The finished folders are 68 MB of images (23, 24 and 21 MB), which would bloat every clone, and one of the three today photos has no recorded licence (the other two are CC0 and CC BY 3.0, credited in their `film.json`). If they are committed, confirm that photo's licence first and keep only the finished `film/` folders.
+
 ## Cost and speed
 
 Measured 30 Oct from the saved token counts (research) plus the shipped paintings ($0.01 each):
@@ -91,9 +129,9 @@ Measured 2 Nov on staging (De Adriaan, one full Try-your-own, paid): Identify 33
 
 Period-figure layers, live streaming playback, captions in languages other than English, automatic reference images from Commons or Europeana, films of 5 to 7 scenes, "add a source" and "tell what you know" fallbacks, an MP4 download button on the web page, voice narration, accounts and payments.
 
-## Built during the hackathon
+## Prior work
 
-Built during the hackathon, beginning 26 October 2026. Cited third-party words (source quotes, package pins) excepted, everything in this repository was written in that window. The git history is the record, day by day in [docs/05_build_log.md](docs/05_build_log.md).
+Nothing existed before; it was built from scratch during the hackathon, from 26 Oct 2026 (see the history). Cited third-party words (source quotes, package pins) excepted, everything in this repository was written in that window. The git history is the record, day by day in [docs/05_build_log.md](docs/05_build_log.md).
 
 ## Licence
 

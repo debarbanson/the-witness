@@ -67,7 +67,7 @@ def test_player_offers_an_audience_switch_when_a_sibling_exists():
     template = TEMPLATE.read_text()
     assert 'id="audience"' in template
     assert "film.sibling" in template
-    assert '"Children"' in template
+    assert '"Family"' in template
     assert '"Adults"' in template
 
 

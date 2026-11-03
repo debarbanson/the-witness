@@ -22,9 +22,11 @@ Built for the Meta Global AI Developer Hackathon (kicked off 26 October 2026, 17
 
 Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/03_accuracy.md](docs/03_accuracy.md).
 
-## For adults and for children
+## For adults, and to watch together
 
-Films that earn them get a children's version (8+) and a game: the same verified facts in simpler words, rechecked against the same sources, with picture-book paintings from the same anchor and a "spot the difference" game between a painted era and your photo of today. Both need enough verified material, so some films ship without one or both. See [docs/08_children.md](docs/08_children.md).
+For adults 18 and over.
+
+Films that earn them get a family version and a game: the same verified facts in simpler words, rechecked against the same sources, with picture-book paintings from the same anchor and a "spot the difference" game between a painted era and your photo of today, to play together. The family version is for an adult to watch with younger family members. Both need enough verified material, so some films ship without one or both. See [docs/08_children.md](docs/08_children.md).
 
 ## Principles
 

@@ -513,6 +513,7 @@ __EXAMPLES__
 <p>__TRY_DURATION__</p>
 <p>Sometimes the sources are thin. Then you get the verified facts instead of a film. That is by design.</p>
 <p>__QUOTA_LINE__</p>
+<p>For adults 18 and over.</p>
 __TRY_BLOCK__
 <p class="fine">Your photo is deleted after your film. Read the <a href="/privacy">privacy notice</a>.</p>
 </section>
@@ -555,7 +556,7 @@ const PHASES = {
   verifying: "Checking the facts…",
   captions: "Writing captions…",
   painting: "Painting the eras…",
-  children: "Writing the children's version…",
+  children: "Writing the family version…",
   spot: "Making spot-the-difference…",
   render: "Cutting the film…",
   confirmed: "Confirmed.",
@@ -773,7 +774,7 @@ def _gallery_cards(examples_root, examples) -> str:
         child = (base / "child" / "film.html").exists()
         pill = (f" <a class=\"pill\" "
                 f"href=\"/examples/{slug}/child/film.html\">"
-                f"Children's version</a>" if child else "")
+                f"Family version</a>" if child else "")
         cards.append(
             f"<article class=\"card\"><h3>{_html.escape(name)}</h3>"
             f"{span}{pair}{credit_line}<p class=\"links\">"
@@ -821,7 +822,7 @@ PRIVACY_PAGE = """<!doctype html>
 <h1>Privacy notice</h1>
 <p>The Witness turns your photo of a public landmark into a short film
 about that landmark. This page says what is processed, why, by whom
-and for how long.</p>
+and for how long. For adults 18 and over.</p>
 <h2>What you send us</h2>
 <p>Your photo (possibly with embedded location), an optional typed
 place or browser location when the photo has none, and your confirm

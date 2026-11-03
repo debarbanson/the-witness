@@ -110,7 +110,7 @@ def test_gallery_card_per_example_with_span_and_both_pictures(tmp_path):
     assert "/examples/de-adriaan/" in page
     assert "/examples/de-adriaan/era_1932.webp" in page
     assert "/examples/de-adriaan/today.jpg" in page
-    assert "Children" in page
+    assert "Family version" in page
     assert "/examples/de-adriaan/child/film.html" in page
     assert client.get("/examples/de-adriaan/era_1932.webp").status_code == 200
 
@@ -122,7 +122,7 @@ def test_gallery_without_a_child_hides_the_pill(tmp_path):
     shutil.rmtree(tmp_path / "examples" / "de-adriaan" / "child")
     client = TestClient(create_app(deps), headers=dict(ORIGIN))
     page = client.get("/").text
-    assert "Children" not in page
+    assert "Family version" not in page
 
 
 def test_try_your_own_says_what_works_and_how_long(tmp_path):
@@ -333,3 +333,49 @@ def test_gallery_credits_today_photo_from_source(tmp_path):
     client = TestClient(create_app(_deps(tmp_path)),
                         headers=dict(ORIGIN))
     assert client.get("/").status_code == 200
+
+
+def test_family_wording_replaces_children_version(tmp_path):
+    page = _page(tmp_path)
+    assert "Family version" in page
+    assert "children's version" not in page.lower()
+    assert "8+" not in page
+
+
+def test_try_your_own_carries_the_18plus_line(tmp_path):
+    page = _page(tmp_path)
+    assert "For adults 18 and over" in page
+
+
+def test_player_audience_button_says_family():
+    from pathlib import Path
+
+    html = (Path(__file__).resolve().parent.parent / "witness" / "render"
+            / "film.html").read_text()
+    assert '"Family"' in html
+    assert '"Children"' not in html
+
+
+def test_playing_family_film_and_game_calls_no_api():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "witness" / "render"
+    film = (root / "film.html").read_text()
+    spot = (root / "spot.html").read_text()
+    for text in (film, spot):
+        assert "/api" not in text
+        assert "http" not in text
+        assert "XMLHttpRequest" not in text
+    assert "fetch(" not in spot
+
+
+def test_user_facing_docs_say_family_not_children():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    for name in ("README.md", "docs/08_children.md", "docs/04_demo.md"):
+        text = (root / name).read_text()
+        lowered = text.lower()
+        assert "children's version" not in lowered, name
+        assert "8+" not in text, name
+        assert "children aged" not in lowered, name

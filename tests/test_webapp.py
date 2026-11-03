@@ -134,6 +134,14 @@ def test_privacy_page_is_fuller(tmp_path):
     assert "24 h" in out.text
 
 
+def test_privacy_page_carries_the_18plus_line(tmp_path):
+    out = _client(tmp_path).get("/privacy")
+    assert out.status_code == 200
+    assert "For adults 18 and over" in out.text
+    assert "children's version" not in out.text.lower()
+    assert "8+" not in out.text
+
+
 def test_security_headers_on_every_response(tmp_path):
     client = _client(tmp_path)
     for path in ("/", "/privacy", "/examples/de-adriaan"):

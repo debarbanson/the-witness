@@ -379,3 +379,22 @@ def test_user_facing_docs_say_family_not_children():
         assert "children's version" not in lowered, name
         assert "8+" not in text, name
         assert "children aged" not in lowered, name
+
+
+def test_step_list_labels_follow_the_event_model(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "steps_check.cjs"
+    out = subprocess.run([node, str(check), str(target)],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[:500]

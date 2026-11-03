@@ -3992,3 +3992,26 @@ def test_model_wrappers_record_their_phase(monkeypatch):
               if r["op"] == "call"]
     assert phases == ["identify", "research", "verify", "verify", "paint",
                       "spot", "check", "family", "captions", "segment"]
+
+
+def test_verify_wiring_names_its_model():
+    import witness.cli as cli_module
+
+    assert cli_module.verify_wiring("baseten")["support_label"] == \
+        "Muse Spark Open on Baseten"
+    assert cli_module.verify_wiring("meta")["support_label"] == "Muse Spark"
+
+
+def test_judge_batch_reports_the_model_in_events():
+    import witness.cli as cli_module
+
+    events = []
+    jobs = [{"claim": "Built.", "event": "built", "detail": "Built.",
+             "year": 1850, "keywords": [], "passages": [], "urls": [],
+             "votes": 1}]
+    cli_module.judge_batch(cli_module.verify_wiring("baseten"), jobs,
+                           progress=lambda e, d: events.append((e, d)),
+                           completion=False)
+    assert events
+    assert all(d.get("model") == "Muse Spark Open on Baseten"
+               for _, d in events)

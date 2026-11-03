@@ -297,10 +297,12 @@ def verify_wiring(verify_with) -> dict:
     fetched passages stay unverified."""
     if verify_with == "baseten":
         support, workers = baseten_support_respond, models.VERIFY_OPEN.workers
+        label = "Muse Spark Open on Baseten"
     else:
         support, workers = support_respond, models.VERIFY.workers
+        label = "Muse Spark"
     return {"support": support, "completion": support_respond,
-            "workers": workers}
+            "workers": workers, "support_label": label}
 
 
 def judge_batch(wiring, jobs, progress=None, completion=True) -> list:
@@ -309,7 +311,8 @@ def judge_batch(wiring, jobs, progress=None, completion=True) -> list:
                             completion_respond=wiring["completion"],
                             completion=completion,
                             max_workers=wiring["workers"], progress=progress,
-                            dispute_check=verify.sentence_disputed)
+                            dispute_check=verify.sentence_disputed,
+                            support_label=wiring.get("support_label"))
 
 
 def refresh_film(kept) -> tuple:

@@ -772,3 +772,37 @@ def test_film_result_carries_per_call_timings(tmp_path, monkeypatch):
         assert "http" not in dumped
     finally:
         models.configure_spending(None)
+
+
+def test_paint_step_events_name_the_model(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Mill", kind="mill", qid="Q1",
+                            articles={}, municipality=None)
+
+    def fake_run(*args, **kwargs):
+        return {"confirmed": True, "identified": True, "cached": False,
+                "slug": "q1-mill", "found": found, "order": ["en"],
+                "kept": [], "timeline": [], "chosen": [],
+                "result": {"outcome": "short_film"}, "timings": {},
+                "failures": [], "comparison": None, "tokens": {},
+                "cost_usd": 0.01}
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/q1-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_children", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_spot", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        events = {e["event"]: e.get("data", {})
+                  for e in store.get_job("job-1")["events"]}
+        assert events["captions"].get("model") == "Muse Spark"
+        assert events["painting"].get("model") == "Muse Image"
+    finally:
+        models.configure_spending(None)

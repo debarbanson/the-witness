@@ -566,15 +566,18 @@ function phaseWords(name) {
   if (Object.prototype.hasOwnProperty.call(PHASES, name)) { return PHASES[name]; }
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ") + "…";
 }
-const STEP_FOR = {identifying: 0, identified: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, captions: 3, painting: 3, render: 4, children: 4, spot: 4};
-function updateSteps(name) {
+const STEP_FOR = {identifying: 0, identified: 0, confirmed: 0, working: 0, researched: 1, facts: 1, verifying: 2, verify: 2, captions: 3, painting: 3, render: 4, children: 4, spot: 4};
+function updateSteps(ev) {
   const items = document.querySelectorAll("#steps li");
   if (!items.length) { return; }
-  const cur = STEP_FOR[name];
+  const cur = STEP_FOR[ev.event];
   if (cur === undefined) { return; }
+  const model = (ev.data && ev.data.model) || "";
   items.forEach((li, i) => {
     li.classList.toggle("done", i < cur);
     li.classList.toggle("current", i === cur);
+    const slot = li.querySelector(".model");
+    if (slot) { slot.textContent = (i === cur && model) ? " · " + model : ""; }
   });
 }
 function showResult(box, st) {
@@ -637,9 +640,9 @@ form.onsubmit = async ev => {
     }
     missed = 0;
     const evs = st.events || [];
-    const last = evs.length ? evs[evs.length - 1].event : st.status;
-    document.getElementById("events").textContent = phaseWords(last);
-    updateSteps(last);
+    const lastEv = evs.length ? evs[evs.length - 1] : {event: st.status};
+    document.getElementById("events").textContent = phaseWords(lastEv.event);
+    updateSteps(lastEv);
     const box = document.getElementById("confirm");
     if (st.confirm && st.decision === null) {
       box.style.display = "block";
@@ -699,7 +702,7 @@ or type public places only: <input type="text" name="place" autocomplete="off"><
 </form>
 <div id="job" class="hidden">
 <p>Working: <span id="clock">0</span> s</p>
-<ol id="steps"><li data-step="identify">Identify</li><li data-step="research">Research</li><li data-step="check">Check</li><li data-step="paint">Paint</li><li data-step="film">Film</li></ol>
+<ol id="steps"><li data-step="identify">Identify<span class="model"></span></li><li data-step="research">Research<span class="model"></span></li><li data-step="check">Check<span class="model"></span></li><li data-step="paint">Paint<span class="model"></span></li><li data-step="film">Film<span class="model"></span></li></ol>
 <div id="confirm" class="hidden">
 <p>Is this <strong id="confirm-name"></strong> (<span id="confirm-kind"></span>)?</p>
 <p><button id="yes">Yes</button> <button id="no">No</button></p>

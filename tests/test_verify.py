@@ -1553,3 +1553,29 @@ def test_age_range_never_carries_a_built_year():
         "The mill was built in 1779 of brick.", 1779, "") is True
     assert verify.quote_carries_year(
         "The mill burnt down in April 1932.", 1932, "April 1932") is True
+
+
+def test_judge_stream_progress_names_the_model():
+    events = []
+    jobs = [job(year=1779)]
+    list(verify.judge_stream(
+        quoted_support(("supported", "The old mill dates to the eighteenth century.")),
+        jobs, max_workers=1,
+        completion_respond=lambda p: answered_with({"completed": True}),
+        support_label="Muse Spark Open on Baseten",
+        progress=lambda event, data: events.append((event, data))))
+    assert events
+    assert all(d.get("model") == "Muse Spark Open on Baseten"
+               for _, d in events)
+
+
+def test_judge_stream_progress_omits_the_model_without_a_label():
+    events = []
+    jobs = [job(year=1779)]
+    list(verify.judge_stream(
+        quoted_support(("supported", "The old mill dates to the eighteenth century.")),
+        jobs, max_workers=1,
+        completion_respond=lambda p: answered_with({"completed": True}),
+        progress=lambda event, data: events.append((event, data))))
+    assert events
+    assert all("model" not in d for _, d in events)

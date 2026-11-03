@@ -767,18 +767,22 @@ def _slim(rounds) -> list:
 
 def judge_stream(support_respond, jobs, completion_respond=None,
                  max_workers=6, completion=True, progress=None,
-                 dispute_check=None):
+                 dispute_check=None, support_label=None):
     """Judge several claims at once, yielding (index, result) per claim
     as it finishes. A failing job becomes unverified with a note
     instead of killing the run. `progress("verifying", ...)` names the
     claim a worker picks up; `progress("verify", ...)` fires per
-    finished claim, in completion order."""
+    finished claim, in completion order. Both carry the working
+    model's label when `support_label` names it."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def run(job, index):
         if progress is not None:
-            progress("verifying", {"index": index, "year": job.get("year"),
-                                   "total": len(jobs)})
+            data = {"index": index, "year": job.get("year"),
+                    "total": len(jobs)}
+            if support_label is not None:
+                data["model"] = support_label
+            progress("verifying", data)
         try:
             return judge_claim(support_respond, job, completion_respond,
                                completion=completion,
@@ -800,8 +804,11 @@ def judge_stream(support_respond, jobs, completion_respond=None,
             index = futures[future]
             result = future.result()
             if progress is not None:
-                progress("verify", {"done": done, "total": len(jobs), "index": index,
-                                    "year": jobs[index].get("year")})
+                data = {"done": done, "total": len(jobs), "index": index,
+                        "year": jobs[index].get("year")}
+                if support_label is not None:
+                    data["model"] = support_label
+                progress("verify", data)
             yield index, result
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
@@ -809,12 +816,12 @@ def judge_stream(support_respond, jobs, completion_respond=None,
 
 def judge_all(support_respond, jobs, completion_respond=None,
               max_workers=6, completion=True, progress=None,
-              dispute_check=None) -> list:
+              dispute_check=None, support_label=None) -> list:
     """Judge several claims at once; results keep job order."""
     out = [None] * len(jobs)
     for index, result in judge_stream(support_respond, jobs, completion_respond,
                                       max_workers, completion, progress,
-                                      dispute_check):
+                                      dispute_check, support_label):
         out[index] = result
     return out
 

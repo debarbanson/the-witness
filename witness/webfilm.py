@@ -8,7 +8,7 @@ from pathlib import Path
 from witness import cli, models
 from witness.cache import Cache
 from witness.verify import filmed
-from witness.webapp import DECIDE_TIMEOUT_SECONDS, HEARTBEAT_TIMEOUT_SECONDS
+from witness.webapp import DECIDE_TIMEOUT_SECONDS
 
 
 def public_claims(kept) -> list:
@@ -89,16 +89,7 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
     if location is None and spec.get("lat") is not None:
         location = (spec["lat"], spec["lon"])
 
-    def heartbeat():
-        try:
-            last = store.last_poll(job_id)
-        except KeyError:
-            return
-        if now() - last > HEARTBEAT_TIMEOUT_SECONDS:
-            control.cancel()
-
     def progress(event, data):
-        heartbeat()
         try:
             store.append_event(job_id, {"t": round(now(), 1),
                                         "event": event, "data": data})
@@ -195,7 +186,6 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
             def total_cost():
                 return result["cost_usd"] + ledger.cost_usd
 
-            heartbeat()
             cli.report_and_save(
                 result["found"], "en", result["order"], result["kept"],
                 result["timeline"], result["chosen"], result["result"],

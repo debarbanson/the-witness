@@ -364,7 +364,7 @@ def test_phase1_cancel_sets_ended_at(tmp_path, monkeypatch):
     assert store.get_job("job-1")["ended_at"] == 1000.0
 
 
-def test_stale_heartbeat_cancels_before_paid_calls(tmp_path, monkeypatch):
+def test_quiet_tab_keeps_the_film(tmp_path, monkeypatch):
     import witness.webfilm as webfilm_module
 
     store, spec = _store(), _spec(tmp_path)
@@ -376,14 +376,16 @@ def test_stale_heartbeat_cancels_before_paid_calls(tmp_path, monkeypatch):
         models._check_control()
         return _confirmed_run()
 
+    _phase2(monkeypatch, None)
     monkeypatch.setattr(webfilm_module.cli, "run_job", fake_run)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
     try:
         assert run_web_film(spec, store, authority=None,
-                            clock=lambda: 1000.0) == {"status": "cancelled"}
+                            clock=lambda: 1000.0) == {"status": "film"}
     finally:
         models.configure_spending(None)
-    assert captured[0]._cancelled.is_set()
-    assert store.get_job("job-1")["ended_at"] == 1000.0
+    assert not captured[0]._cancelled.is_set()
+    assert store.get_job("job-1")["status"] == "done"
 
 
 def test_confirmed_event_names_the_object_after_decision(tmp_path, monkeypatch):
@@ -729,3 +731,40 @@ def test_published_adult_survives_cancel_deadline_and_error(
             assert "film_url" in job["result"]
         finally:
             models.configure_spending(None)
+
+
+def test_stale_heartbeat_does_not_cancel_the_film(tmp_path, monkeypatch):
+    import time as _time
+
+    import witness.webfilm as webfilm_module
+    from witness.webfilm import run_web_film
+
+    store, spec = _film_spec(tmp_path, monkeypatch)
+    monkeypatch.setattr(webfilm_module.cli, "run_job",
+                        lambda *a, **k: {"confirmed": True, "identified": True,
+                                         "cached": False, "slug": "q1-mill",
+                                         "found": SimpleNamespace(
+                                             name="Mill", kind="mill",
+                                             qid="Q1", articles={},
+                                             municipality=None),
+                                         "order": ["en"], "kept": [],
+                                         "timeline": [], "chosen": [],
+                                         "result": {"outcome": "short_film"},
+                                         "timings": {}, "failures": [],
+                                         "comparison": None, "tokens": {},
+                                         "cost_usd": 0.01})
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/q1-mill")
+    def paint_like_real(*args, **kwargs):
+        models._check_control()
+        return 0
+
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", paint_like_real)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    store.jobs["job-1"]["last_poll"] = _time.time() - 300
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        assert store.get_job("job-1")["status"] == "done"
+    finally:
+        models.configure_spending(None)

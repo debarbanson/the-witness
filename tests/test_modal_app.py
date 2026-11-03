@@ -308,30 +308,18 @@ def test_try_limits_match_the_page():
     assert modal_app.TRY_NETWORK_FILMS == webapp.MAX_NETWORK_FILMS_PER_DAY
 
 
-def test_watch_job_cancels_on_flag_and_stale_heartbeat():
+def test_watch_job_cancels_on_flag_only():
     control = _control()
     store = MemoryStore(clock=lambda: 1000.0)
     store.create_job("j", _record(last_poll=1000.0))
     stop = threading.Event()
-    modal_app._watch_job(store, "j", control, stop, poll_s=0.01,
-                         heartbeat_s=3600, now=lambda: 1000.0)
+    modal_app._watch_job(store, "j", control, stop, poll_s=0.01)
     assert not stop.wait(0.2)
     assert not control.cancelled()
     stop.set()
     store.set_cancel("j")
     stop = threading.Event()
-    modal_app._watch_job(store, "j", control, stop, poll_s=0.01,
-                         heartbeat_s=3600, now=lambda: 1000.0)
-    assert not stop.wait(0.5)
-    stop.set()
-    assert control.cancelled()
-
-    control = _control()
-    stale = MemoryStore(clock=lambda: 1000.0)
-    stale.create_job("j", _record(last_poll=1000.0))
-    stop = threading.Event()
-    modal_app._watch_job(stale, "j", control, stop, poll_s=0.01,
-                         heartbeat_s=120, now=lambda: 5000.0)
+    modal_app._watch_job(store, "j", control, stop, poll_s=0.01)
     assert not stop.wait(0.5)
     stop.set()
     assert control.cancelled()
@@ -855,3 +843,37 @@ def test_worker_store_creates_missing_state(monkeypatch):
     modal_app._worker_store("judge")
     assert seen["witness-store"].get("create_if_missing") is True
     assert seen["witness-judge-store"].get("create_if_missing") is True
+
+
+def test_watch_job_ignores_stale_polls_but_honors_cancel():
+    import threading as _threading
+    import time as _time
+
+    from witness import models as models_module
+
+    state = {"cancel": False}
+
+    class StillStore:
+        def is_cancelled(self, job_id):
+            return state["cancel"]
+
+        def last_poll(self, job_id):
+            return _time.time() - 600
+
+    control = models_module.JobControl()
+    stop = _threading.Event()
+    modal_app._watch_job(StillStore(), "job-1", control, stop, poll_s=0.01)
+    try:
+        _time.sleep(0.05)
+        control.check()
+        state["cancel"] = True
+        deadline = _time.time() + 2.0
+        while True:
+            try:
+                control.check()
+            except models_module.JobCancelled:
+                break
+            assert _time.time() < deadline, "cancel not honored"
+            _time.sleep(0.01)
+    finally:
+        stop.set()

@@ -36,7 +36,6 @@ from witness.identify import IdentifyError, checked_location
 RETENTION_SECONDS = 24 * 3600
 MAX_JOB_AGE_SECONDS = 25 * 3600
 DECIDE_TIMEOUT_SECONDS = 5 * 60
-HEARTBEAT_TIMEOUT_SECONDS = 120
 MAX_FILMS_PER_DAY = 10
 MAX_VISITOR_FILMS_PER_DAY = 2
 MAX_NETWORK_FILMS_PER_DAY = 2
@@ -134,8 +133,8 @@ class MemoryStore:
             return self._job(job_id)["cancel"]
 
     def touch(self, job_id):
-        """Mark a poll from the visitor; the worker treats a stale
-        heartbeat as a closed tab and cancels."""
+        """Mark a poll from the visitor. A quiet tab never cancels;
+        only the Cancel button does."""
         with self._mutex:
             self._job(job_id)["last_poll"] = self._clock()
 
@@ -639,6 +638,78 @@ function showResult(box, st) {
     }
   }
 }
+const SAVE_KEY = "witness.job";
+function saveJob(id) {
+  try { localStorage.setItem(SAVE_KEY, id); } catch (err) {}
+}
+function savedJob() {
+  try { return localStorage.getItem(SAVE_KEY); } catch (err) { return null; }
+}
+function clearJob() {
+  try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
+}
+function currentId() {
+  return document.getElementById("job").dataset.id || savedJob();
+}
+async function watch(id) {
+  const box = document.getElementById("job");
+  box.style.display = "block";
+  box.dataset.id = id;
+  saveJob(id);
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    document.getElementById("clock").textContent = Math.floor((Date.now() - t0) / 1000);
+  }, 500);
+  const finish = () => {
+    clearInterval(timer);
+    box.dataset.finished = "yes";
+    clearJob();
+  };
+  let missed = 0;
+  while (true) {
+    let st;
+    try {
+      const resp = await fetch("/api/jobs/" + id);
+      if (resp.status === 403 || resp.status === 404) {
+        finish();
+        box.style.display = "none";
+        document.getElementById("result").textContent =
+          "That film is gone (deleted after its retention, or another browser). Upload again to make a new one.";
+        break;
+      }
+      if (resp.ok === false) { throw new Error("HTTP " + resp.status); }
+      st = await resp.json();
+    } catch (err) {
+      missed += 1;
+      if (missed >= 3) {
+        clearInterval(timer);
+        box.dataset.finished = "yes";
+        document.getElementById("result").textContent =
+          "Lost contact with the server (" + err.message + "). Your film keeps running; reload to look again.";
+        break;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
+    }
+    missed = 0;
+    const evs = st.events || [];
+    const lastEv = evs.length ? evs[evs.length - 1] : {event: st.status};
+    document.getElementById("events").textContent = phaseWords(lastEv.event);
+    updateSteps(lastEv);
+    const confirmBox = document.getElementById("confirm");
+    if (st.confirm && st.decision === null) {
+      confirmBox.style.display = "block";
+      document.getElementById("confirm-name").textContent = st.confirm.name;
+      document.getElementById("confirm-kind").textContent = st.confirm.kind;
+    } else { confirmBox.style.display = "none"; }
+    if (["done", "cancelled", "failed", "expired"].includes(st.status)) {
+      finish();
+      showResult(document.getElementById("result"), st);
+      break;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
 form.onsubmit = async ev => {
   ev.preventDefault();
   let started;
@@ -650,67 +721,25 @@ form.onsubmit = async ev => {
     return;
   }
   if (started.error) { alert(started.error); return; }
-  const id = started.job_id;
-  document.getElementById("job").style.display = "block";
-  document.getElementById("job").dataset.id = id;
-  const t0 = Date.now();
-  const timer = setInterval(() => {
-    document.getElementById("clock").textContent = Math.floor((Date.now() - t0) / 1000);
-  }, 500);
-  let missed = 0;
-  while (true) {
-    let st;
-    try {
-      const resp = await fetch("/api/jobs/" + id);
-      if (resp.ok === false) { throw new Error("HTTP " + resp.status); }
-      st = await resp.json();
-    } catch (err) {
-      missed += 1;
-      if (missed >= 3) {
-        clearInterval(timer);
-        document.getElementById("job").dataset.finished = "yes";
-        document.getElementById("result").textContent =
-          "Lost contact with the server (" + err.message + "). Reload to try again.";
-        break;
-      }
-      await new Promise(r => setTimeout(r, 2000));
-      continue;
-    }
-    missed = 0;
-    const evs = st.events || [];
-    const lastEv = evs.length ? evs[evs.length - 1] : {event: st.status};
-    document.getElementById("events").textContent = phaseWords(lastEv.event);
-    updateSteps(lastEv);
-    const box = document.getElementById("confirm");
-    if (st.confirm && st.decision === null) {
-      box.style.display = "block";
-      document.getElementById("confirm-name").textContent = st.confirm.name;
-      document.getElementById("confirm-kind").textContent = st.confirm.kind;
-    } else { box.style.display = "none"; }
-    if (["done", "cancelled", "failed", "expired"].includes(st.status)) {
-      clearInterval(timer);
-      document.getElementById("job").dataset.finished = "yes";
-      showResult(document.getElementById("result"), st);
-      break;
-    }
-    await new Promise(r => setTimeout(r, 2000));
-  }
+  await watch(started.job_id);
+};
+document.getElementById("cancel").onclick = async () => {
+  const id = currentId();
+  if (!id) { return; }
+  try {
+    await fetch("/api/jobs/" + id, {method: "DELETE"});
+  } catch (err) {}
 };
 document.getElementById("yes").onclick = () => decide(true);
 document.getElementById("no").onclick = () => decide(false);
 async function decide(confirm) {
-  const id = document.getElementById("job").dataset.id;
+  const id = currentId();
   await fetch("/api/jobs/" + id + "/decide", {
     method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({confirm})});
 }
-window.addEventListener("pagehide", () => {
-  const box = document.getElementById("job");
-  const id = box.dataset.id;
-  if (id && !box.dataset.finished) {
-    navigator.sendBeacon("/api/jobs/" + id + "/cancel");
-  }
-});
+const resumed = savedJob();
+if (resumed) { watch(resumed); }
 </script>
 </body>
 </html>
@@ -748,6 +777,7 @@ or type public places only: <input type="text" name="place" autocomplete="off"><
 </div>
 <ul id="events"></ul>
 <p id="result"></p>
+<p><button type="button" id="cancel">Cancel</button></p>
 </div>"""
 
 TRY_RESTING = ("<p><strong>Try your own is resting; the example "

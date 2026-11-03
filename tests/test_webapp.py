@@ -569,11 +569,11 @@ def test_403_refusals_carry_security_headers(tmp_path):
     assert out.headers["X-Content-Type-Options"] == "nosniff"
 
 
-def test_tab_close_cancel_path_and_heartbeat(tmp_path):
+def test_only_the_cancel_button_cancels(tmp_path):
     from witness import webapp
 
-    assert "pagehide" in webapp.INDEX_PAGE
-    assert "sendBeacon" in webapp.INDEX_PAGE
+    assert "pagehide" not in webapp.INDEX_PAGE
+    assert "sendBeacon" not in webapp.INDEX_PAGE
     now = [1000.0]
     store = MemoryStore(clock=lambda: now[0])
     client = _client(tmp_path, store=store, runner=lambda spec: None)
@@ -582,10 +582,12 @@ def test_tab_close_cancel_path_and_heartbeat(tmp_path):
     now[0] = 1100.0
     assert client.get(f"/api/jobs/{job_id}").status_code == 200
     assert store.last_poll(job_id) == 1100.0
-    out = client.post(f"/api/jobs/{job_id}/cancel", headers=ORIGIN)
+    now[0] = 5000.0  # a quiet tab never cancels
+    assert store.is_cancelled(job_id) is False
+    out = client.delete(f"/api/jobs/{job_id}", headers=ORIGIN)
     assert out.status_code == 200
     assert store.is_cancelled(job_id) is True
-    assert store.get_job(job_id)["ended_at"] == 1100.0
+    assert store.get_job(job_id)["ended_at"] == 5000.0
 
 
 def test_runner_gets_a_reference_not_the_location(tmp_path):
@@ -1050,3 +1052,20 @@ def test_concurrent_uploads_are_capped_per_container(tmp_path):
     out = client.post("/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
                       data={"ack": "on"})
     assert out.status_code == 200, out.text[:200]
+
+
+def test_cancel_on_a_finished_job_keeps_the_film(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from witness.webapp import MemoryStore, create_app
+
+    store = MemoryStore()
+    client = TestClient(create_app(_deps(tmp_path, store=store)),
+                        headers=dict(ORIGIN))
+    job_id = client.post("/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
+                         data={"ack": "on"}).json()["job_id"]
+    store.finish_job(job_id, {"film_url": "/film/x/film.html"})
+    assert client.delete(f"/api/jobs/{job_id}").status_code == 200
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert job["status"] == "done"
+    assert job["result"]["film_url"] == "/film/x/film.html"

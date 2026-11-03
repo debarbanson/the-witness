@@ -628,21 +628,14 @@ def _volume_examples(root):
     return found
 
 
-def _watch_job(store, job_id, control, stop, poll_s=2.0, heartbeat_s=120,
-               now=None):
-    """Cancel the job when the visitor cancels or the tab goes quiet:
-    no poll for `heartbeat_s` seconds means a closed tab."""
-    import time as _time
-
-    tick = now or _time.time
-
+def _watch_job(store, job_id, control, stop, poll_s=2.0):
+    """Cancel the job when the visitor cancels. A quiet tab never
+    cancels: a locked phone keeps its film, and the job runs until
+    its total deadline."""
     def poll():
         while not stop.wait(poll_s):
             try:
                 if store.is_cancelled(job_id):
-                    control.cancel()
-                    return
-                if tick() - store.last_poll(job_id) > heartbeat_s:
                     control.cancel()
                     return
             except KeyError:
@@ -686,8 +679,8 @@ def nominatim_slot():
                      "/judge-jobs": judge_jobs_volume},
              timeout=1800)
 def run_film(ref):
-    """One Try-your-own film through the tested runner; a closed tab
-    (or DELETE) cancels through the job control. `ref` carries only
+    """One Try-your-own film through the tested runner; only DELETE
+    cancels through the job control. `ref` carries only
     the job id, folder and backend: the place and location stay in
     the job's private spec file, never in spawn arguments or logs.
     The file is scrubbed as soon as it is read, before any paid

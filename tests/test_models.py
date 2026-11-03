@@ -493,6 +493,20 @@ def test_fake_provider_paints_a_png(monkeypatch):
         data["output"][0]["result"])[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_fake_second_look_charged_at_vision_ceiling(tmp_path, monkeypatch):
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        client = models.client_for(models.VISION)
+        models.respond(client, models.VISION,
+                       input="Second look at the same photo.")
+        assert models._DAILY.total_usd() == pytest.approx(
+            models.VISION.ceiling_usd)
+    finally:
+        models.configure_spending(None)
+
+
 def test_every_paid_spec_carries_a_ceiling():
     for spec in (models.RESEARCH, models.VISION, models.VERIFY, models.PAINT,
                  models.SAM, models.VERIFY_OPEN):

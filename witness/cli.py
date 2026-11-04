@@ -1537,12 +1537,14 @@ def start_anchor_report(pool, photo_call, photo_bytes):
 def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               paint_call=None, check_call=None, photo_call=None, out_dir="out",
               audience="adult", photo_month=None, support_call=None,
-              progress=None, anchor_future=None):
+              progress=None, anchor_future=None, filmable_only=False):
     """Paint an object's eras from its research, checked per era. The
     location in the prompts is the canonical municipality from the
     research, never typed text. The children run paints a second set
     in picture-book style from a separate anchor made from the same
-    anchor photo, checked against the children's sentences."""
+    anchor photo, checked against the children's sentences. With
+    filmable_only (the web film, captions already written), a scene
+    the film's own gate would drop is never painted."""
     out_dir = Path(out_dir) / slug
     path = out_dir / "research.json"
     if not path.exists():
@@ -1573,6 +1575,14 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                and not any(captions.claim_matches(c, s["from_year"]) for c in claims)]
     for year in skipped:
         print(f"{year}: skipped (no supported claim of its own)")
+    unfilmed = {}
+    if filmable_only:
+        unfilmed = {s["from_year"]: render_builder.refusal_reason(s, claims, audience)
+                    for s in eras
+                    if not render_builder.filmable(s, claims, audience)}
+        eras = [s for s in eras if s["from_year"] not in unfilmed]
+        for year, reason in unfilmed.items():
+            print(f"{year}: skipped, the film would not show it ({reason})")
     if not eras:
         print("no paintable eras in research")
         return 2
@@ -1682,6 +1692,9 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
     for year in skipped:
         entries[year] = {"year": year, "verdict": "skipped", "attempts": 0,
                          "note": "no supported claim of its own"}
+    for year, reason in unfilmed.items():
+        entries[year] = {"year": year, "verdict": "skipped", "attempts": 0,
+                         "note": f"the film would not show it: {reason}"}
     kept_files = sorted(era_dir.glob("[0-9]*.webp"), key=lambda p: p.stem)
     if kept_files:
         paint.contact_sheet([(p.stem, p.read_bytes()) for p in kept_files],

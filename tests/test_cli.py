@@ -1517,6 +1517,74 @@ def test_cmd_paint_counts_only_the_eras_it_painted(tmp_path, monkeypatch, capsys
     assert "painted 1 of 1 eras" in capsys.readouterr().out
 
 
+def test_cmd_paint_filmable_only_never_paints_a_scene_the_film_drops(
+        tmp_path, monkeypatch, capsys):
+    """Rosslyn, 4 Nov: the 1688 scene had no caption sentence, so the
+    film could never show it, yet it was painted first and alone, the
+    painting every other scene waits for. With filmable_only the film's
+    own gate decides first, and the first filmable scene carries the
+    photo instead."""
+    import io
+    import json
+    from PIL import Image
+    from witness import cli as cli_module
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(buf, "PNG")
+    tiny = buf.getvalue()
+    monkeypatch.chdir(tmp_path)
+    out_dir = tmp_path / "out" / "q1-test"
+    out_dir.mkdir(parents=True)
+    page = "https://example.org/mill"
+    (out_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Test Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "short_film"},
+        "claims": [{"year": 1688, "verdict": "supported", "claim": "a mob came",
+                    "url": page, "quote": "A mob came in 1688."},
+                   {"year": 1736, "verdict": "supported", "claim": "glazed",
+                    "url": page, "quote": "Glazed in 1736."}],
+        "scenes": [
+            {"from_year": 1688, "date_label": "1688",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": ""},
+             "caption_lines": []},
+            {"from_year": 1736, "date_label": "1736",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": ""},
+             "caption_lines": [],
+             "caption_sentence": {
+                 "text": "My windows were glazed.", "claim_year": 1736,
+                 "evidence": {"claim": "glazed", "url": page,
+                              "quote": "Glazed in 1736."}}},
+        ]}))
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(tiny)
+    calls, heard = [], []
+
+    def fake_call(prompt, prev_id, photo_bytes=None):
+        calls.append({"prompt": prompt, "photo": photo_bytes is not None})
+        return {"image": tiny, "response_id": f"r-{len(calls)}"}
+
+    code = cli_module.cmd_paint(
+        "q1-test", str(photo), mode="parallel",
+        paint_call=fake_call,
+        check_call=lambda image, prompt: "MATCHES whole.",
+        photo_call=lambda photo, prompt: "Season: winter\nNone",
+        photo_month=6, filmable_only=True,
+        progress=lambda event, data: heard.append(data["year"]))
+    assert code == 0
+    assert len(calls) == 1 and calls[0]["photo"]
+    assert heard == [1736]
+    manifest = json.loads((out_dir / "paint_parallel.json").read_text())
+    entries = {entry["year"]: entry for entry in manifest["eras"]}
+    assert entries[1736]["verdict"] == "matches"
+    assert entries[1688]["verdict"] == "skipped"
+    assert entries[1688]["attempts"] == 0
+    assert "no written sentence from its own claim" in entries[1688]["note"]
+    assert not (out_dir / "eras_parallel" / "1688.webp").exists()
+    assert "painted 1 of 1 eras" in capsys.readouterr().out
+
+
 def test_cmd_paint_reads_season_zone_for_era_seasons(tmp_path, monkeypatch):
     import io
     import json

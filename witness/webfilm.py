@@ -458,7 +458,8 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                     if cli.cmd_paint(slug, spec["photo"], mode="parallel",
                                      out_dir=spec["job_dir"],
                                      progress=paint_progress,
-                                     anchor_future=report_future) != 0:
+                                     anchor_future=report_future,
+                                     filmable_only=True) != 0:
                         return facts_only(
                             "Research is done but painting failed.")
                 progress("render", {"slug": slug})

@@ -181,6 +181,25 @@ def test_captions_run_before_paint(tmp_path, monkeypatch):
         models.configure_spending(None)
 
 
+def test_web_film_paints_only_scenes_the_film_can_show(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    monkeypatch.setattr(webfilm_module.cli, "run_job", _film_run(_mill()))
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: "out/q1-mill")
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    seen = []
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                        lambda *a, **k: seen.append(k) or 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        assert len(seen) == 1 and seen[0].get("filmable_only") is True
+    finally:
+        models.configure_spending(None)
+
+
 def _film_run(found):
     def fake_run(*args, **kwargs):
         return {"confirmed": True, "identified": True, "cached": False,

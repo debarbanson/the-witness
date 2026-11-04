@@ -163,12 +163,14 @@ def source_title(url) -> str:
     return parsed.netloc.lower().removeprefix("www.")
 
 
-def end_sources(scenes, claims, cache=None) -> list:
+def end_sources(scenes, claims, cache=None, more=()) -> list:
     """Unique sources behind the filmed scenes: the cited claims of
-    filmable scenes plus their caption lines. URL kept for the web
+    filmable scenes plus their caption lines, then the pages of the
+    more checked facts the end card lists. URL kept for the web
     page, site plus title for the film end card. Provenance comes
     from the stored evidence bundle, so the end card survives cache
-    expiry. A claim no filmed scene cites is never listed."""
+    expiry. A claim neither a filmed scene nor the end card cites is
+    never listed."""
     urls = []
     for scene in scenes:
         if not filmable(scene, claims):
@@ -184,8 +186,68 @@ def end_sources(scenes, claims, cache=None) -> list:
                 claims, line.get("year"), line.get("url"))
             if entry and entry.get("url") and entry["url"] not in urls:
                 urls.append(entry["url"])
+    for fact in more:
+        if fact.get("url") and fact["url"] not in urls:
+            urls.append(fact["url"])
     return [{"url": url, "site": source_site(url),
              "title": end_title(url, cache)} for url in urls]
+
+
+MORE_MAX = 6
+
+
+def display_claim(text) -> str:
+    """A claim for a facts list: the stored text starts with
+    "label (date): ", which would double the year the item already
+    shows. Drop that prefix for display only, and only when text
+    remains; stored claims, evidence and films keep it."""
+    cut = re.sub(r"^[^:()]*\([^)]*\d[^)]*\):\s*", "", text or "", count=1)
+    return cut if cut else (text or "")
+
+
+def more_facts(scenes, claims, images=None, audience="adult") -> list:
+    """The checked facts the film does not show, for the list after
+    the film: supported, unrefused claims with a year and a page, in
+    year order, each fact once, at most MORE_MAX. A claim counts as
+    shown when a filmed scene's caption cites it; with `images` only
+    painted scenes count, so a fact whose painting was dropped still
+    gets listed. The text is the checked claim itself, never a model
+    rewrite; only the display prefix goes and the first letter is
+    raised. The children's film lists none: these are adult texts."""
+    if audience != "adult":
+        return []
+    shown = set()
+    for scene in dated(scenes):
+        if images is not None and str(scene["from_year"]) not in images:
+            continue
+        if not filmable(scene, claims, audience):
+            continue
+        stored = scene.get("caption_sentence") or {}
+        evidence = stored.get("evidence") or {}
+        shown.add((stored.get("claim_year"), evidence.get("url"),
+                   evidence.get("claim")))
+    facts, seen = [], set()
+    candidates = [claim for claim in claims
+                  if filmed(claim) and isinstance(claim.get("year"), int)
+                  and claim.get("url")]
+    for claim in sorted(candidates, key=lambda claim: claim["year"]):
+        if (claim["year"], claim["url"], claim.get("claim")) in shown:
+            continue
+        text = display_claim(claim.get("claim", "")).strip()
+        if not text:
+            continue
+        text = text[0].upper() + text[1:]
+        stamp = stamp_for(claim.get("date_text") or str(claim["year"]),
+                          claim["year"], claim.get("quote", ""))
+        if (stamp, text) in seen:
+            continue
+        seen.add((stamp, text))
+        facts.append({"stamp": stamp, "text": text,
+                      "site": source_site(claim["url"]),
+                      "url": claim["url"]})
+        if len(facts) == MORE_MAX:
+            break
+    return facts
 
 
 def end_title(url, cache=None) -> str:
@@ -376,6 +438,8 @@ def _build_film(film_dir, research, images, photo, photo_credit,
     # acceptance and binding as every scene. An unaccepted age claim
     # never opens the film.
     first = painted[0] if painted else {}
+    more = more_facts(research.get("scenes", []), claims, images,
+                      audience=audience)
     film = {"object": name, "kind": research["object"].get("kind", ""),
             "photo": photo, "photo_credit": photo_credit,
             "photo_source": photo_source,
@@ -385,7 +449,9 @@ def _build_film(film_dir, research, images, photo, photo_credit,
             "attribution": attribution,
             "ai_label": "Painted scenes are AI imagery, checked against verified sources.",
             "sources": end_sources(research.get("scenes", []),
-                                   research.get("claims", []), cache),
+                                   research.get("claims", []), cache,
+                                   more=more),
+            "more_facts": more,
             "segments": plan, "scenes": film_scenes,
             "audience": audience, "sibling": sibling,
             "sibling_page": (sibling[:-len("film.json")] + "film.html"

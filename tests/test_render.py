@@ -1170,3 +1170,120 @@ def test_end_card_links_are_large_on_phones():
     assert size >= 40, "source links must read at 390 px stage scale"
     item = re.search(r"#sources li \{([^}]*)\}", template).group(1)
     assert "padding:" in item, "source rows need a tappable height"
+
+
+def extra_claim(year, claim, url="https://b.example/2", date_text=None,
+                quote=None, **flags):
+    made = {"year": year, "url": url, "verdict": "supported",
+            "claim": claim, "date_text": date_text or str(year),
+            "quote": quote if quote is not None else f"It was so in {year}."}
+    made.update(flags)
+    return made
+
+
+def test_more_facts_lists_checked_facts_the_film_does_not_show():
+    scenes = [scene(1850, sentence="I stood.")]
+    claims = claims_for(scenes) + [
+        extra_claim(1880, "extended (1880-1): Baptistery added at west end",
+                    date_text="1880-1",
+                    quote="The Baptistery was added in 1880-1."),
+        extra_claim(1700, "In 1700 the roof was mended.",
+                    url="https://c.example/3")]
+    more = builder.more_facts(scenes, claims, {"1850": "e/1850.png"})
+    assert more == [
+        {"stamp": "1700", "text": "In 1700 the roof was mended.",
+         "site": "c.example", "url": "https://c.example/3"},
+        {"stamp": "1880", "text": "Baptistery added at west end",
+         "site": "b.example", "url": "https://b.example/2"}]
+
+
+def test_more_facts_never_lists_doubted_or_refused_claims():
+    scenes = [scene(1850, sentence="I stood.")]
+    claims = claims_for(scenes) + [
+        dict(extra_claim(1900, "Half true."), verdict="partly"),
+        dict(extra_claim(1901, "Not found."), verdict="unsupported"),
+        dict(extra_claim(1902, "Never checked."), verdict="unverified"),
+        extra_claim(1914, "A bomb went off.", war_politics_only=True),
+        extra_claim(1915, "Hateful words.", refused_content=True),
+        dict(extra_claim(1916, "No page."), url=""),
+        dict(extra_claim(1917, "No year."), year=None)]
+    assert builder.more_facts(scenes, claims, {"1850": "e/1850.png"}) == []
+
+
+def test_more_facts_keeps_a_fact_whose_painting_was_dropped():
+    scenes = [scene(1850, sentence="I stood."),
+              scene(1900, sentence="I burnt.")]
+    claims = claims_for(scenes)
+    more = builder.more_facts(scenes, claims, {"1850": "e/1850.png"})
+    assert [(m["stamp"], m["text"]) for m in more] == [
+        ("1900", "Something happened in 1900")]
+    # Before painting every caption-checked scene counts as shown.
+    assert builder.more_facts(scenes, claims) == []
+
+
+def test_more_facts_lists_a_repeated_fact_once():
+    scenes = [scene(1850, sentence="I stood.")]
+    claims = claims_for(scenes) + [
+        extra_claim(1880, "The bell was hung."),
+        extra_claim(1880, "The bell was hung.", url="https://c.example/3")]
+    more = builder.more_facts(scenes, claims, {"1850": "e/1850.png"})
+    assert [m["url"] for m in more] == ["https://b.example/2"]
+
+
+def test_more_facts_stamp_follows_the_film_rule():
+    scenes = [scene(1850, sentence="I stood.")]
+    claims = claims_for(scenes) + [
+        extra_claim(1914, "damaged (11 July 1914): The roof fell.",
+                    date_text="11 July 1914",
+                    quote="On 11 July 1914 the roof fell."),
+        extra_claim(2011, "restored (July 2011): The organ was restored.",
+                    date_text="July 2011",
+                    quote="The organ was restored in July 2011.")]
+    more = builder.more_facts(scenes, claims, {"1850": "e/1850.png"})
+    assert [m["stamp"] for m in more] == ["11 July 1914", "2011"]
+    assert [m["text"] for m in more] == ["The roof fell.",
+                                         "The organ was restored."]
+
+
+def test_more_facts_caps_the_list_and_skips_the_childrens_film():
+    scenes = [scene(1850, sentence="I stood.")]
+    claims = claims_for(scenes) + [
+        extra_claim(1860 + i, f"Fact {i}.", url=f"https://b.example/{i}")
+        for i in range(9)]
+    more = builder.more_facts(scenes, claims, {"1850": "e/1850.png"})
+    assert builder.MORE_MAX == 6
+    assert [m["stamp"] for m in more] == [str(1860 + i) for i in range(6)]
+    assert builder.more_facts(scenes, claims, {"1850": "e/1850.png"},
+                              audience="child") == []
+
+
+def test_end_sources_add_the_more_facts_pages_after_the_scenes():
+    scenes = [cited_scene(1900, "https://a.example/1")]
+    more = [{"stamp": "1880", "text": "x", "site": "b.example",
+             "url": "https://b.example/2"},
+            {"stamp": "1890", "text": "y", "site": "a.example",
+             "url": "https://a.example/1"}]
+    entries = builder.end_sources(scenes, claims_for(scenes), None, more=more)
+    assert [entry["url"] for entry in entries] == [
+        "https://a.example/1", "https://b.example/2"]
+
+
+def test_write_film_lists_more_checked_facts_after_the_film(tmp_path):
+    kept = scene(1850, sentence="I stood.")
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "short_film"},
+        "claims": claims_for([kept]) + [
+            extra_claim(1880, "extended (1880): A wing was added.")],
+        "scenes": [kept], "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1850": "era_1850.png"},
+                             photo="today.jpg", photo_credit="me")
+    film = json.loads((out / "film.json").read_text())
+    assert film["more_facts"] == [
+        {"stamp": "1880", "text": "A wing was added.", "site": "b.example",
+         "url": "https://b.example/2"}]
+    assert [s["url"] for s in film["sources"]] == [
+        "https://a.example/x", "https://b.example/2"]
+    assert [seg["kind"] for seg in film["segments"]] == [
+        "title", "anchor", "era", "today", "end"]

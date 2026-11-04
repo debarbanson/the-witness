@@ -97,13 +97,7 @@ def source_quotes(kept, texts, checked=()) -> list:
     return out
 
 
-def display_claim(text) -> str:
-    """A claim for the facts list: the stored text starts with
-    "label (date): ", which would double the year the item already
-    shows. Drop that prefix for display only, and only when text
-    remains; stored claims, evidence and films keep it."""
-    cut = _re.sub(r"^[^:()]*\([^)]*\d[^)]*\):\s*", "", text or "", count=1)
-    return cut if cut else (text or "")
+display_claim = render_builder.display_claim
 
 
 def public_claims(kept) -> list:
@@ -215,6 +209,21 @@ def checked_facts(slug_dir) -> list:
         facts.append({"stamp": stamp, "text": text,
                       "url": evidence.get("url", "")})
     return facts
+
+
+def facts_panel(slug_dir) -> dict:
+    """The "Checked so far" panel: the film's facts as items, plus,
+    when there are any, the more checked facts the film's end card
+    lists. Before painting every caption-checked scene counts as
+    filmed; a dropped painting is marked on its item instead."""
+    panel = {"items": checked_facts(slug_dir)}
+    data = _json.loads((Path(slug_dir) / "research.json").read_text(
+        encoding="utf-8"))
+    more = render_builder.more_facts(data.get("scenes", []),
+                                     data.get("claims", []))
+    if more:
+        panel["more"] = more
+    return panel
 
 
 def load_spec(job_dir):
@@ -437,8 +446,8 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                             "Research is done but captions failed.")
                     progress("painting", {"slug": slug, "model": "Muse Image"})
                     try:
-                        progress("checked_facts", {"items": checked_facts(
-                            Path(spec["job_dir"]) / slug)})
+                        progress("checked_facts", facts_panel(
+                            Path(spec["job_dir"]) / slug))
                     except (OSError, ValueError):
                         pass  # no facts panel; painting still decides
 

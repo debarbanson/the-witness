@@ -167,6 +167,47 @@ assert.strictEqual(link.textContent, "Wikipedia: Mill");
 assert.strictEqual(link.href, "https://en.wikipedia.org/wiki/Mill");
 assert.strictEqual(link.target, "_blank");
 
+// After the film: more checked facts above the sources, each a stamp,
+// the checked text and a link to its page. None: no heading.
+const byIdEl = (id) => sandbox.document.getElementById(id);
+assert.strictEqual(byIdEl("morehead").style.display, "none",
+  "no more-facts heading without more facts");
+assert.strictEqual(byIdEl("endcard").className, "card",
+  "plain end card without more facts");
+vm.runInContext(`FILM.more_facts = [
+  { stamp: "1880", text: "A wing was added.", site: "b.example",
+    url: "https://b.example/2" },
+  { stamp: "11 July 1914", text: "<b>The roof fell.</b>",
+    site: "Wikipedia", url: "https://en.wikipedia.org/wiki/Mill" }];`,
+  sandbox);
+render(26.0);
+assert.strictEqual(byIdEl("morehead").style.display, "block",
+  "more-facts heading shown");
+assert.strictEqual(byIdEl("more").style.display, "block",
+  "more-facts list shown");
+assert.strictEqual(byIdEl("endcard").className, "card more",
+  "the end card makes room for more facts");
+const facts = byIdEl("more").children;
+assert.strictEqual(facts.length, 2, "both more facts listed");
+assert.strictEqual(facts[0].children[0].textContent, "1880 ");
+assert.strictEqual(facts[0].children[1].text, "A wing was added. ");
+assert.strictEqual(facts[0].children[2].href, "https://b.example/2");
+assert.strictEqual(facts[0].children[2].textContent, "b.example");
+assert.strictEqual(facts[0].children[2].target, "_blank");
+assert.strictEqual(facts[1].children[0].textContent, "11 July 1914 ");
+assert.strictEqual(facts[1].children[1].text, "<b>The roof fell.</b> ",
+  "a fact lands as text, never markup");
+render(26.0);
+assert.strictEqual(byIdEl("more").children.length, 2,
+  "re-rendering the end card never doubles the list");
+assert.strictEqual(byIdEl("sources").children.length, 1,
+  "sources still listed under the more facts");
+vm.runInContext("FILM.more_facts = undefined;", sandbox);
+render(26.0);
+assert.strictEqual(byIdEl("morehead").style.display, "none",
+  "the heading goes with the facts");
+assert.strictEqual(byIdEl("more").children.length, 0);
+
 // The end card links the photo source: author, licence and file page.
 vm.runInContext(`FILM.photo_source = { author: "A. Uthor",
   licence: "CC BY 4.0", licence_url: "https://creativecommons.org/x",

@@ -121,4 +121,36 @@ assert.strictEqual(els["facts-list"].children.length, 1);
 assert.strictEqual(els["facts-list"].children[0].children[1].text,
   "<img src=x>");
 
+// More checked facts, the ones shown after the film: their own heading
+// and list, text plus an https source link, never marked not painted.
+assert(/<h3 id="more-head"[^>]*>Also checked, shown after the film<\/h3>/
+  .test(html), "no more-facts heading");
+assert(html.includes('<ul id="more-list"></ul>'), "no #more-list");
+els["more-head"] = makeEl();
+els["more-list"] = makeEl();
+const more = [
+  { stamp: "1880", text: "A wing was added.", url: "https://b.example/wing" },
+  { stamp: "1932", text: "<b>x</b>", url: "javascript:alert(1)" },
+];
+renderFacts({ events: [
+  { event: "checked_facts", data: { items, more } },
+  { event: "painted", data: { year: 1932, verdict: "dropped",
+    accepted: 1, dropped: 1, attempted: 2 } },
+] });
+assert.strictEqual(els["more-head"].style.display, "block");
+const extra = els["more-list"].children;
+assert.strictEqual(extra.length, 2, "both more facts listed");
+assert.strictEqual(extra[0].children[0].textContent, "1880 ");
+assert.strictEqual(extra[0].children[1].text, "A wing was added.");
+assert.strictEqual(extra[0].children[2].href, "https://b.example/wing");
+assert.strictEqual(extra[1].children.length, 2,
+  "a non-https URL must not become a link");
+assert.strictEqual(extra[1].children[1].text, "<b>x</b>");
+assert(!JSON.stringify(extra).includes("not painted"),
+  "a more fact is never marked not painted");
+renderFacts({ events: [{ event: "checked_facts", data: { items } }] });
+assert.strictEqual(els["more-head"].style.display, "none",
+  "no heading without more facts");
+assert.strictEqual(els["more-list"].children.length, 0);
+
 console.log("checked facts while painting: OK");

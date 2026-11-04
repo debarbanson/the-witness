@@ -1532,3 +1532,47 @@ def test_web_job_skips_overpass(tmp_path, monkeypatch):
         assert seen.get("overpass") is False
     finally:
         models.configure_spending(None)
+
+
+def test_painting_start_publishes_the_more_checked_facts(tmp_path, monkeypatch):
+    import json as _json
+    import pathlib as _pathlib
+
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    research = _research_with_captions()
+    research["claims"].append(
+        {"year": 1880, "url": "https://b.example/wing",
+         "claim": "extended (1880): A wing was added.",
+         "date_text": "1880", "quote": "A wing was added in 1880.",
+         "verdict": "supported"})
+    research["claims"].append(
+        {"year": 1890, "url": "https://b.example/wing",
+         "claim": "Half true.", "quote": "", "verdict": "partly"})
+
+    def save(*args, **kwargs):
+        slug_dir = _pathlib.Path(spec["job_dir"]) / "q1-mill"
+        slug_dir.mkdir(parents=True, exist_ok=True)
+        (slug_dir / "research.json").write_text(_json.dumps(research))
+        return str(slug_dir)
+
+    monkeypatch.setattr(webfilm_module.cli, "run_job", _film_run(_mill()))
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save", save)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint", lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render", lambda *a, **k: 0)
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        facts = [row.get("data") or {}
+                 for row in store.get_job("job-1")["events"]
+                 if row["event"] == "checked_facts"]
+        assert len(facts) == 1
+        assert facts[0]["items"] == [
+            {"stamp": "1850", "text": "The mill stood tall.",
+             "url": "https://a.example/mill"}]
+        assert facts[0]["more"] == [
+            {"stamp": "1880", "text": "A wing was added.",
+             "site": "b.example", "url": "https://b.example/wing"}]
+    finally:
+        models.configure_spending(None)

@@ -995,6 +995,10 @@ function renderFacts(st) {
   const evs = st.events || [];
   const shown = [...evs].reverse().find(e => e.event === "checked_facts");
   list.textContent = "";
+  const moreHead = document.getElementById("more-head");
+  const moreList = document.getElementById("more-list");
+  if (moreList) { moreList.textContent = ""; }
+  if (moreHead) { moreHead.style.display = "none"; }
   if (!shown || !((shown.data || {}).items || []).length) {
     box.style.display = "none";
     count.textContent = "";
@@ -1025,6 +1029,23 @@ function renderFacts(st) {
       li.appendChild(document.createTextNode(" (not painted)"));
     }
     list.appendChild(li);
+  }
+  const more = shown.data.more || [];
+  if (moreHead && moreList && more.length) {
+    moreHead.style.display = "block";
+    for (const item of more) {
+      const li = document.createElement("li");
+      const stamp = document.createElement("strong");
+      stamp.textContent = (item.stamp || "") + " ";
+      li.appendChild(stamp);
+      li.appendChild(document.createTextNode(item.text || ""));
+      if (typeof item.url === "string" && item.url.indexOf("https:" + "//") === 0) {
+        const a = document.createElement("a");
+        a.href = item.url; a.textContent = " (source)";
+        li.appendChild(a);
+      }
+      moreList.appendChild(li);
+    }
   }
   const last = [...evs].reverse().find(e => e.event === "painted");
   if (!last) { count.textContent = ""; return; }
@@ -1224,7 +1245,7 @@ I understand how my photo is used.</label></p>
 <ol id="steps"><li data-step="identify">Recognise<span class="model"> · Muse Spark</span></li><li data-step="research">Research<span class="model"> · Muse Spark</span></li><li data-step="check">Check<span class="model"> · Muse Spark Open on Baseten</span></li><li data-step="paint">Paint<span class="model"> · Muse Image</span></li><li data-step="film">Film<span class="model"></span></li></ol>
 <p id="subprogress"></p>
 <p id="still-working"></p>
-<div id="facts" class="hidden"><h3>Checked so far</h3><ol id="facts-list"></ol><p id="paint-count"></p></div>
+<div id="facts" class="hidden"><h3>Checked so far</h3><ol id="facts-list"></ol><p id="paint-count"></p><h3 id="more-head" class="hidden">Also checked, shown after the film</h3><ul id="more-list"></ul></div>
 <details id="calls-box"><summary>Show the model calls</summary><ul id="calls"></ul></details>
 <div id="confirm" class="hidden">
 <p>Is this <strong id="confirm-name"></strong><span id="confirm-detail"></span>?</p>

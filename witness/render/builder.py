@@ -206,6 +206,19 @@ def display_claim(text) -> str:
     return cut if cut else (text or "")
 
 
+def film_fact(stamp, stored) -> dict | None:
+    """The checked claim behind one filmed caption, as the end card
+    lists it after the film: the caption's stamp, the claim in plain
+    words and its page. None without a claim or a page."""
+    evidence = stored.get("evidence") or {}
+    url = evidence.get("url") or stored.get("claim_url")
+    text = display_claim(evidence.get("claim", "")).strip()
+    if not text or not url:
+        return None
+    return {"stamp": stamp, "text": text[0].upper() + text[1:],
+            "site": source_site(url), "url": url}
+
+
 def more_facts(scenes, claims, images=None, audience="adult") -> list:
     """The checked facts the film does not show, for the list after
     the film: supported, unrefused claims with a year and a page, in
@@ -438,12 +451,16 @@ def _build_film(film_dir, research, images, photo, photo_credit,
     if not plan:
         raise ValueError("no filmable eras; facts only")
     film_scenes = []
+    in_film = []
     for scene in scenes:
         key = str(scene["from_year"])
         if key not in images or not filmable(scene, claims, audience):
             continue
         stamp, sentence = caption_for(scene, audience)
         stored = scene.get("caption_sentence") or {}
+        fact = film_fact(stamp, stored) if audience == "adult" else None
+        if fact is not None and fact not in in_film:
+            in_film.append(fact)
         cited = None
         if stored.get("text") and stored.get("claim_year") is not None:
             cited = {"year": stored.get("claim_year"),
@@ -480,6 +497,7 @@ def _build_film(film_dir, research, images, photo, photo_credit,
             "sources": end_sources(research.get("scenes", []),
                                    research.get("claims", []), cache,
                                    more=more),
+            "film_facts": in_film,
             "more_facts": more,
             "segments": plan, "scenes": film_scenes,
             "audience": audience, "sibling": sibling,

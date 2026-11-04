@@ -208,6 +208,40 @@ assert.strictEqual(byIdEl("morehead").style.display, "none",
   "the heading goes with the facts");
 assert.strictEqual(byIdEl("more").children.length, 0);
 
+// After the film: the film's own facts with their pages (4 Nov, the
+// owner: they are no longer listed while the film is made). Film facts
+// alone still turn the end card top-down.
+assert.strictEqual(byIdEl("filmhead").style.display, "none",
+  "no film-facts heading without film facts");
+vm.runInContext(`FILM.film_facts = [
+  { stamp: "1850", text: "The mill was built.", site: "Wikipedia",
+    url: "https://en.wikipedia.org/wiki/Mill" }];`, sandbox);
+render(26.0);
+assert.strictEqual(byIdEl("filmhead").style.display, "block",
+  "film-facts heading shown");
+assert.strictEqual(byIdEl("filmfacts").style.display, "block",
+  "film-facts list shown");
+assert.strictEqual(byIdEl("endcard").className, "card more",
+  "film facts alone make room too");
+const inFilm = byIdEl("filmfacts").children;
+assert.strictEqual(inFilm.length, 1, "the film fact listed");
+assert.strictEqual(inFilm[0].children[0].textContent, "1850 ");
+assert.strictEqual(inFilm[0].children[1].text, "The mill was built. ");
+assert.strictEqual(inFilm[0].children[2].href,
+  "https://en.wikipedia.org/wiki/Mill");
+assert.strictEqual(inFilm[0].children[2].textContent, "Wikipedia");
+assert.strictEqual(inFilm[0].children[2].target, "_blank");
+assert.strictEqual(byIdEl("morehead").style.display, "none",
+  "no more heading without more facts");
+render(26.0);
+assert.strictEqual(byIdEl("filmfacts").children.length, 1,
+  "re-rendering never doubles the film facts");
+vm.runInContext("FILM.film_facts = undefined;", sandbox);
+render(26.0);
+assert.strictEqual(byIdEl("filmhead").style.display, "none",
+  "the heading goes with the film facts");
+assert.strictEqual(byIdEl("filmfacts").children.length, 0);
+
 // The end card links the photo source: author, licence and file page.
 vm.runInContext(`FILM.photo_source = { author: "A. Uthor",
   licence: "CC BY 4.0", licence_url: "https://creativecommons.org/x",

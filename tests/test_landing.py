@@ -565,7 +565,7 @@ def test_model_calls_toggle_lists_the_job_rows(tmp_path):
     assert out.returncode == 0, out.stderr[:500]
 
 
-def test_checked_facts_panel_lists_film_facts(tmp_path):
+def test_checked_facts_panel_lists_only_the_facts_after_the_film(tmp_path):
     import shutil
     import subprocess
     from pathlib import Path

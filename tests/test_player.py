@@ -10,6 +10,27 @@ TEMPLATE = Path("witness/render/film.html")
 CHECK = Path(__file__).parent / "player_check.cjs"
 
 
+def test_end_card_clears_the_home_link():
+    """4 Nov, owner's phone: the "← The Witness" link (fixed, 10 px from
+    the top, at least 44 px tall) covered "More checked facts". The stage
+    is scaled to the screen, to about 0.3 on a narrow phone, so the
+    top-down end card starts 200 stage px down: 60 px or more on screen."""
+    import re
+
+    template = TEMPLATE.read_text()
+    rule = re.search(r"#endcard\.more \{[^}]*\}", template)
+    assert rule, "no #endcard.more rule"
+    padding = re.search(r"padding:\s*(\d+)px", rule.group(0))
+    assert padding and int(padding.group(1)) >= 200
+
+
+def test_end_card_lists_the_film_facts_first():
+    template = TEMPLATE.read_text()
+    assert '<h1 id="filmhead" class="hidden">In this film</h1>' in template
+    assert template.index('id="filmhead"') < template.index('id="morehead"')
+    assert template.index('id="morehead"') < template.index("<h1>Sources</h1>")
+
+
 def test_player_has_no_figure_layers():
     template = TEMPLATE.read_text()
     assert "syncLayers" not in template

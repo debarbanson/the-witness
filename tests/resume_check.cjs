@@ -363,15 +363,13 @@ vm.createContext(sandbox);
     assert.strictEqual(
       sandbox.document.getElementById("facts").style.display, "block",
       "facts panel hidden during painting");
-    const list = sandbox.document.getElementById("facts-list");
-    assert.strictEqual(list.children.length, 2, "both facts listed");
-    assert.strictEqual(list.children[0].children[0].textContent, "1850 ");
-    assert.strictEqual(list.children[0].children[2].href,
-      "https://a.example/mill");
     assert.strictEqual(
       sandbox.document.getElementById("paint-count").textContent,
       "Painted 2 of 2");
-    const rendered = JSON.stringify(list);
+    const rendered = JSON.stringify(
+      Object.values(byId).map((e) => [e.textContent, e.children]));
+    assert(!rendered.includes("The mill stood tall."),
+      "a film fact was listed before the film");
     assert(!rendered.includes("Poldertoren"), "a guess reached the page");
     assert(!rendered.includes("52.1"), "a coordinate reached the page");
     const text = shown(sandbox.document.getElementById("result"));

@@ -1057,50 +1057,27 @@ function renderCalls(st) {
   }
 }
 function renderFacts(st) {
+  // While the film is made only the facts shown after it are listed:
+  // the film's own facts wait for the film, then its end card links
+  // them. The painting count stays as progress.
   const box = document.getElementById("facts");
-  const list = document.getElementById("facts-list");
   const count = document.getElementById("paint-count");
-  if (!box || !list || !count) { return; }
-  const evs = st.events || [];
-  const shown = [...evs].reverse().find(e => e.event === "checked_facts");
-  list.textContent = "";
   const moreHead = document.getElementById("more-head");
   const moreList = document.getElementById("more-list");
-  if (moreList) { moreList.textContent = ""; }
-  if (moreHead) { moreHead.style.display = "none"; }
-  if (!shown || !((shown.data || {}).items || []).length) {
+  if (!box || !count || !moreHead || !moreList) { return; }
+  const evs = st.events || [];
+  const shown = [...evs].reverse().find(e => e.event === "checked_facts");
+  moreList.textContent = "";
+  moreHead.style.display = "none";
+  count.textContent = "";
+  const more = shown ? ((shown.data || {}).more || []) : [];
+  const last = shown ? [...evs].reverse().find(e => e.event === "painted") : null;
+  if (!more.length && !last) {
     box.style.display = "none";
-    count.textContent = "";
     return;
   }
   box.style.display = "block";
-  const dropped = {};
-  for (const e of evs) {
-    const d = e.data || {};
-    if (e.event === "painted" && d.verdict === "dropped" &&
-        typeof d.year === "number") {
-      dropped[d.year] = true;
-    }
-  }
-  for (const item of shown.data.items) {
-    const li = document.createElement("li");
-    const stamp = document.createElement("strong");
-    stamp.textContent = (item.stamp || "") + " ";
-    li.appendChild(stamp);
-    li.appendChild(document.createTextNode(item.text || ""));
-    if (typeof item.url === "string" && item.url.indexOf("https:" + "//") === 0) {
-      const a = document.createElement("a");
-      a.href = item.url; a.textContent = " (source)";
-      li.appendChild(a);
-    }
-    const found = /(\d{4})/.exec(item.stamp || "");
-    if (found && dropped[Number(found[1])]) {
-      li.appendChild(document.createTextNode(" (not painted)"));
-    }
-    list.appendChild(li);
-  }
-  const more = shown.data.more || [];
-  if (moreHead && moreList && more.length) {
+  if (more.length) {
     moreHead.style.display = "block";
     for (const item of more) {
       const li = document.createElement("li");
@@ -1116,8 +1093,7 @@ function renderFacts(st) {
       moreList.appendChild(li);
     }
   }
-  const last = [...evs].reverse().find(e => e.event === "painted");
-  if (!last) { count.textContent = ""; return; }
+  if (!last) { return; }
   const d = last.data || {};
   const total = (d.attempted || 0) - (d.dropped || 0);
   count.textContent = "Painted " + (d.accepted || 0) + " of " + total;
@@ -1345,7 +1321,7 @@ I understand how my photo is used.</label></p>
 <ol id="steps"><li data-step="identify">Recognise<span class="model"> · Muse Spark</span></li><li data-step="research">Research<span class="model"> · Muse Spark</span></li><li data-step="check">Check<span class="model"> · Muse Spark Open on Baseten</span></li><li data-step="paint">Paint<span class="model"> · Muse Image</span></li><li data-step="film">Film<span class="model"></span></li></ol>
 <p id="subprogress"></p>
 <p id="still-working"></p>
-<div id="facts" class="hidden"><h3>Checked so far</h3><ol id="facts-list"></ol><p id="paint-count"></p><h3 id="more-head" class="hidden">Also checked, shown after the film</h3><ul id="more-list"></ul></div>
+<div id="facts" class="hidden"><p id="paint-count"></p><h3 id="more-head" class="hidden">Also checked, shown after the film</h3><ul id="more-list"></ul></div>
 <details id="calls-box"><summary>Show the model calls</summary><ul id="calls"></ul></details>
 <div id="confirm" class="hidden">
 <p>Is this <strong id="confirm-name"></strong><span id="confirm-detail"></span>?</p>

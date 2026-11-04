@@ -147,6 +147,47 @@ def test_anchor_card_claims_the_start_only_for_a_beginning():
     assert builder.anchor_card(made)["line"] == "My first checked\u00a0date:"
 
 
+def test_write_film_lists_the_film_facts_with_their_links(tmp_path):
+    """4 Nov, the owner: the film's own facts are no longer listed while
+    the film is made (they come in the film), but once it ends each one
+    is on the end card with its page, like the more facts. The picture
+    book keeps its plain end card."""
+    first = scene(1850, sentence="I was built.")
+    first["caption_sentence"]["evidence"]["claim"] = (
+        "built (in 1850): the mill was built in 1850.")
+    second = scene(1932, sentence="I burnt down.",
+                   claim_url="https://en.wikipedia.org/wiki/Mill")
+    research = {
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"},
+        "claims": claims_for([first, second]),
+        "scenes": [first, second], "timeline": [], "timings": {},
+    }
+    images = {"1850": "e/1850.png", "1932": "e/1932.png"}
+    out = builder.write_film(tmp_path / "adult", research, images,
+                             photo="today.jpg", photo_credit="me")
+    film = json.loads((out / "film.json").read_text())
+    assert film["film_facts"] == [
+        {"stamp": "1850", "text": "The mill was built in 1850.",
+         "site": "a.example", "url": "https://a.example/x"},
+        {"stamp": "1932", "text": "Something happened in 1932",
+         "site": "Wikipedia", "url": "https://en.wikipedia.org/wiki/Mill"},
+    ]
+    # A painting that was not kept is not in the film, so not in the list.
+    out = builder.write_film(tmp_path / "one", research, {"1932": "e/1932.png"},
+                             photo="today.jpg", photo_credit="me")
+    film = json.loads((out / "film.json").read_text())
+    assert [fact["stamp"] for fact in film["film_facts"]] == ["1932"]
+    young = [child_scene(1850, "Little mill words."),
+             child_scene(1932, "The mill got hot.")]
+    research = dict(research, claims=claims_for(young), scenes=young)
+    out = builder.write_film(tmp_path / "child", research, images,
+                             photo="today.jpg", photo_credit="me",
+                             audience="child")
+    film = json.loads((out / "film.json").read_text())
+    assert film["film_facts"] == []
+
+
 def test_write_film_starts_the_story_on_a_checked_build_fact(tmp_path):
     built = scene(1899, sentence="My construction began.")
     claims = claims_for([built])

@@ -162,6 +162,50 @@ def test_film_nonce_matches_its_header(tmp_path):
     assert f'<script nonce="{nonce}">' in out.text
 
 
+def test_served_films_carry_one_home_link(tmp_path):
+    import base64
+    import hashlib
+    import re
+
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    client = _client(tmp_path, store=store, runner=lambda spec: None)
+    ada = tmp_path / "examples" / "de-adriaan"
+    (ada / "child").mkdir(parents=True, exist_ok=True)
+    (ada / "child" / "film.html").write_text(
+        "<html><head></head><body><script>\n\"use strict\";\n</script></body></html>")
+    job_id = client.post(
+        "/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},
+        data={"ack": "on"}).json()["job_id"]
+    job = store.jobs[job_id]
+    film_dir = tmp_path / "jobs" / job["job_dir"].split("/")[-1] / "q1-mill" / "film"
+    film_dir.mkdir(parents=True)
+    (film_dir / "film.html").write_text(
+        "<html><head></head><body><script>\n\"use strict\";\n</script></body></html>")
+    store.jobs[job_id]["film_dir"] = str(film_dir)
+    disk = {path: path.read_text() for path in
+            (ada / "film.html", ada / "child" / "film.html",
+             film_dir / "film.html")}
+    urls = ("/examples/de-adriaan/film.html",
+            "/examples/de-adriaan/child/film.html",
+            f"/film/{job_id}/{job['token']}/film.html")
+    for url in urls:
+        out = client.get(url)
+        assert out.status_code == 200, url
+        assert out.text.count('href="/"') == 1, url
+        assert "The Witness" in out.text
+        assert "<script>\n" not in out.text, url
+        assert '<script nonce="' in out.text, url
+        csp = out.headers["Content-Security-Policy"]
+        for block in re.findall(r"<style>(.*?)</style>", out.text, re.S):
+            digest = base64.b64encode(
+                hashlib.sha256(block.encode("utf-8")).digest()).decode("ascii")
+            assert f"'sha256-{digest}'" in csp, url
+    for path, before in disk.items():
+        assert path.read_text() == before
+
+
 def test_upload_starts_a_job_and_runs_it(tmp_path):
     ran = []
     client = _client(tmp_path, runner=ran.append)

@@ -1770,6 +1770,17 @@ def create_app(deps: WebDeps) -> FastAPI:
         _debug().reset_quotas()
         return {"reset": True}
 
+    home_link = (
+        '<a id="home" href="/">\u2190 The Witness</a>'
+        "<style>#home{position:fixed;"
+        "top:calc(env(safe-area-inset-top,0px) + 10px);"
+        "left:calc(env(safe-area-inset-left,0px) + 10px);z-index:60;"
+        "display:inline-flex;align-items:center;min-height:44px;"
+        "padding:0 16px;border-radius:999px;"
+        "background:rgba(24,16,10,.85);color:#fffdf7;"
+        "font:600 15px/1 -apple-system,BlinkMacSystemFont,\"Segoe UI\","
+        "Roboto,sans-serif;text-decoration:none}</style>")
+
     def _film_response(request: Request, root: Path, asset: str):
         base = root.resolve()
         target = (base / asset).resolve() if asset else base / "film.html"
@@ -1780,6 +1791,10 @@ def create_app(deps: WebDeps) -> FastAPI:
         if target.suffix == ".html":
             page = target.read_text().replace(
                 "<script>\n", f'<script nonce="{request.state.nonce}">\n', 1)
+            # A way back home on every served film and evidence page,
+            # before the style hashes run so the CSP covers its style.
+            # The files on disk (and the MP4 recorder) stay unchanged.
+            page = page.replace("<body>", "<body>" + home_link, 1)
             request.state.style_hashes = _style_hashes(page)
             return HTMLResponse(page)
         return FileResponse(target)

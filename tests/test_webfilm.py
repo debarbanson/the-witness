@@ -1408,6 +1408,50 @@ def test_facts_payload_carries_subject_links_and_quotes():
     assert payload["quotes"] == quotes
 
 
+def test_public_claims_strips_leading_label_for_display():
+    import witness.webfilm as webfilm_module
+
+    kept = [
+        {"year": 1560, "verdict": "supported",
+         "claim": "repurposed (1560): After Scottish Reformation in 1560 "
+                  "Catholic worship brought to an end",
+         "url": "https://en.wikipedia.org/wiki/Rosslyn_Chapel",
+         "quote": "After the Scottish Reformation in 1560, it was largely "
+                  "abandoned."},
+        {"year": 1592, "verdict": "supported",
+         "claim": "damaged (1592): Chapel altars destroyed in 1592",
+         "url": "https://en.wikipedia.org/wiki/Rosslyn_Chapel",
+         "quote": "The chapel's altars were destroyed in 1592."},
+        {"year": 1862, "verdict": "supported",
+         "claim": "restored (1862): Restoration by David Bryce",
+         "url": "https://en.wikipedia.org/wiki/Rosslyn_Chapel",
+         "quote": "Restoration work was carried out in 1862 by David Bryce."},
+        {"year": 2010, "verdict": "supported",
+         "claim": "The chapel hosts concerts.",
+         "url": "https://en.wikipedia.org/wiki/Rosslyn_Chapel",
+         "quote": "The chapel hosts concerts."},
+    ]
+    out = webfilm_module.public_claims(kept)
+    assert [claim["claim"] for claim in out] == [
+        "After Scottish Reformation in 1560 Catholic worship brought to "
+        "an end",
+        "Chapel altars destroyed in 1592",
+        "Restoration by David Bryce",
+        "The chapel hosts concerts.",
+    ]
+    assert kept[0]["claim"].startswith("repurposed (1560):")
+
+
+def test_public_claims_keeps_a_bare_prefix():
+    import witness.webfilm as webfilm_module
+
+    kept = [{"year": 1900, "verdict": "supported",
+             "claim": "stood (1900):",
+             "url": "https://en.wikipedia.org/wiki/Mill",
+             "quote": "The mill stood in 1900."}]
+    assert webfilm_module.public_claims(kept)[0]["claim"] == "stood (1900):"
+
+
 def test_no_film_extras_carry_no_location():
     import witness.webfilm as webfilm_module
 

@@ -97,10 +97,19 @@ def source_quotes(kept, texts, checked=()) -> list:
     return out
 
 
+def display_claim(text) -> str:
+    """A claim for the facts list: the stored text starts with
+    "label (date): ", which would double the year the item already
+    shows. Drop that prefix for display only, and only when text
+    remains; stored claims, evidence and films keep it."""
+    cut = _re.sub(r"^[^:()]*\([^)]*\d[^)]*\):\s*", "", text or "", count=1)
+    return cut if cut else (text or "")
+
+
 def public_claims(kept) -> list:
     """Facts-only payload: filmed claims with their evidence, nothing
     else. Unsupported, partly and refused claims never leave the API."""
-    return [{"year": claim.get("year"), "claim": claim.get("claim", ""),
+    return [{"year": claim.get("year"), "claim": display_claim(claim.get("claim", "")),
              "url": claim.get("url"), "quote": claim.get("quote", "")}
             for claim in kept if filmed(claim)]
 

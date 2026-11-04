@@ -29,6 +29,10 @@
     {
      "ok": true,
      "note": "MATCHES"
+    },
+    {
+     "ok": true,
+     "note": "MATCHES"
     }
    ],
    "seconds": 32.2,
@@ -427,5 +431,7 @@
    "seconds": 19.6,
    "cost_usd": 0.0125
   }
- ]
+ ],
+ "rule": "paintings: pass on the first check, or after a failure two passes out of three on the same image hash; never stop at the first pass after a failure",
+ "reviewed_sha": "d972ddf"
 }

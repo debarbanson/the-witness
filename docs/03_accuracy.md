@@ -22,6 +22,7 @@
 - Scene details (dress, transport, surroundings) follow the era in general; specific events are only depicted when a verified claim names them.
 - **The object is shown in its verified state for each era.** If it burned, it is shown burnt; if it was rebuilt, the rebuilt form appears from that year. With no sourced change, it keeps the form of the previous era. Each painting is checked against that state and the final caption before it is used. The check judges the stated condition, not every detail: a wrong detail can still pass (the dropped Rubjerg 2016 showed a round tower with an outside stair, and houses the sources say were gone), so the owner's review of the contact sheet is the last guard before an era ships.
 - Each final scene carries an immutable evidence reference (claim, URL, quote); the renderer refuses a scene without one. A caption sentence counts only when fully supported, rechecked after every rewrite.
+- **Release rule for example paintings** (reviewed state d972ddf): a painting ships when it passes the state check on the first try, or after a failure when two passes out of three on the same image hash follow. Never stop at the first pass after a failure. The record of every try lives in eval/example_revalidation_2026-11-04.json.
 - The film ends on the user's own photo, the only photographic image in it.
 
 ## Excluded content

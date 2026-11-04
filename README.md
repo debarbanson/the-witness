@@ -12,7 +12,7 @@ Built for the Meta Global AI Developer Hackathon (kicked off 26 October 2026, 17
 
 ## Try it
 
-The public judge page: **[JUDGE_URL_TO_FILL_IN_BY_OWNER]** (the owner adds the URL here on their go).
+The public judge page: [the judge page](https://debarbanson--the-witness-judge.us-east.modal.run)
 
 Watch the three example films first, then Try your own: take or choose a photo of an old, well-documented landmark, confirm the object, and watch the finished film. Tries are limited per visitor and per day (the page shows how many are left); past the limit, or when Try your own is resting, the page says so and points back to the examples. No access codes; nothing to install.
 

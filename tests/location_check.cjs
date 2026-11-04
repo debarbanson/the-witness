@@ -43,6 +43,28 @@ assert(!html.includes('id="geo"'), "separate geo button must go");
 assert(html.includes("I'll type its name and town"), "no type button");
 assert(html.includes("Let Muse Spark recognise it"), "no auto button");
 assert(html.includes('id="geo-note"'), "no geo feedback line");
+// A photo with a location gets its own card, first, hidden until then.
+assert(/<button type="button" class="loc-card hidden" id="loc-photo"/.test(html),
+  "photo card must start hidden");
+assert(html.includes("Use where the photo was taken"), "no photo card title");
+assert(html.includes("Muse Spark matches the landmarks around that spot."),
+  "no photo card line");
+assert(html.indexOf('id="loc-photo"') < html.indexOf('id="loc-auto"'),
+  "photo card must come first");
+assert(html.includes('id="loc-auto-line"'), "auto card line needs an id");
+for (const id of ["loc-photo", "loc-auto", "loc-type", "loc-here"]) {
+  assert(html.includes('id="' + id + '" aria-pressed="false"'),
+    id + " needs aria-pressed");
+}
+assert(html.includes('<input type="hidden" name="locate" id="locate">'),
+  "no locate field");
+assert(html.includes(
+  'Only needed when you choose "I\'ll type its name and town".'),
+  "no new place fine print");
+assert(!html.includes("Leave it empty if the photo has its location"),
+  "old place fine print must go");
+// The choice stays on screen after a pick, so nothing hides it.
+assert(!src.includes("hideLocQ"), "the choice must stay visible");
 
 // --- jpegGpsPresent: true / false / "unknown" -----------------------------
 function bytes(arr) {
@@ -128,6 +150,14 @@ assert.strictEqual(decideSubmitState(true, "auto", ""), false);
 assert.strictEqual(decideSubmitState(true, "here", ""), false);
 assert.strictEqual(decideSubmitState(true, null, "Haarlem"), false);
 assert.strictEqual(decideSubmitState(true, null, "  "), true);
+assert.strictEqual(decideSubmitState(false, "photo", ""), false,
+  "the photo's own location needs nothing typed");
+assert.strictEqual(decideSubmitState(true, "type", ""), true,
+  "typing needs a name");
+assert.strictEqual(decideSubmitState(false, "type", ""), true,
+  "typing needs a name, even on a photo with a location");
+assert.strictEqual(decideSubmitState(false, "type", "Roslin"), false);
+assert.strictEqual(decideSubmitState(true, "type", "  "), true);
 
 // --- requestGeo: asked once, 10 s timeout, both feedback lines ------------
 let geoCalls = [];
@@ -137,12 +167,16 @@ const geoNote = { textContent: "" };
 const locq = { classList: { add() {}, remove() {} } };
 const hereCard = { selected: false,
   classList: { toggle: (name, on) => {
-    if (name === "selected") { hereCard.selected = !!on; } } } };
+    if (name === "selected") { hereCard.selected = !!on; } } },
+  setAttribute() {} };
+const locateField = { value: "visual" };
+const placeField = { value: "Roslin" };
 sandbox.document = {
   getElementById: (id) => (
-    { lat, lon, "geo-note": geoNote, locq, "loc-here": hereCard }[id]
+    { lat, lon, "geo-note": geoNote, locq, "loc-here": hereCard,
+      locate: locateField }[id]
     || null),
-  querySelector: () => null,
+  querySelector: () => placeField,
 };
 sandbox.navigator = {
   geolocation: {
@@ -153,9 +187,10 @@ sandbox.submitBtnForTest = { disabled: true };
 sandbox.photoSeq = 0;
 vm.runInContext(extract("requestGeo", ""), sandbox);
 vm.runInContext(extract("markLocChoice", "id"), sandbox);
+vm.runInContext(extract("setLocate", "value"), sandbox);
+vm.runInContext(extract("clearPlace", ""), sandbox);
 vm.runInContext(
-  "function updateSubmit() { submitBtnForTest.disabled = true; }" +
-  "function hideLocQ() {}", sandbox);
+  "function updateSubmit() { submitBtnForTest.disabled = true; }", sandbox);
 const requestGeo = vm.runInContext("requestGeo", sandbox);
 assert.strictEqual(geoCalls.length, 0, "nothing asked before the tap");
 requestGeo();
@@ -166,6 +201,8 @@ assert.strictEqual(lat.value, 52.1);
 assert.strictEqual(lon.value, 4.3);
 assert.strictEqual(geoNote.textContent, "Location added.");
 assert.strictEqual(hereCard.selected, true, "here card not selected");
+assert.strictEqual(locateField.value, "", "here is not the visual choice");
+assert.strictEqual(placeField.value, "", "here replaces a typed place");
 geoCalls = [];
 requestGeo();
 geoCalls[0][1]({ code: 1 });
@@ -206,11 +243,13 @@ assert(src.includes(
   'document.getElementById("loc-type").onclick = chooseType;'),
   "type card wired to chooseType");
 
-// --- Location cards: the chosen card shows as selected ---------------
+// --- Location cards: one choice at a time, shown as selected --------------
 {
+  const IDS = ["loc-photo", "loc-auto", "loc-type", "loc-here"];
   const cards = {};
-  for (const id of ["loc-auto", "loc-type", "loc-here"]) {
+  for (const id of IDS) {
     const classes = new Set();
+    const attrs = {};
     cards[id] = {
       classList: {
         toggle: (name, on) => {
@@ -218,28 +257,84 @@ assert(src.includes(
         },
         contains: (name) => classes.has(name),
       },
+      setAttribute: (name, value) => { attrs[name] = String(value); },
+      attrs,
     };
   }
+  const fields = { locate: { value: "" }, lat: { value: "" },
+    lon: { value: "" }, "geo-note": { textContent: "" } };
+  let focused = 0;
+  const place = { value: "", focus: () => { focused += 1; } };
+  let submits = 0;
   const ctx = { locChoice: null,
-    document: { getElementById: (id) => cards[id] || null,
-      querySelector: () => ({ focus: () => {} }) },
-    hideLocQ: () => {}, updateSubmit: () => {}, console };
+    document: { getElementById: (id) => cards[id] || fields[id] || null,
+      querySelector: () => place },
+    updateSubmit: () => { submits += 1; }, console };
   vm.createContext(ctx);
-  vm.runInContext(extract("markLocChoice", "id"), ctx);
-  vm.runInContext(extract("chooseAuto", ""), ctx);
-  vm.runInContext(extract("chooseType", ""), ctx);
+  for (const [name, args] of [["markLocChoice", "id"], ["setLocate", "value"],
+    ["clearPlace", ""], ["clearFix", ""], ["chooseAuto", ""],
+    ["chooseType", ""], ["choosePhoto", ""], ["placeTyped", ""]]) {
+    vm.runInContext(extract(name, args), ctx);
+  }
+  const only = (chosen) => {
+    for (const id of IDS) {
+      assert.strictEqual(cards[id].classList.contains("selected"),
+        id === chosen, id + " selected state");
+      assert.strictEqual(cards[id].attrs["aria-pressed"],
+        id === chosen ? "true" : "false", id + " aria-pressed");
+    }
+  };
+
+  // Recognise from the picture: marks the visual choice, drops the rest.
+  place.value = "Roslin";
+  fields.lat.value = "1"; fields.lon.value = "2";
   vm.runInContext("chooseAuto();", ctx);
   assert.strictEqual(vm.runInContext("locChoice", ctx), "auto");
-  assert(cards["loc-auto"].classList.contains("selected"));
-  assert(!cards["loc-type"].classList.contains("selected"));
-  assert(!cards["loc-here"].classList.contains("selected"));
+  only("loc-auto");
+  assert.strictEqual(fields.locate.value, "visual");
+  assert.strictEqual(place.value, "", "a typed place is dropped");
+  assert.strictEqual(fields.lat.value, "", "a phone fix is dropped");
+  assert.strictEqual(fields.lon.value, "");
+  assert(submits > 0, "submit state refreshed");
+
+  // Type it: the visual choice ends, the field gets focus.
   vm.runInContext("chooseType();", ctx);
-  assert(cards["loc-type"].classList.contains("selected"));
-  assert(!cards["loc-auto"].classList.contains("selected"));
+  assert.strictEqual(vm.runInContext("locChoice", ctx), "type");
+  only("loc-type");
+  assert.strictEqual(fields.locate.value, "");
+  assert.strictEqual(focused, 1, "the place field gets focus");
+
+  // Typing a name selects the type card from any other choice.
+  vm.runInContext("chooseAuto();", ctx);
+  place.value = "Rosslyn Chapel, Roslin";
+  vm.runInContext("placeTyped();", ctx);
+  assert.strictEqual(vm.runInContext("locChoice", ctx), "type");
+  only("loc-type");
+  assert.strictEqual(fields.locate.value, "", "typing ends the visual choice");
+
+  // An empty field changes no choice.
+  vm.runInContext("choosePhoto();", ctx);
+  place.value = "";
+  vm.runInContext("placeTyped();", ctx);
+  assert.strictEqual(vm.runInContext("locChoice", ctx), "photo");
+
+  // The photo's own location: no typed place, no visual flag.
+  vm.runInContext("chooseAuto();", ctx);
+  place.value = "Somewhere";
+  vm.runInContext("choosePhoto();", ctx);
+  assert.strictEqual(vm.runInContext("locChoice", ctx), "photo");
+  only("loc-photo");
+  assert.strictEqual(fields.locate.value, "");
+  assert.strictEqual(place.value, "", "the photo's location replaces a name");
+
   vm.runInContext("markLocChoice(null);", ctx);
-  assert(!cards["loc-type"].classList.contains("selected"),
-    "a new photo clears the selection");
+  only(null);
 }
+assert(src.includes(
+  'document.getElementById("loc-photo").onclick = choosePhoto;'),
+  "photo card wired to choosePhoto");
+assert(src.includes('placeInput.addEventListener("input", placeTyped);'),
+  "typing wired to placeTyped");
 assert(src.includes(
   'document.getElementById("loc-here").onclick = requestGeo;'),
   "here button wired to requestGeo");
@@ -275,10 +370,14 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
 
 // --- photoChanged: clears the old fix, guards out-of-order reads --------
 {
-  const nodes = {};
   function node() {
-    return { value: "", files: [], textContent: "",
-      classList: { add() {}, remove() {}, toggle() {} },
+    const classes = new Set();
+    const attrs = {};
+    return { value: "", files: [], textContent: "", classes, attrs,
+      classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+        toggle: (c, on) => { if (on) { classes.add(c); } else { classes.delete(c); } },
+        contains: (c) => classes.has(c) },
+      setAttribute: (name, value) => { attrs[name] = String(value); },
       addEventListener() {} };
   }
   const stage = {
@@ -286,6 +385,8 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
     photoInput: node(), preview: node(),
     lat: node(), lon: node(), geoNote: node(),
     locq: node(), locqText: node(),
+    photoCard: node(), autoCard: node(), typeCard: node(), hereCard: node(),
+    autoLine: node(), locate: node(), place: node(),
     gpsOf: () => Promise.resolve(false),
     submits: 0,
   };
@@ -294,7 +395,11 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
     photoInput: stage.photoInput, preview: stage.preview,
     document: { getElementById: (id) => (
       { lat: stage.lat, lon: stage.lon, "geo-note": stage.geoNote,
-        locq: stage.locq, "locq-text": stage.locqText }[id] || null) },
+        locq: stage.locq, "locq-text": stage.locqText,
+        "loc-photo": stage.photoCard, "loc-auto": stage.autoCard,
+        "loc-type": stage.typeCard, "loc-here": stage.hereCard,
+        "loc-auto-line": stage.autoLine, locate: stage.locate }[id] || null),
+      querySelector: () => stage.place },
     URL: { createObjectURL: () => "blob:picked" },
     photoHasGps: (file) => stage.gpsOf(file),
     updateSubmit: () => { stage.submits += 1; },
@@ -305,6 +410,8 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
   };
   vm.createContext(ctx);
   vm.runInContext(extract("markLocChoice", "id"), ctx);
+  vm.runInContext(extract("setLocate", "value"), ctx);
+  vm.runInContext(extract("showLocCards", "hasGps"), ctx);
   vm.runInContext(extract("photoChanged", ""), ctx);
   vm.runInContext("globalThis.changed = photoChanged;", ctx);
 
@@ -313,15 +420,21 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
     stage.lat.value = "prior-fix";
     stage.lon.value = "prior-fix";
     stage.geoNote.textContent = "Location added.";
+    stage.locate.value = "visual";
     stage.photoInput.files = [{}];
     await vm.runInContext("changed()", ctx);
     assert.strictEqual(stage.lat.value, "", "old latitude cleared");
     assert.strictEqual(stage.lon.value, "", "old longitude cleared");
     assert.strictEqual(stage.geoNote.textContent, "", "old note cleared");
+    assert.strictEqual(stage.locate.value, "", "old visual choice cleared");
     assert.strictEqual(vm.runInContext("locChoice", ctx), null);
     assert.strictEqual(ctx.locqShown, true, "question shows without GPS");
     assert.strictEqual(stage.locqText.textContent,
       "This photo has no location. Where is the landmark?");
+    assert(stage.photoCard.classes.has("hidden"), "no photo card without GPS");
+    assert(!stage.hereCard.classes.has("hidden"), "phone card offered");
+    assert.strictEqual(stage.autoLine.textContent,
+      "Best for photos from your camera roll or a trip.");
 
     // When the probe cannot tell, the question says so.
     stage.gpsOf = () => Promise.resolve("unknown");
@@ -329,6 +442,43 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
     assert.strictEqual(stage.locqText.textContent,
       "We couldn't read a location from this photo. " +
       "Where is the landmark?");
+    assert(stage.photoCard.classes.has("hidden"), "no photo card when unsure");
+
+    // A photo with a location: the question still shows, its own card
+    // is chosen, the phone card goes and the visual card says what it
+    // leaves out.
+    stage.gpsOf = () => Promise.resolve(true);
+    stage.locate.value = "visual";
+    ctx.locqShown = null;
+    await vm.runInContext("changed()", ctx);
+    assert.strictEqual(ctx.locqShown, true, "question shows with GPS too");
+    assert.strictEqual(stage.locqText.textContent,
+      "Your photo has its location. How should we find the landmark?");
+    assert.strictEqual(vm.runInContext("locChoice", ctx), "photo");
+    assert.strictEqual(vm.runInContext("locNeeded", ctx), false);
+    assert(stage.photoCard.classes.has("selected"), "photo card chosen");
+    assert.strictEqual(stage.photoCard.attrs["aria-pressed"], "true");
+    assert(!stage.photoCard.classes.has("hidden"), "photo card shown");
+    assert(stage.hereCard.classes.has("hidden"), "phone card hidden");
+    assert.strictEqual(stage.autoLine.textContent,
+      "From the picture alone; the photo's location is not used.");
+    assert.strictEqual(stage.locate.value, "", "visual choice reset");
+
+    // A name typed before the photo keeps the type choice.
+    stage.place.value = "Rosslyn Chapel, Roslin";
+    await vm.runInContext("changed()", ctx);
+    assert.strictEqual(vm.runInContext("locChoice", ctx), "type");
+    assert(stage.typeCard.classes.has("selected"), "type card chosen");
+    stage.place.value = "";
+
+    // Back to a photo without a location: today's three cards.
+    stage.gpsOf = () => Promise.resolve(false);
+    await vm.runInContext("changed()", ctx);
+    assert(stage.photoCard.classes.has("hidden"), "photo card hidden again");
+    assert(!stage.photoCard.classes.has("selected"), "photo card unchosen");
+    assert(!stage.hereCard.classes.has("hidden"), "phone card back");
+    assert.strictEqual(vm.runInContext("locChoice", ctx), null);
+    assert.strictEqual(vm.runInContext("locNeeded", ctx), true);
 
     // A slow read for a photo no longer picked is ignored.
     const waiting = {};
@@ -349,6 +499,9 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
     assert.strictEqual(ctx.locqShown, true, "stale GPS ignored");
     assert.strictEqual(
       vm.runInContext("locNeeded", ctx), true, "stale result ignored");
+    assert.strictEqual(vm.runInContext("locChoice", ctx), null,
+      "stale GPS chose nothing");
+    assert(stage.photoCard.classes.has("hidden"), "stale GPS showed no card");
   })().then(
     () => console.log("location help: OK"),
     (err) => { console.error(err); process.exit(1); });

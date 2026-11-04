@@ -668,21 +668,35 @@ async function photoHasGps(file) {
   } catch (err) { return "unknown"; }
 }
 function decideSubmitState(locNeeded, locChoice, placeText) {
+  if (locChoice === "type") { return (placeText || "").trim() === ""; }
   if (!locNeeded) { return false; }
   if (locChoice) { return false; }
   return (placeText || "").trim() === "";
 }
 let locNeeded = false;
 let locChoice = null;
-function hideLocQ() {
-  document.getElementById("locq").classList.add("hidden");
-}
 function updateSubmit() {
   const btn = document.querySelector('#upload button[type="submit"]');
   if (!btn) { return; }
   const place = document.querySelector('#upload input[name="place"]');
   btn.disabled = decideSubmitState(locNeeded, locChoice,
     place ? place.value : "");
+}
+function setLocate(value) {
+  const field = document.getElementById("locate");
+  if (field) { field.value = value; }
+}
+function clearPlace() {
+  const place = document.querySelector('#upload input[name="place"]');
+  if (place) { place.value = ""; }
+}
+function clearFix() {
+  for (const id of ["lat", "lon"]) {
+    const field = document.getElementById(id);
+    if (field) { field.value = ""; }
+  }
+  const note = document.getElementById("geo-note");
+  if (note) { note.textContent = ""; }
 }
 function requestGeo() {
   const mine = photoSeq;
@@ -693,7 +707,8 @@ function requestGeo() {
     document.getElementById("geo-note").textContent = "Location added.";
     locChoice = "here";
     markLocChoice("loc-here");
-    hideLocQ();
+    setLocate("");
+    clearPlace();
     updateSubmit();
   }, () => {
     if (mine !== photoSeq) { return; }
@@ -702,21 +717,48 @@ function requestGeo() {
   }, {timeout: 10000});
 }
 function markLocChoice(id) {
-  for (const other of ["loc-auto", "loc-type", "loc-here"]) {
+  for (const other of ["loc-photo", "loc-auto", "loc-type", "loc-here"]) {
     const el = document.getElementById(other);
-    if (el) { el.classList.toggle("selected", other === id); }
+    if (el) {
+      el.classList.toggle("selected", other === id);
+      el.setAttribute("aria-pressed", other === id ? "true" : "false");
+    }
   }
+}
+function choosePhoto() {
+  locChoice = "photo";
+  markLocChoice("loc-photo");
+  setLocate("");
+  clearPlace();
+  updateSubmit();
 }
 function chooseAuto() {
   locChoice = "auto";
   markLocChoice("loc-auto");
-  hideLocQ();
+  setLocate("visual");
+  clearPlace();
+  clearFix();
   updateSubmit();
 }
 function chooseType() {
+  locChoice = "type";
   markLocChoice("loc-type");
+  setLocate("");
+  clearFix();
+  updateSubmit();
   document.querySelector('#upload input[name="place"]').focus();
 }
+function placeTyped() {
+  const place = document.querySelector('#upload input[name="place"]');
+  if (place && place.value.trim() !== "" && locChoice !== "type") {
+    locChoice = "type";
+    markLocChoice("loc-type");
+    setLocate("");
+    clearFix();
+  }
+  updateSubmit();
+}
+document.getElementById("loc-photo").onclick = choosePhoto;
 document.getElementById("loc-here").onclick = requestGeo;
 document.getElementById("loc-type").onclick = chooseType;
 document.getElementById("loc-auto").onclick = chooseAuto;
@@ -730,6 +772,18 @@ function notConfirmedHint(message) {
 const photoInput = document.querySelector('input[name="photo"]');
 const preview = document.getElementById("preview");
 let photoSeq = 0;
+function showLocCards(hasGps) {
+  const photoCard = document.getElementById("loc-photo");
+  if (photoCard) { photoCard.classList.toggle("hidden", !hasGps); }
+  const hereCard = document.getElementById("loc-here");
+  if (hereCard) { hereCard.classList.toggle("hidden", hasGps); }
+  const line = document.getElementById("loc-auto-line");
+  if (line) {
+    line.textContent = hasGps
+      ? "From the picture alone; the photo's location is not used."
+      : "Best for photos from your camera roll or a trip.";
+  }
+}
 async function photoChanged() {
   const picked = photoInput.files && photoInput.files[0];
   if (!picked) { return; }
@@ -741,20 +795,32 @@ async function photoChanged() {
   document.getElementById("geo-note").textContent = "";
   locChoice = null;
   markLocChoice(null);
+  setLocate("");
   const gps = await photoHasGps(picked);
   if (mine !== photoSeq || photoInput.files[0] !== picked) { return; }
   locNeeded = gps !== true;
-  document.getElementById("locq-text").textContent = gps === "unknown"
-    ? "We couldn't read a location from this photo. Where is the landmark?"
-    : "This photo has no location. Where is the landmark?";
-  document.getElementById("locq").classList.toggle("hidden", !locNeeded);
+  showLocCards(gps === true);
+  document.getElementById("locq-text").textContent = gps === true
+    ? "Your photo has its location. How should we find the landmark?"
+    : gps === "unknown"
+      ? "We couldn't read a location from this photo. Where is the landmark?"
+      : "This photo has no location. Where is the landmark?";
+  document.getElementById("locq").classList.toggle("hidden", false);
+  const place = document.querySelector('#upload input[name="place"]');
+  if (place && place.value.trim() !== "") {
+    locChoice = "type";
+    markLocChoice("loc-type");
+  } else if (gps === true) {
+    locChoice = "photo";
+    markLocChoice("loc-photo");
+  }
   updateSubmit();
 }
 if (photoInput && preview) {
   photoInput.addEventListener("change", photoChanged);
   const placeInput = document.querySelector('#upload input[name="place"]');
   if (placeInput) {
-    placeInput.addEventListener("input", updateSubmit);
+    placeInput.addEventListener("input", placeTyped);
   }
 }
 const heroVid = document.querySelector(".hero-video");
@@ -1224,20 +1290,21 @@ TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multip
 <p><img id="preview" class="hidden" alt="Preview of your chosen photo"></p>
 <div id="locq" class="hidden">
 <p id="locq-text">This photo has no location. Where is the landmark?</p>
-<p><button type="button" class="loc-card" id="loc-auto"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/></svg><span><strong>Let Muse Spark recognise it</strong><small>Best for photos from your camera roll or a trip.</small></span></button></p>
-<p><button type="button" class="loc-card" id="loc-type"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span><strong>I'll type its name and town</strong><small>Enter the landmark and town below.</small></span></button></p>
-<p><button type="button" class="loc-card" id="loc-here"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span><strong>I'm standing in front of it now</strong><small>Uses your phone's location once.</small></span></button></p>
+<p><button type="button" class="loc-card hidden" id="loc-photo" aria-pressed="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span><strong>Use where the photo was taken</strong><small>Muse Spark matches the landmarks around that spot.</small></span></button></p>
+<p><button type="button" class="loc-card" id="loc-auto" aria-pressed="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/></svg><span><strong>Let Muse Spark recognise it</strong><small id="loc-auto-line">Best for photos from your camera roll or a trip.</small></span></button></p>
+<p><button type="button" class="loc-card" id="loc-type" aria-pressed="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span><strong>I'll type its name and town</strong><small>Enter the landmark and town below.</small></span></button></p>
+<p><button type="button" class="loc-card" id="loc-here" aria-pressed="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span><strong>I'm standing in front of it now</strong><small>Uses your phone's location once.</small></span></button></p>
 </div>
 <h3>Step 2: Where is it?</h3>
 <p><label>Landmark and town<input type="text" name="place" autocomplete="off" placeholder="De Adriaan, Haarlem"></label></p>
-<p class="fine">Type the landmark and town. Leave it empty if the photo has its location, or to let Muse Spark recognise the landmark.</p>
+<p class="fine">Only needed when you choose "I'll type its name and town".</p>
 <p class="fine">Public places only, never a home address.</p>
 <p class="fine" id="geo-note"></p>
 <h3>Step 3: How your photo is used</h3>
 <p class="fine">Your photo is sent to Meta and Baseten to recognise, research, check and paint, on hosting by Modal. Place lookups go to OpenStreetMap services, Wikidata and Wikipedia. This demo runs on Meta's free developer credits; under those terms Meta may use what we send it to improve its products. Your photo and film are deleted within about a day. <a href="/privacy">Full notice</a></p>
 <p><label><input type="checkbox" name="ack" value="on" required>
 I understand how my photo is used.</label></p>
-<p><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"></p>
+<p><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"><input type="hidden" name="locate" id="locate"></p>
 <p><button type="submit">Make my film</button></p>
 </form>
 <div id="job" class="hidden">
@@ -1375,7 +1442,9 @@ and for how long.</p>
 <p>Your photo (possibly with embedded location), an optional typed
 place, or a browser location you share by tapping a button when the
 photo has none, and your confirm or cancel clicks. Please type
-public places only.</p>
+public places only. If you choose “Let Muse Spark recognise it”, neither
+the photo's location nor your phone's is used: the landmark is
+recognised from the picture alone.</p>
 <h2>Who processes it</h2>
 <ul>
 <li>Meta: object recognition, research with web search, captions, era paintings and painting checks.</li>
@@ -1657,7 +1726,8 @@ def create_app(deps: WebDeps) -> FastAPI:
     @app.post("/api/jobs")
     async def start_job(request: Request, photo: UploadFile = File(...),
                         ack: str = Form(None), place: str = Form(""),
-                        lat: str = Form(""), lon: str = Form("")):
+                        lat: str = Form(""), lon: str = Form(""),
+                        locate: str = Form("")):
         if deps.try_enabled is not None and not deps.try_enabled():
             return _deny(request,
                          "Try your own is resting; the examples are below",
@@ -1698,6 +1768,11 @@ def create_app(deps: WebDeps) -> FastAPI:
         except photo_module.PhotoError as exc:
             shutil.rmtree(directory, ignore_errors=True)
             return _deny(request, f"bad photo: {exc}", 400)
+        if locate == "visual":
+            # Recognise from the picture alone: the photo's location
+            # (read and stripped above), a phone fix and a typed place
+            # all stay out of the job.
+            location, fix_lat, fix_lon, place = None, None, None, ""
         try:
             admit_upload(deps, vid, vkey, day)
         except models.SpendingCapExceeded as exc:

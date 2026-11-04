@@ -676,6 +676,71 @@ def test_runner_gets_a_reference_not_the_location(tmp_path):
     assert "Haarlem" not in str(store.get_job(job_id))
 
 
+def _gps_photo_bytes():
+    from PIL.ExifTags import IFD
+    from PIL.TiffImagePlugin import IFDRational
+
+    exif = Image.Exif()
+    exif[IFD.GPSInfo] = {1: "N", 2: (IFDRational(52, 1), IFDRational(0, 1),
+                                     IFDRational(0, 1)),
+                         3: "E", 4: (IFDRational(4, 1), IFDRational(0, 1),
+                                     IFDRational(0, 1))}
+    buf = io.BytesIO()
+    Image.new("RGB", (24, 16), "blue").save(buf, format="JPEG", exif=exif)
+    return buf.getvalue()
+
+
+def _upload_gps(client, **data):
+    fields = {"ack": "on"}
+    fields.update(data)
+    return client.post("/api/jobs",
+                       files={"photo": ("up.jpg", _gps_photo_bytes())},
+                       data=fields, headers=ORIGIN)
+
+
+def test_photo_location_reaches_the_worker_by_default(tmp_path):
+    store = MemoryStore()
+    client = _client(tmp_path, store=store,
+                     runner=lambda ref: "test-receipt")
+    out = _upload_gps(client)
+    assert out.status_code == 200
+    spec = _spec_of(tmp_path, store, out.json()["job_id"])
+    assert spec["location"] == [52.0, 4.0]
+
+
+def test_visual_choice_sends_no_location_at_all(tmp_path):
+    store = MemoryStore()
+    client = _client(tmp_path, store=store,
+                     runner=lambda ref: "test-receipt")
+    out = _upload_gps(client, locate="visual", place="Haarlem",
+                      lat="12.34567", lon="65.43214")
+    assert out.status_code == 200
+    spec = _spec_of(tmp_path, store, out.json()["job_id"])
+    assert spec["location"] is None
+    assert spec["lat"] is None and spec["lon"] is None
+    assert spec["place"] == ""
+    assert spec["photo"].endswith("today.jpg")
+
+
+def test_other_locate_values_change_nothing(tmp_path):
+    store = MemoryStore()
+    client = _client(tmp_path, store=store,
+                     runner=lambda ref: "test-receipt")
+    out = _upload_gps(client, locate="photo", place="Haarlem")
+    spec = _spec_of(tmp_path, store, out.json()["job_id"])
+    assert spec["location"] == [52.0, 4.0]
+    assert spec["place"] == "Haarlem"
+
+
+def test_privacy_notice_says_the_visual_choice_uses_no_location():
+    from witness import webapp
+
+    page = " ".join(webapp.PRIVACY_PAGE.split())
+    assert ("If you choose “Let Muse Spark recognise it”, neither "
+            "the photo's location nor your phone's is used: the landmark "
+            "is recognised from the picture alone.") in page
+
+
 def test_privacy_notice_names_modal_as_processor():
     from witness import webapp
 

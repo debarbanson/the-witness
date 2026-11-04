@@ -43,20 +43,56 @@ vm.createContext(sandbox);
 vm.runInContext(renderFn[0], sandbox);
 const renderCalls = vm.runInContext("renderCalls", sandbox);
 
+// 4 Nov, the owner: "muse-spark-1.3 · meta · verify · 4.6s" was boring.
+// Each row now says which model did what, for which year, from data
+// every call already records: no extra model call, no source text.
 renderCalls({ events: [
   { event: "verifying", data: { model: "Muse Spark Open on Baseten" } },
   { event: "call", data: { op: "call", phase: "verify",
     provider: "baseten", model: "meta-models/muse-spark-open-1026",
-    duration_s: 2.4 } },
+    duration_s: 2.43, about: 1736 } },
   { event: "call", data: { op: "call", phase: "paint",
-    provider: "meta", model: "muse-image-1.0", duration_s: 33.7 } },
+    provider: "meta", model: "muse-image-1.0", duration_s: 33.7,
+    about: 1736 } },
+  { event: "call", data: { op: "call", phase: "research",
+    provider: "meta", model: "muse-spark-1.3", duration_s: 89.1,
+    searches: 17, prompt_tokens: 232509 } },
+  { event: "call", data: { op: "call", phase: "check",
+    provider: "meta", model: "muse-spark-1.3", duration_s: 29.04,
+    about: 1736 } },
+  { event: "call", data: { op: "call", phase: "check",
+    provider: "meta", model: "muse-spark-1.3", duration_s: 4 } },
+  { event: "call", data: { op: "call", phase: "identify",
+    provider: "meta", model: "muse-spark-1.3", duration_s: 5.04 } },
+  { event: "call", data: { op: "call", phase: "captions",
+    provider: "meta", model: "muse-spark-1.3", duration_s: 9.5,
+    about: 1862, ok: false } },
+  { event: "call", data: { op: "call", phase: "research",
+    provider: "meta", model: "muse-spark-1.3", duration_s: 12,
+    searches: 1, prompt_tokens: 900 } },
+  { event: "call", data: { op: "call", phase: "verify",
+    provider: "baseten", model: "meta-models/muse-spark-open-1026",
+    duration_s: 3, about: "1736 <b>x</b>" } },
 ] });
-assert.strictEqual(list.items.length, 2, "only call rows are listed");
-assert(list.items[0].textContent.includes("meta-models/muse-spark-open-1026"));
-assert(list.items[0].textContent.includes("baseten"));
-assert(list.items[0].textContent.includes("verify"));
-assert(list.items[0].textContent.includes("2.4"));
-assert(list.items[1].textContent.includes("muse-image-1.0"));
+const lines = list.items.map((item) => item.textContent);
+assert.strictEqual(lines.length, 9, "only call rows are listed");
+assert.strictEqual(lines[0],
+  "Muse Spark Open on Baseten checked a fact from 1736 against its source · 2.4 s");
+assert.strictEqual(lines[1], "Muse Image painted 1736 · 34 s");
+assert.strictEqual(lines[2],
+  "Muse Spark searched the web 17 times and read 232,509 tokens · 89 s");
+assert.strictEqual(lines[3],
+  "Muse Spark compared the 1736 painting with the facts · 29 s");
+assert.strictEqual(lines[4], "Muse Spark checked a picture · 4.0 s");
+assert.strictEqual(lines[5],
+  "Muse Spark worked out which landmark this is · 5.0 s");
+assert.strictEqual(lines[6],
+  "Muse Spark wrote the caption for 1862 · 9.5 s (failed)");
+assert.strictEqual(lines[7],
+  "Muse Spark searched the web once and read 900 tokens · 12 s");
+assert.strictEqual(lines[8],
+  "Muse Spark Open on Baseten checked a fact against its source · 3.0 s",
+  "only a whole year is ever shown");
 
 // A hostile model name lands as text, never markup.
 const evil = makeList();

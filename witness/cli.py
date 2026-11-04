@@ -1515,8 +1515,9 @@ def verify_scene_states(eras, name, support_respond) -> list:
                   "visible_change": state["description"],
                   "quote": evidence["quote"], "url": evidence["url"]}
         try:
-            verdict = description_support_respond(
-                support_respond, pseudo, name)
+            with models.call_about(scene["from_year"]):
+                verdict = description_support_respond(
+                    support_respond, pseudo, name)
         except Exception:  # noqa: BLE001 - uncheckable is not painted
             verdict = "unverified"
         if verdict != "supported":
@@ -1665,12 +1666,14 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
                                            directives["season"],
                                            zone=season_zone)
         if result["image"] is None:
-            result = recover_or_retry(call, checker, scene, name, municipality,
-                                      photo_bytes, directives, prior_dirs,
-                                      result, audience=audience,
-                                      photo_month=photo_month,
-                                      country_code=None,
-                                      zone=season_zone)
+            with models.call_about(year):
+                result = recover_or_retry(call, checker, scene, name,
+                                          municipality, photo_bytes,
+                                          directives, prior_dirs, result,
+                                          audience=audience,
+                                          photo_month=photo_month,
+                                          country_code=None,
+                                          zone=season_zone)
         entry = {"year": year, "verdict": result["verdict"],
                  "attempts": result["attempts"],
                  "caption": result.get("caption", ""),
@@ -1809,8 +1812,9 @@ def verify_visible_changes(claims, support_respond, object_name) -> list:
             blanked.append(claim["year"])
             continue
         try:
-            verdict = description_support_respond(
-                support_respond, claim, object_name)
+            with models.call_about(claim.get("year")):
+                verdict = description_support_respond(
+                    support_respond, claim, object_name)
         except Exception:  # noqa: BLE001 - an uncheckable detail is not painted
             verdict = "unverified"
         claim["visible_change_checked"] = True
@@ -1924,11 +1928,12 @@ def cmd_captions(slug, rewrite_call=None, support_call=None, check_call=None,
 
         def one(job):
             scene, year, claim = job
-            return captions.write_sentence(
-                rewrite, support, claim, year, claims=data.get("claims", []),
-                stamp=scene.get("date_label", "") or "",
-                object_name=data.get("object", {}).get("name", ""),
-                texts=texts)
+            with models.call_about(year):
+                return captions.write_sentence(
+                    rewrite, support, claim, year, claims=data.get("claims", []),
+                    stamp=scene.get("date_label", "") or "",
+                    object_name=data.get("object", {}).get("name", ""),
+                    texts=texts)
 
         with ThreadPoolExecutor(
                 max_workers=min(6, len(jobs)),

@@ -906,6 +906,40 @@ def test_timing_log_records_calls_and_authority_round_trips(
         models.configure_spending(None)
 
 
+def test_call_rows_carry_the_year_they_work_on(tmp_path, monkeypatch):
+    """4 Nov, the owner: the call list read "muse-spark-1.3 · meta ·
+    verify · 4.6s". A call made inside call_about(year) carries that year,
+    so the page can say which fact or painting it was for. Only a whole
+    year number is ever kept: no text from a source reaches the row."""
+    monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
+    monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("BASETEN_API_KEY", raising=False)
+    models.configure_spending(str(tmp_path), daily_cap_usd=10.0)
+    try:
+        models.reset_timing()
+        heard = []
+        models.on_call_row(heard.append)
+        client = models.client_for(models.VERIFY)
+        with models.job_ledger():
+            with models.call_about(1736):
+                models.respond(client, models.VERIFY, phase="verify",
+                               input="one")
+            models.respond(client, models.VERIFY, phase="verify",
+                           input="two")
+            with models.call_about("1736; <b>x</b>"):
+                models.respond(client, models.VERIFY, phase="verify",
+                               input="three")
+        calls = [row for row in heard if row["op"] == "call"]
+        assert len(calls) == 3
+        assert calls[0]["about"] == 1736
+        assert "about" not in calls[1]
+        assert "about" not in calls[2]
+    finally:
+        models.configure_spending(None)
+        models.reset_timing()
+
+
 def test_call_row_listener_hears_completed_calls(tmp_path, monkeypatch):
     monkeypatch.setenv("WITNESS_FAKE_PROVIDER", "1")
     monkeypatch.setenv("WITNESS_FAKE_DELAY_S", "0")

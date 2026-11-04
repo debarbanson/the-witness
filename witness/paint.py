@@ -616,24 +616,25 @@ def paint_chain(call, photo_bytes, scenes, object_name, municipality,
     accepted = dropped = 0
     for scene in scenes:
         try:
-            year_excluded = (excluded or {}).get(scene.get("from_year"), ())
-            photo = photo_bytes if prev_id is None else None
-            era_season = expected_season(scene, photo_month, season,
-                                            country_code=country_code,
-                                            zone=zone)
-            if check_call is None:
-                result = call(scene_prompt(scene, object_name, municipality, era_season,
-                                           year_excluded, claims,
-                                           audience=audience), prev_id, photo)
-                out.append({"year": scene.get("from_year"),
-                            "image": result["image"],
-                            "response_id": result["response_id"],
-                            "verdict": "unchecked", "attempts": 1, "note": ""})
-            else:
-                out.append(paint_scene(call, check_call, scene, object_name,
-                                       municipality, prev_id, season=era_season,
-                                       excluded=year_excluded, claims=claims,
-                                       photo_bytes=photo, audience=audience))
+            with models.call_about(scene.get("from_year")):
+                year_excluded = (excluded or {}).get(scene.get("from_year"), ())
+                photo = photo_bytes if prev_id is None else None
+                era_season = expected_season(scene, photo_month, season,
+                                                country_code=country_code,
+                                                zone=zone)
+                if check_call is None:
+                    result = call(scene_prompt(scene, object_name, municipality, era_season,
+                                               year_excluded, claims,
+                                               audience=audience), prev_id, photo)
+                    out.append({"year": scene.get("from_year"),
+                                "image": result["image"],
+                                "response_id": result["response_id"],
+                                "verdict": "unchecked", "attempts": 1, "note": ""})
+                else:
+                    out.append(paint_scene(call, check_call, scene, object_name,
+                                           municipality, prev_id, season=era_season,
+                                           excluded=year_excluded, claims=claims,
+                                           photo_bytes=photo, audience=audience))
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             out.append({"year": scene.get("from_year"), "image": None,
                         "response_id": None, "verdict": "dropped", "attempts": 1,
@@ -661,21 +662,22 @@ def paint_parallel(call, photo_bytes, scenes, object_name, municipality,
 
     def one(scene, prev_id, photo):
         try:
-            year_excluded = (excluded or {}).get(scene.get("from_year"), ())
-            era_season = expected_season(scene, photo_month, season,
-                                            country_code=country_code,
-                                            zone=zone)
-            if check_call is None:
-                result = call(scene_prompt(scene, object_name, municipality, era_season,
-                                           year_excluded, claims,
-                                           audience=audience), prev_id, photo)
-                return {"year": scene.get("from_year"), "image": result["image"],
-                        "response_id": result["response_id"],
-                        "verdict": "unchecked", "attempts": 1, "note": ""}
-            return paint_scene(call, check_call, scene, object_name, municipality,
-                               prev_id, season=era_season, excluded=year_excluded,
-                               claims=claims, photo_bytes=photo,
-                               audience=audience)
+            with models.call_about(scene.get("from_year")):
+                year_excluded = (excluded or {}).get(scene.get("from_year"), ())
+                era_season = expected_season(scene, photo_month, season,
+                                                country_code=country_code,
+                                                zone=zone)
+                if check_call is None:
+                    result = call(scene_prompt(scene, object_name, municipality, era_season,
+                                               year_excluded, claims,
+                                               audience=audience), prev_id, photo)
+                    return {"year": scene.get("from_year"), "image": result["image"],
+                            "response_id": result["response_id"],
+                            "verdict": "unchecked", "attempts": 1, "note": ""}
+                return paint_scene(call, check_call, scene, object_name, municipality,
+                                   prev_id, season=era_season, excluded=year_excluded,
+                                   claims=claims, photo_bytes=photo,
+                                   audience=audience)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {"year": scene.get("from_year"), "image": None,
                     "response_id": None, "verdict": "dropped", "attempts": 1,

@@ -605,6 +605,9 @@ def _call_row(spec, phase, wall, duration_s, counts, searches, ok,
            "completion_tokens": counts.get("completion_tokens", 0),
            "total_tokens": counts.get("total_tokens", 0),
            "searches": searches, "ok": ok}
+    about = _CALL_ABOUT.get()
+    if about is not None:
+        row["about"] = about
     if note:
         row["note"] = note
     _record(row)
@@ -763,6 +766,29 @@ _TIMING_LOG: contextvars.ContextVar = contextvars.ContextVar(
     "witness_timing_log", default=None)
 _CALL_LISTENER: contextvars.ContextVar = contextvars.ContextVar(
     "witness_call_listener", default=None)
+_CALL_ABOUT: contextvars.ContextVar = contextvars.ContextVar(
+    "witness_call_about", default=None)
+
+
+@contextlib.contextmanager
+def call_about(year):
+    """Tag every model call made inside with the year it works on (one
+    fact's check, one scene's caption or painting), so the visitor's
+    call list can say what each call was for. Only a whole year is
+    kept; anything else tags nothing. Context-local: parallel workers
+    each keep their own."""
+    keep = (year if isinstance(year, int) and not isinstance(year, bool)
+            else None)
+    token = _CALL_ABOUT.set(keep)
+    try:
+        yield
+    finally:
+        _CALL_ABOUT.reset(token)
+
+
+def call_about_now():
+    """The year the current model calls are tagged with, or None."""
+    return _CALL_ABOUT.get()
 
 
 def reset_timing() -> None:

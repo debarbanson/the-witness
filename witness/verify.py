@@ -905,9 +905,10 @@ def judge_stream(support_respond, jobs, completion_respond=None,
                 data["model"] = support_label
             progress("verifying", data)
         try:
-            return judge_claim(support_respond, job, completion_respond,
-                               completion=completion,
-                               dispute_check=dispute_check)
+            with models.call_about(job.get("year")):
+                return judge_claim(support_respond, job, completion_respond,
+                                   completion=completion,
+                                   dispute_check=dispute_check)
         except Exception as exc:  # noqa: BLE001 - one failing call never kills the film
             return {
                 "verdict": "unverified", "quote": "", "url": None, "support": [],

@@ -306,9 +306,14 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
     def forward_call(row):
         if row.get("op") != "call":
             return
-        progress("call", {key: row.get(key) for key in
-                          ("op", "phase", "provider", "model",
-                           "duration_s")})
+        # Counts, names and a year only: the visitor's call list says
+        # what each call did without any prompt, quote, URL or image.
+        data = {key: row.get(key) for key in
+                ("op", "phase", "provider", "model", "duration_s",
+                 "searches", "prompt_tokens", "ok")}
+        if isinstance(row.get("about"), int):
+            data["about"] = row["about"]
+        progress("call", data)
 
     models.on_call_row(forward_call)
 

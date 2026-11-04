@@ -608,6 +608,36 @@ def test_anchor_report_overlaps_captions(tmp_path, monkeypatch, capsys):
     assert marks["cap_start"] < marks["rep_end"]
 
 
+def test_caption_calls_carry_their_scene_year(tmp_path, monkeypatch):
+    """4 Nov, the owner: the call list names the caption each call wrote.
+    The rewrite and its support check run tagged with the scene's year."""
+    import json
+    from witness import cli as cli_module
+    from witness import models
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    research = _caption_research()
+    (slug_dir / "research.json").write_text(json.dumps(research))
+    years = {s["from_year"] for s in research["scenes"]
+             if isinstance(s.get("from_year"), int)}
+    seen = []
+
+    def rewrite(detail, quote, year, plain, stamp=""):
+        seen.append(models.call_about_now())
+        return "I opened my doors to the town."
+
+    def support(sentence, quote, *args):
+        seen.append(models.call_about_now())
+        return "supported"
+
+    assert cli_module.cmd_captions("q1-test", rewrite_call=rewrite,
+                                   support_call=support) == 0
+    assert seen and set(seen) <= years and None not in seen
+    assert models.call_about_now() is None
+
+
 def test_webfilm_starts_the_anchor_report_before_captions():
     import inspect
     from witness import webfilm

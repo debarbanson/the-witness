@@ -849,7 +849,22 @@ def test_fake_film_emits_safe_call_events(tmp_path, monkeypatch):
     assert calls, "the toggle needs rows while the job runs"
     for event in calls:
         assert set(event["data"]) <= {"op", "phase", "provider", "model",
-                                     "duration_s"}, event["data"]
+                                     "duration_s", "searches",
+                                     "prompt_tokens", "ok",
+                                     "about"}, event["data"]
+        about = event["data"].get("about")
+        assert about is None or (isinstance(about, int)
+                                 and not isinstance(about, bool))
+    checks = [event["data"] for event in calls
+              if event["data"]["phase"] == "verify"]
+    untagged = [data for data in checks
+                if not isinstance(data.get("about"), int)]
+    assert checks and not untagged, \
+        f"every fact check names the year of its fact: {untagged[:3]}"
+    research = [event["data"] for event in calls
+                if event["data"]["phase"] == "research"]
+    assert research and "searches" in research[0] \
+        and "prompt_tokens" in research[0]
     dumped = json.dumps(calls)
     assert "http" not in dumped
     assert "data:image" not in dumped

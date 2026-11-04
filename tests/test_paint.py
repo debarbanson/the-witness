@@ -110,6 +110,39 @@ def test_paint_parallel_branches_every_era_from_first_scene():
     assert seen[1:] == [("r-base", None)]
 
 
+def test_paint_calls_carry_their_scene_year():
+    """4 Nov, the owner: the call list names the painting each call was
+    for. Every paint and check call, in either painter and on the
+    worker threads, runs tagged with its scene's year, and the tag ends
+    with the scene."""
+    from witness import models
+
+    seen = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        seen.append(("paint", models.call_about_now()))
+        return {"image": b"img", "response_id": f"r{len(seen)}"}
+
+    def check(image, prompt):
+        seen.append(("check", models.call_about_now()))
+        return "MATCHES whole."
+
+    paint.paint_parallel(call, b"photo", [scene(1850), scene(1950)],
+                         "Mill", "Town", check_call=check)
+    assert set(seen) == {("paint", 1850), ("check", 1850),
+                         ("paint", 1950), ("check", 1950)}
+    seen.clear()
+    paint.paint_parallel(call, b"photo", [scene(1850), scene(1950)],
+                         "Mill", "Town")
+    assert set(seen) == {("paint", 1850), ("paint", 1950)}
+    seen.clear()
+    paint.paint_chain(call, b"photo", [scene(1850), scene(1950)],
+                      "Mill", "Town", check_call=check)
+    assert set(seen) == {("paint", 1850), ("check", 1850),
+                         ("paint", 1950), ("check", 1950)}
+    assert models.call_about_now() is None
+
+
 def test_paint_parallel_marks_crashed_scene_dropped():
     def call(prompt, prev_id, photo_bytes=None):
         if prev_id is None:

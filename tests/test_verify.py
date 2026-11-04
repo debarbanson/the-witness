@@ -1110,6 +1110,24 @@ def test_fetch_many_reports_progress_per_page():
     assert sorted(s[1] for s in seen) == [1, 2]
 
 
+def test_fact_checks_carry_the_year_of_their_fact():
+    """4 Nov, the owner: the call list names the fact each check was
+    for. Every model call of one claim's check runs tagged with that
+    claim's year on its worker thread."""
+    from witness import models
+
+    seen = []
+
+    def respond(prompt):
+        seen.append(models.call_about_now())
+        return fixture("verify_supported.json")
+
+    verify.judge_all(respond, [job(year=1779), job(year=1932)],
+                     max_workers=2, completion=False)
+    assert seen and set(seen) == {1779, 1932}
+    assert models.call_about_now() is None
+
+
 def test_judge_all_captures_job_errors():
     def respond(prompt):
         if "bad" in prompt:

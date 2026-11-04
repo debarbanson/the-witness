@@ -1046,13 +1046,62 @@ function currentId() {
   return document.getElementById("job").dataset.id || savedJob();
 }
 function renderCalls(st) {
+  // One plain line per model call: which model did what, for which
+  // year, how long it took. Built from what every call already records.
   const list = document.getElementById("calls");
   if (!list) { return; }
+  const who = d => {
+    const m = String(d.model || "");
+    if (m.indexOf("muse-spark-open") >= 0) {
+      return "Muse Spark Open" + (d.provider === "baseten" ? " on Baseten" : "");
+    }
+    if (m.indexOf("muse-image") >= 0) { return "Muse Image"; }
+    if (m.indexOf("muse-spark") >= 0) { return "Muse Spark"; }
+    if (m.indexOf("sam-") === 0) { return "SAM"; }
+    return m || "A model";
+  };
+  const grouped = n => {
+    const s = String(n);
+    let out = "";
+    for (let i = 0; i < s.length; i++) {
+      if (i && (s.length - i) % 3 === 0) { out += ","; }
+      out += s[i];
+    }
+    return out;
+  };
+  const what = d => {
+    const year = Number.isInteger(d.about) ? String(d.about) : "";
+    switch (d.phase) {
+      case "identify": return "worked out which landmark this is";
+      case "research": {
+        const n = Number.isInteger(d.searches) ? d.searches : 0;
+        const read = Number.isInteger(d.prompt_tokens) && d.prompt_tokens > 0
+          ? "read " + grouped(d.prompt_tokens) + " tokens" : "";
+        if (!n) { return read || "researched the landmark"; }
+        const searched = "searched the web " + (n === 1 ? "once" : n + " times");
+        return read ? searched + " and " + read : searched;
+      }
+      case "verify": return year ? "checked a fact from " + year + " against its source"
+                                 : "checked a fact against its source";
+      case "captions": return year ? "wrote the caption for " + year : "wrote a caption";
+      case "check": return year ? "compared the " + year + " painting with the facts"
+                                : "checked a picture";
+      case "paint": return year ? "painted " + year : "painted a scene";
+      case "spot": return "compared a painting with your photo";
+      case "segment": return "cut the landmark out of your photo";
+      default: return "worked on the film";
+    }
+  };
+  const took = d => {
+    const s = d.duration_s;
+    if (typeof s !== "number" || !isFinite(s)) { return ""; }
+    return " · " + (s >= 10 ? String(Math.round(s)) : s.toFixed(1)) + " s";
+  };
   list.textContent = "";
   for (const ev of (st.events || []).filter(e => e.event === "call").slice(-50)) {
     const item = document.createElement("li");
     const d = ev.data || {};
-    item.textContent = (d.model || "?") + " · " + (d.provider || "?") + " · " + (d.phase || "?") + " · " + (d.duration_s ?? "?") + "s";
+    item.textContent = who(d) + " " + what(d) + took(d) + (d.ok === false ? " (failed)" : "");
     list.appendChild(item);
   }
 }

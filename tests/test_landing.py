@@ -131,8 +131,10 @@ def test_gallery_without_a_child_hides_the_pill(tmp_path):
 def test_try_your_own_says_what_works_and_how_long(tmp_path):
     page = _page(tmp_path)
     assert "windmill, tower, lighthouse, bridge or old tree" in page
-    assert "about 8 minutes" in page
-    assert "measured on one film" in page
+    assert "about 7 minutes" in page
+    assert "measured on two films" in page
+    assert "The checked facts appear after about 4 minutes" in page
+    assert "the painted film follows" in page
     assert "updated after the owner's phone films" not in page
     assert "checked facts instead" in page
     assert "by design" in page

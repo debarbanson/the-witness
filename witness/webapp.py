@@ -1174,7 +1174,9 @@ if (resumed) { watch(resumed); }
 TRY_DURATION_LINE = ("Works best with an old, well-documented landmark: "
                      "a windmill, tower, lighthouse, bridge or old tree. "
                      "Your photo becomes one painted film with its sources, "
-                     "in about 8 minutes, measured on one film.")
+                     "in about 7 minutes, measured on two films. "
+                     "The checked facts appear after about 4 minutes; "
+                     "the painted film follows.")
 
 TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multipart/form-data">
 <h3>Step 1: Your photo</h3>

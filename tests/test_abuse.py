@@ -31,7 +31,11 @@ def test_new_abuse_cases_exist():
                    "oversize body refused before reading",
                    "handler spool refuses before admission",
                    "foreign and missing origins refused",
-                   "cookieless quota refuses the third film",
+                   "browser quota refuses past the stated tries",
+                   "network quota refuses past the stated tries",
+                   "oversized decision body refused",
+                   "example film loads during an upload",
+                   "exhausted reload shows the retry state",
                    "cancel racing progress writes ends cancelled",
                    "cancelled job carries its retention end"):
         assert wanted in names, wanted

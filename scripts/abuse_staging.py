@@ -268,17 +268,38 @@ def two_visitors(client, base):
     _film_bytes(second, blue_url)
 
 
-@check("per-visitor quota refuses the third film", fake_provider=False)
+@check("browser quota refuses past the stated tries", fake_provider=False)
 def quota(client):
-    first = _start(client, place="Test Town")
-    second = _start(client, place="Test Town")
-    out = client.post("/api/jobs", files={"photo": ("up.jpg", _photo())},
-                      data={"ack": "on", "place": "Test Town"})
-    assert out.status_code == 429, out.text[:200]
-    assert "limit" in out.json()["error"].lower()
-    assert _ledger(client)["films"] == 2, "the refused film is not counted"
-    client.delete(f"/api/jobs/{first}")
-    client.delete(f"/api/jobs/{second}")
+    import re
+
+    jobs = []
+    try:
+        refusal = None
+        for _ in range(20):  # safety bound, far above any sane limit
+            out = client.post(
+                "/api/jobs", files={"photo": ("up.jpg", _photo())},
+                data={"ack": "on", "place": "Test Town"},
+                headers={"Origin": _origin(str(client.base_url))})
+            if out.status_code == 429:
+                refusal = out
+                break
+            assert out.status_code == 200, out.text[:200]
+            jobs.append(out.json()["job_id"])
+        assert refusal is not None, "no refusal in 20 admissions"
+        match = re.search(r"Browser limit reached \((\d+) films",
+                          refusal.json()["error"])
+        assert match, refusal.text[:200]
+        stated = int(match.group(1))
+        assert stated >= 1, stated
+        assert len(jobs) == stated, (len(jobs), refusal.text[:200])
+        assert _ledger(client)["films"] == stated, \
+            "the refused film is not counted"
+    finally:
+        for job_id in jobs:
+            try:
+                client.delete(f"/api/jobs/{job_id}")
+            except Exception:
+                pass
 
 
 @check("cancel after research ends the spending", fake_provider=True)
@@ -444,16 +465,39 @@ def origins(client, base):
     assert _ledger(client)["films"] == 0, "a refused upload is not admitted"
 
 
-@check("cookieless quota refuses the third film", fake_provider=False)
+@check("network quota refuses past the stated tries", fake_provider=False)
 def cookieless_quota(client, base):
-    outs = []
-    for _ in range(3):  # fresh client = no vid cookie, like curl
-        fresh = _client(base)
-        outs.append(fresh.post("/api/jobs",
-                               files={"photo": ("up.jpg", _photo())},
-                               data={"ack": "on", "place": "Test Town"}))
-    assert [out.status_code for out in outs] == [200, 200, 429]
-    assert _ledger(client)["films"] == 2, "the refused film is not counted"
+    import re
+
+    jobs = []
+    try:
+        refusal = None
+        for _ in range(20):  # fresh client = no vid cookie, like curl
+            fresh = _client(base)
+            out = fresh.post(
+                "/api/jobs", files={"photo": ("up.jpg", _photo())},
+                data={"ack": "on", "place": "Test Town"},
+                headers={"Origin": _origin(str(fresh.base_url))})
+            if out.status_code == 429:
+                refusal = out
+                break
+            assert out.status_code == 200, out.text[:200]
+            jobs.append((fresh, out.json()["job_id"]))
+        assert refusal is not None, "no refusal in 20 admissions"
+        match = re.search(r"Network limit reached \((\d+) films",
+                          refusal.json()["error"])
+        assert match, refusal.text[:200]
+        stated = int(match.group(1))
+        assert stated >= 1, stated
+        assert len(jobs) == stated, (len(jobs), refusal.text[:200])
+        assert _ledger(client)["films"] == stated, \
+            "the refused film is not counted"
+    finally:
+        for fresh, job_id in jobs:
+            try:
+                fresh.delete(f"/api/jobs/{job_id}")
+            except Exception:
+                pass
 
 
 @check("cancel racing progress writes ends cancelled", fake_provider=True)

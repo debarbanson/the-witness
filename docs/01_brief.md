@@ -40,4 +40,4 @@ Uploads make the film only. Two of the three examples also carry a picture-book 
 - Three films from three real photos (a windmill, an old tree, a lighthouse), each about 30 to 37 seconds.
 - Every caption has a working source link, shown on screen and in an end card.
 - In every era the object matches its verified state for that year (for example De Adriaan: opened 1779, burnt 1932, rebuilt 2002).
-- Generated in minutes per film, for under $1 in API cost: one staging film measured 2 Nov took about 8 minutes wall time (Identify 33 s, Research 49 s, Check 91 s, Paint 272 s, Film 3 s) at a $1.03 model-API ledger delta ($0.52 on the film job). The goal stays a few minutes and under $1; the owner's phone films re-measure after the later speedups.
+- Generated in minutes per film, for under $1 in API cost: two staging films measured 4 Nov took 381 s and 434 s wall time at $0.42 and $0.69 model-API cost, about 7 minutes a film. The goal stays a few minutes and under $1.

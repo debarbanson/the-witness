@@ -117,7 +117,7 @@ Off means: new `POST /api/jobs` on judge mode answers 503 ("Try your own is rest
 
 ### Costs and caps
 
-Measured 2 Nov on staging (De Adriaan, one full Try-your-own, paid): Identify 33 s, Research 49 s, Check 91 s, Paint 272 s (captions 47 s, painting 225 s), Film 3 s; 454 s wall to the film (about 8 minutes). Model-API ledger delta $1.03 (56 paid calls; film job ledger $0.52, extras started). Modal compute about $0.005 for the film (`modal billing report --for today`; $0.01 metered for the whole staging session, $0.00 billed after credits).
+Measured 4 Nov on staging (two full Try-your-own films, paid): De Adriaan 381 s admission to done at $0.42 model-API cost (Identify ~16 s, Research ~93 s, Check ~58 s, Captions ~41 s, Paint ~135 s, Render ~6 s; checked facts at 242 s); Colosseum 434 s at $0.69 (facts at 181 s). About 7 minutes a film; the checked facts appear after about 4 minutes. This supersedes the 2 Nov measurement (454 s, $1.03 with extras started), which predates parallel captions, low-effort checks and uploads that make the film only. Modal compute about $0.005 per film (`modal billing report --for today`).
 
 The owner-side run, on a machine with Modal access, in this order: cap first, examples before deploy, abuse run, flags out, drain, redeploy, then smoke checks.
 

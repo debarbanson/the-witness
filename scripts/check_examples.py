@@ -4,9 +4,11 @@ Usage: python scripts/check_examples.py <base-url>
 
 For each example, the live documentary and picture-book film.json must
 equal out/<slug>/film/film.json byte for byte in meaning, and the
-live evidence page must answer. Prints one line per example and exits
-1 on any mismatch, so a stale upload fails loudly instead of reaching
-judges. Run it after every upload and every deploy.
+live evidence page must answer. An example without a local
+picture-book version must have none live either. Prints one line per
+example and exits 1 on any mismatch, so a stale upload fails loudly
+instead of reaching judges. Run it after every upload and every
+deploy.
 """
 
 import json
@@ -63,8 +65,19 @@ def check(base_url, root=".") -> list:
     for slug, local_dir in EXAMPLES:
         for name, path in (("film", "film.json"),
                            ("picture-book", "child/film.json")):
-            local = json.loads(
-                (root / local_dir / "film" / path).read_text())
+            local_path = root / local_dir / "film" / path
+            if not local_path.exists():
+                if name == "picture-book":
+                    try:
+                        _read(f"{base_url}/examples/{slug}/{path}")
+                    except Exception:
+                        continue  # removed everywhere
+                    problems.append(
+                        f"{slug} {name}: removed locally but still served")
+                    continue
+                problems.append(f"{slug} {name}: missing local file")
+                continue
+            local = json.loads(local_path.read_text())
             try:
                 live = json.loads(
                     _read(f"{base_url}/examples/{slug}/{path}"))

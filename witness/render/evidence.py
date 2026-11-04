@@ -50,12 +50,13 @@ def _claim_for(claims, year, url):
     return None
 
 
-def _scene_block(scene, filmed, claims, paintings, votes_label):
+def _scene_block(scene, filmed, claims, paintings, votes_label,
+               include_child=True):
     stored = filmed.get("caption") or ["", ""]
     stamp, sentence = stored[0], stored[1]
     caption = scene.get("caption_sentence") or {}
     ev = caption.get("evidence") or {}
-    child = (caption.get("child") or {}).get("text", "")
+    child = (caption.get("child") or {}).get("text", "") if include_child else ""
     state = (scene.get("state") or {}).get("description", "")
     claim = _claim_for(claims, caption.get("claim_year"),
                        caption.get("claim_url"))
@@ -156,12 +157,14 @@ def build_page(slug_dir, refused_year=None) -> str:
              "bound quotes, sources, models and recorded verdicts. "
              "Quotes are copied literally from the stored research; "
              "nothing here is rewritten.</p>"]
+    has_child = (slug_dir / "film" / "child" / "film.json").exists()
     for filmed in film.get("scenes", []):
         scene = scenes.get(filmed.get("year"))
         if scene is None:
             continue
         parts.append(_scene_block(scene, filmed, research.get("claims", []),
-                                  entries, votes_label))
+                                  entries, votes_label,
+                                  include_child=has_child))
     refused = [claim for claim in research.get("claims", [])
                if claim.get("verdict") != "supported"]
     chosen = None

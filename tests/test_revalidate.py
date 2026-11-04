@@ -75,6 +75,23 @@ def test_record_lists_the_required_fields():
     assert "52." not in dumped and "4." not in dumped.split("cost")[0]
 
 
+def test_failed_rows_keep_a_final_disposition():
+    import json
+
+    record = Path(__file__).resolve().parent.parent / (
+        "eval/example_revalidation_2026-11-04.json")
+    saved = json.loads(record.read_text())
+    assert saved["reviewed_sha"]
+    assert "two passes out of three" in saved["rule"]
+    for row in saved["records"]:
+        paint = [v["ok"] for v in row["paint_verdicts"]]
+        cap_ok = row["caption_verdicts"][-1]["ok"]
+        if cap_ok and (paint[0] or sum(paint) >= 2):
+            continue
+        assert row.get("disposition"), (row["slug"], row["year"],
+                                        row["audience"])
+
+
 def test_paint_tries_run_all_three_after_a_failure():
     module = _load()
     planned = iter([(False, "first failure"), (True, "second pass"),

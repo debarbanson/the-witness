@@ -97,6 +97,14 @@ def test_refused_defaults_to_the_first_unaccepted_claim(tmp_path):
     assert "burnt in 1900" in page
 
 
+def test_picture_book_lines_follow_the_published_child_film(tmp_path):
+    root = _slug(tmp_path)
+    assert "Picture-book:" not in evidence.build_page(root)
+    (root / "film" / "child").mkdir()
+    (root / "film" / "child" / "film.json").write_text("{}")
+    assert "Picture-book:" in evidence.build_page(root)
+
+
 def test_every_link_wraps_on_a_narrow_phone(tmp_path):
     root = _slug(tmp_path)
     page = evidence.build_page(root)

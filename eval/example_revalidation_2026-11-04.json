@@ -131,7 +131,8 @@
     }
    ],
    "seconds": 51.0,
-   "cost_usd": 0.0258
+   "cost_usd": 0.0258,
+   "disposition": "dropped from publication: picture-book version removed (Block V A1)"
   },
   {
    "slug": "q2763574-de-adriaan",
@@ -197,7 +198,8 @@
     }
    ],
    "seconds": 60.7,
-   "cost_usd": 0.0332
+   "cost_usd": 0.0332,
+   "disposition": "dropped from publication: picture-book version removed (Block V A1)"
   },
   {
    "slug": "q388443-major-oak",

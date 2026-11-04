@@ -83,3 +83,26 @@ def test_check_reports_a_missing_evidence_page(tmp_path):
     problems = module.check(base, root)
     assert any("de-adriaan" in problem and "evidence" in problem
                for problem in problems), problems
+
+
+def test_check_accepts_a_removed_picture_book_version(tmp_path):
+    import shutil
+
+    module = _load()
+    root, base = _layout(tmp_path)
+    shutil.rmtree(root / "out" / "q2763574-de-adriaan" / "film" / "child")
+    live = Path(base.replace("file://", "")) / "examples" / "de-adriaan"
+    shutil.rmtree(live / "child")
+    problems = module.check(base, root)
+    assert not [p for p in problems if p.startswith("de-adriaan")], problems
+
+
+def test_check_fails_when_a_removed_version_is_still_served(tmp_path):
+    import shutil
+
+    module = _load()
+    root, base = _layout(tmp_path)
+    shutil.rmtree(root / "out" / "q2763574-de-adriaan" / "film" / "child")
+    problems = module.check(base, root)
+    assert any("de-adriaan" in problem and "picture-book" in problem
+               for problem in problems), problems

@@ -36,7 +36,7 @@ Details: [docs/02_pipeline.md](docs/02_pipeline.md). The accuracy rules: [docs/0
 
 ## The picture-book version, in the examples
 
-Uploads make the film only. The three examples also carry a picture-book version: the same checked facts in simpler words, with picture-book paintings from the same anchor. The "spot the difference" game is built and appears only with 3 or more grounded changes; none of the three examples qualifies, so the submission ships no game. See [docs/08_picture_book.md](docs/08_picture_book.md).
+Uploads make the film only. Two of the three examples also carry a picture-book version: the same checked facts in simpler words, with picture-book paintings from the same anchor. De Adriaan is documentary-only: two of its picture-book paintings failed revalidation (see eval/example_revalidation_2026-11-04.json). The "spot the difference" game is built and appears only with 3 or more grounded changes; none of the three examples qualifies, so the submission ships no game. See [docs/08_picture_book.md](docs/08_picture_book.md).
 
 ## Principles
 

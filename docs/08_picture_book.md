@@ -2,7 +2,7 @@
 
 You must be 18 or older to upload a photo.
 
-Uploads make the film only. The three examples also carry a picture-book version: the same checked facts in simpler words, with picture-book paintings from the same anchor. Same object, same checked facts, told differently. The spot-the-difference game is built and appears only with 3 or more grounded changes; none of the three examples qualifies, so the submission ships no game.
+Uploads make the film only. Two of the three examples also carry a picture-book version: the same checked facts in simpler words, with picture-book paintings from the same anchor. Same object, same checked facts, told differently. De Adriaan is documentary-only: two of its picture-book paintings failed revalidation (see eval/example_revalidation_2026-11-04.json). The spot-the-difference game is built and appears only with 3 or more grounded changes; none of the three examples qualifies, so the submission ships no game.
 
 ## The rule that does not change
 

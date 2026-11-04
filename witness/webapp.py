@@ -566,7 +566,7 @@ footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;col
 </section>
 <section class="block" id="examples" aria-label="Example films">
 <h2>Example films</h2>
-<p>Three landmarks, researched and painted. Each also has a picture-book version.</p>
+<p>Three landmarks, researched and painted. Two also have a picture-book version.</p>
 <div class="gallery">
 __EXAMPLES__
 </div>

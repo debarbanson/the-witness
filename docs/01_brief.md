@@ -26,7 +26,7 @@ The maker lives in the Netherlands, surrounded by centuries-old windmills, trees
 
 ## Two versions
 
-Uploads make the film only. The three examples also carry a picture-book version: the same checked facts in simpler words with picture-book paintings. Both need enough verified material. Simple, but still true: every picture-book caption is verified again. The "spot the difference" game is built and appears only with 3 or more grounded changes; none of the three examples qualifies. Details: [08_picture_book.md](08_picture_book.md).
+Uploads make the film only. Two of the three examples also carry a picture-book version: the same checked facts in simpler words with picture-book paintings. De Adriaan is documentary-only: two of its picture-book paintings failed revalidation. Both need enough verified material. Simple, but still true: every picture-book caption is verified again. The "spot the difference" game is built and appears only with 3 or more grounded changes; none of the three examples qualifies. Details: [08_picture_book.md](08_picture_book.md).
 
 ## Out of scope for the hackathon
 

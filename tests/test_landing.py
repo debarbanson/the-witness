@@ -151,7 +151,7 @@ def test_how_it_works_names_both_checking_models(tmp_path):
 
 def test_examples_intro_promises_no_game(tmp_path):
     page = _page(tmp_path)
-    assert ("Three landmarks, researched and painted. Each also has a "
+    assert ("Three landmarks, researched and painted. Two also have a "
             "picture-book version.") in page
     assert "with a spot-the-difference game" not in page
 

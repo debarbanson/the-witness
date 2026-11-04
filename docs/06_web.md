@@ -66,11 +66,24 @@ One `put` per reviewed example: the finished `film/` folder (film pages, paintin
 python scripts/check_examples.py <judge-url>
 ```
 
-It compares each live film.json (both versions) with the local one and requires each evidence page to answer; anything stale fails loudly. Example asset reads reload the volume first, best effort: under concurrent inputs a reload can meet an open file, in which case the request serves the snapshot it has instead of failing.
+It compares each live film.json (both versions) with the local one and requires each evidence page to answer; anything stale fails loudly. Example asset reads reload at most once a minute, best effort: under concurrent inputs a reload can meet an open file, in which case the request serves the snapshot it has instead of failing; uploads land with the deploy that follows them.
+
+After re-rendering the examples, regenerate the owner-review contact sheet before uploading:
+
+```bash
+.venv/bin/python -c "
+from pathlib import Path
+from witness.paint import contact_sheet
+slugs = ('q2763574-de-adriaan', 'q388443-major-oak', 'q2206180-rubjerg-knude-fyr')
+panels = [(p.parent.parent.name + '/' + p.stem, p.read_bytes())
+          for slug in slugs
+          for p in sorted((Path('out') / slug / 'film').glob('era_*.webp'))]
+contact_sheet(panels, 'out/contact-examples.png')"
+```
 
 ### Redeploys: drain first
 
-Before redeploying or stopping the app, let running films finish: a deploy while a film runs can strand it mid-job. Never run two deploys at once, and never leave an old deployment running next to a new one: two ledger writers at once can admit past the cap. Check that no upload is in progress (nothing but finished films in the last minutes), then deploy once.
+Before redeploying or stopping the app, stop admissions, then let running films finish: a deploy while a film runs can strand it mid-job. On judge mode, turn Try your own off first (`modal run modal_app.py::try_switch --no-enable`), wait until in-flight jobs finish, then deploy, then turn it back on. Never run two deploys at once, and never leave an old deployment running next to a new one: two ledger writers at once can admit past the cap. Check that no upload is in progress (nothing but finished films in the last minutes), then deploy once.
 
 ### Production (judge mode)
 

@@ -97,4 +97,56 @@ showResult(evil, { status: "done", result: { message: "m", claims: [],
               outcome: "read" }] } });
 assert(flatten(evil).includes("<img src=x>"));
 
+// A no-film result adds read-more links and source quotes.
+const more = makeEl();
+showResult(more, { status: "done", result: {
+  message: "No film about Mill this time.", claims: [], subject: "Mill",
+  links: [
+    { label: "Wikipedia (English)",
+      url: "https://en.wikipedia.org/wiki/Mill" },
+    { label: "Official website", url: "http://plain.example/x" },
+    { label: "Wikidata", url: "https://www.wikidata.org/wiki/Q1" },
+  ],
+  quotes: [
+    { text: "The mill stood tall.", url: "https://en.wikipedia.org/wiki/Mill" },
+  ],
+} });
+const moreText = flatten(more);
+assert(moreText.includes("Read more about Mill"));
+assert(moreText.includes("In the sources' own words"));
+assert(moreText.includes("not checked for a film"));
+assert(moreText.includes("The mill stood tall."));
+const moreLinks = [];
+(function walkMore(node) {
+  for (const child of node.children || []) {
+    if (child.href) { moreLinks.push(child); }
+    walkMore(child);
+  }
+})(more);
+assert(moreLinks.some((a) => a.href === "https://en.wikipedia.org/wiki/Mill"),
+  "wikipedia link missing");
+assert(moreLinks.some((a) => a.href === "https://www.wikidata.org/wiki/Q1"),
+  "wikidata link missing");
+assert(!moreLinks.some((a) => a.href === "http://plain.example/x"),
+  "plain http link rendered");
+
+// A hostile subject lands as text, never markup.
+const evilSubject = makeEl();
+showResult(evilSubject, { status: "done", result: { message: "m", claims: [],
+  subject: "<img src=x>",
+  links: [{ label: "Wikidata",
+            url: "https://www.wikidata.org/wiki/Q1" }] } });
+assert(flatten(evilSubject).includes("Read more about <img src=x>"));
+
+// A finished film shows no extras, even if sent.
+const filmExtras = makeEl();
+showResult(filmExtras, { status: "done",
+  result: { film_url: "/film/job-9/tok/film.html", subject: "Mill",
+    links: [{ label: "Wikidata",
+              url: "https://www.wikidata.org/wiki/Q1" }],
+    quotes: [{ text: "The mill stood tall.",
+               url: "https://en.wikipedia.org/wiki/Mill" }] } });
+assert(!flatten(filmExtras).includes("Read more about"));
+assert(!flatten(filmExtras).includes("In the sources' own words"));
+
 console.log("result end states: OK");

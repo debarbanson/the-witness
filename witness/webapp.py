@@ -588,6 +588,7 @@ __EXAMPLES__
 <section class="block try" id="try" aria-label="Try your own photo">
 <h2>Try your own photo</h2>
 <p>__TRY_DURATION__</p>
+<p>Castles and forts often have histories shaped by war, which The Witness leaves out, so they may not give a film.</p>
 <p class="fine">You can lock your phone or switch apps: your film keeps going. Come back to this page in the same browser to see it.</p>
 <p>__QUOTA_LINE__</p>
 <p class="fine">Every started film uses one of your tries, even when the landmark can't be recognised.</p>
@@ -794,20 +795,23 @@ function renderSub(st, now) {
   if (key !== subState.key) { subState.key = key; subState.t = now; }
   const lastEv = [...evs].reverse().find(e => !["call", "checked_facts", "painted"].includes(e.event));
   const step = lastEv ? STEP_FOR[lastEv.event] : undefined;
+  const conf = evs.find(e => e.event === "confirmed");
+  const who = (conf && conf.data && conf.data.name)
+    ? " for " + conf.data.name : "";
   let line = "";
   if (step === 1) {
     const fetch = [...evs].reverse().find(e => e.event === "fetch");
     if (fetch) {
       const d = fetch.data || {};
-      line = "Reading sources: " + (d.done ?? "?") + " of " + (d.total ?? "?");
+      line = "Reading sources" + who + ": " + (d.done ?? "?") + " of " + (d.total ?? "?");
     } else if (evs.some(e => e.event === "facts")) {
-      line = "Muse Spark is searching the web";
+      line = "Muse Spark is searching the web" + who;
     }
   } else if (step === 2) {
     const ver = [...evs].reverse().find(e => e.event === "verify");
     if (ver) {
       const d = ver.data || {};
-      line = "Facts checked: " + (d.done ?? "?") + " of " + (d.total ?? "?");
+      line = "Facts checked" + who + ": " + (d.done ?? "?") + " of " + (d.total ?? "?");
     }
   } else if (step === 3) {
     const p = [...evs].reverse().find(e => e.event === "painted");
@@ -903,6 +907,40 @@ function showResult(box, st) {
     } else {
       box.appendChild(document.createTextNode(
         (s.domain || "a source") + " " + (s.outcome || "")));
+    }
+  }
+  if (!r.film_url) {
+    const links = r.links || [];
+    if (r.subject && links.length) {
+      box.appendChild(document.createTextNode(" "));
+      const h = document.createElement("strong");
+      h.textContent = "Read more about " + r.subject + ":";
+      box.appendChild(h);
+      for (const l of links) {
+        box.appendChild(document.createTextNode(" "));
+        if (typeof l.url === "string" && l.url.indexOf("https:" + "//") === 0) {
+          const a = document.createElement("a");
+          a.href = l.url; a.textContent = l.label || l.url;
+          box.appendChild(a);
+        } else {
+          box.appendChild(document.createTextNode(l.label || "link"));
+        }
+      }
+    }
+    const quotes = r.quotes || [];
+    if (quotes.length) {
+      box.appendChild(document.createTextNode(" "));
+      const h = document.createElement("strong");
+      h.textContent = "In the sources' own words (quoted from the pages we read, not checked for a film):";
+      box.appendChild(h);
+      for (const q of quotes) {
+        box.appendChild(document.createTextNode(" \u201c" + (q.text || "") + "\u201d"));
+        if (typeof q.url === "string" && q.url.indexOf("https:" + "//") === 0) {
+          const a = document.createElement("a");
+          a.href = q.url; a.textContent = " (source)";
+          box.appendChild(a);
+        }
+      }
     }
   }
 }
@@ -1006,12 +1044,14 @@ async function watch(id) {
   cancelBtn.style.display = "";
   cancelBtn.disabled = false;
   saveJob(id);
-  const t0 = Date.now();
-  const timer = setInterval(() => {
-    const s = Math.floor((Date.now() - t0) / 1000);
+  let clockBase = 0;
+  let clockAt = Date.now();
+  const tickClock = () => {
+    const s = Math.floor(clockBase + (Date.now() - clockAt) / 1000);
     document.getElementById("clock").textContent =
       Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
-  }, 500);
+  };
+  const timer = setInterval(tickClock, 500);
   const finish = () => {
     clearInterval(timer);
     box.dataset.finished = "yes";
@@ -1045,6 +1085,11 @@ async function watch(id) {
       continue;
     }
     missed = 0;
+    if (typeof st.elapsed === "number") {
+      clockBase = st.elapsed;
+      clockAt = Date.now();
+      tickClock();
+    }
     const evs = st.events || [];
     const lastEv = [...evs].reverse().find(e => !["call", "checked_facts", "painted"].includes(e.event)) || {event: st.status};
     document.getElementById("events").textContent = phaseWords(lastEv.event);
@@ -1104,7 +1149,10 @@ async function decide(confirm) {
     note.id = "decide-note";
     document.getElementById("confirm").appendChild(note);
   }
-  note.textContent = confirm ? "Thanks. Researching now…" : "Not this one.";
+  const nm = document.getElementById("confirm-name").textContent || "";
+  note.textContent = confirm
+    ? (nm ? "Thanks. Researching " + nm + " now…" : "Thanks. Researching now…")
+    : "Not this one.";
   try {
     const resp = await fetch("/api/jobs/" + id + "/decide", {
       method: "POST", headers: {"Content-Type": "application/json"},

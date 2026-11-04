@@ -157,6 +157,28 @@ def test_examples_intro_promises_no_game(tmp_path):
     assert "with a spot-the-difference game" not in page
 
 
+def test_try_intro_warns_about_war_shaped_histories(tmp_path):
+    page = _page(tmp_path)
+    line = ("Castles and forts often have histories shaped by war, which "
+            "The Witness leaves out, so they may not give a film.")
+    assert line in page
+    assert page.index("Works best with") < page.index(line)
+
+
+def test_confirmed_name_reaches_text_only(tmp_path):
+    import re
+
+    page = _page(tmp_path)
+    script = re.search(r'<script nonce="[^"]*">(.*?)</script>', page,
+                       re.S).group(1)
+    for name, args in (("showConfirm", "st"), ("decide", "confirm"),
+                       ("renderSub", "st, now"), ("showResult", "box, st")):
+        body = re.search(r"function " + name + r"\(" + args + r"\) \{.*?\n\}",
+                         script, re.S)
+        assert body, "no " + name
+        assert "innerHTML" not in body.group(0), name
+
+
 def test_free_credit_terms_in_notice_and_form(tmp_path):
     page = _page(tmp_path)
     privacy = _client(tmp_path).get("/privacy").text
@@ -613,6 +635,25 @@ def test_locked_phone_resume_keeps_the_film(tmp_path):
         out = subprocess.run([node, str(check), str(target), mode],
                              capture_output=True, text=True, timeout=60)
         assert out.returncode == 0, f"{mode}: {out.stderr[:500]}"
+
+
+def test_clock_follows_server_elapsed_time(tmp_path):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "resume_check.cjs"
+    out = subprocess.run([node, str(check), str(target), "clock"],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[:2000]
 
 
 def test_painting_shows_checked_facts_then_the_film(tmp_path):

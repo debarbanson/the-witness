@@ -15,8 +15,11 @@ Every API fact below was read in Meta's documentation on 26 October 2026; the so
 One photo (JPEG/PNG) and a location. The location comes from, in order:
 
 1. the photo's own GPS data (EXIF GPS tags, read with Pillow);
-2. the browser's Geolocation API at upload time, when the photo carries none (web page only, with the user's permission);
-3. a typed place name, as the last resort (and the command line's `--place`).
+2. a typed place name (and the command line's `--place`); a typed place always wins over a vision name;
+3. Muse Spark naming the landmark from the photo, when it carries no GPS and no place is typed; the name is only a search starting point and never becomes a fact;
+4. the browser's Geolocation API, only after the visitor taps "I'm standing in front of it now" (web page only, with permission), or as a retry when the earlier steps find nothing.
+
+When a picked photo carries no GPS, the page asks first: recognise it, type its name and town, or use the phone's location once.
 
 Privacy: coordinates are used for the lookup in step 0. On the web page they are held in the job's private hand-off file (spec.json) only until the worker reads it, then removed; the research keeps only a coarse season zone, and the film, the logs and the job store never carry them. Outputs carry no GPS data: re-encode images, never copy EXIF.
 
@@ -202,7 +205,7 @@ out/<slug>/
 ## Planned (cut from this version)
 
 - Period-figure layers (step 6).
-- Live streaming playback: buffer playback with between-scene check lines. The rule still guards the build: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
+- Live streaming playback: buffer playback with between-scene check lines. The rule still guards the build: nothing is shown until it is verified, and nothing in a finished film is ever withdrawn or changed.
 - Captions in languages other than English. The web page and all captions are English only.
 - Automatic reference images from Commons or Europeana.
 - Films of 5 to 7 scenes.
@@ -210,7 +213,7 @@ out/<slug>/
 
 ## Streaming (cut 29 Oct)
 
-The 27 October evening streaming experiment is cut from the viewing experience and from the build. The rule that guards quality stands: nothing is shown until it is verified, and nothing shown is ever withdrawn or changed.
+The 27 October evening streaming experiment is cut from the viewing experience and from the build. The rule that guards quality stands: nothing is shown until it is verified, and nothing in a finished film is ever withdrawn or changed.
 
 - The opening card, the speculative start during confirm (it spent about $0.55 on visitors who said no) and buffer playback are gone. Only free facts fetch while the visitor decides; a refusal spends nothing beyond identify.
 - The build runs in stages with a barrier between them: all claims verify first, then captions, then painting, then render. Nothing paints while claims are still landing, and the film plays only when finished, with honest progress and a timer meanwhile.

@@ -607,7 +607,7 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             "found": found, "order": order, "kept": gathered["kept"],
             "timeline": timeline, "chosen": chosen, "result": result,
             "timings": timings, "failures": fetched.failures,
-            "read": sorted(fetched.texts),
+            "read": sorted(fetched.texts), "texts": dict(fetched.texts),
             "comparison": comparison, "tokens": tokens, "cost_usd": cost}
 
 
@@ -1512,10 +1512,19 @@ def verify_scene_states(eras, name, support_respond) -> list:
     return changed
 
 
+def start_anchor_report(pool, photo_call, photo_bytes):
+    """Submit the anchor photo look so it runs while captions do.
+    Captions only add caption sentences; the dated texts the report
+    feeds on are already final. The caller passes the future to
+    cmd_paint as anchor_future."""
+    return models.submit_context(pool, paint.anchor_report, photo_call,
+                                 photo_bytes)
+
+
 def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               paint_call=None, check_call=None, photo_call=None, out_dir="out",
               audience="adult", photo_month=None, support_call=None,
-              progress=None):
+              progress=None, anchor_future=None):
     """Paint an object's eras from its research, checked per era. The
     location in the prompts is the canonical municipality from the
     research, never typed text. The children run paints a second set
@@ -1572,7 +1581,10 @@ def cmd_paint(slug, photo, mode="parallel", scenes=None, tag=None,
               (s.get("state") or {}).get("description", "") + " " +
               " ".join(line.get("line", "") for line in s.get("caption_lines", [])))
              for s in data.get("scenes", []) if isinstance(s.get("from_year"), int)]
-    directives = paint.paint_directives(looker, photo_bytes, dated)
+    if anchor_future is not None:
+        directives = paint.directives_from_report(anchor_future.result(), dated)
+    else:
+        directives = paint.paint_directives(looker, photo_bytes, dated)
     if photo_month is None:
         photo_month = data.get("photo_month") or identify.capture_month(photo)
     if photo_month is not None and not 1 <= photo_month <= 12:

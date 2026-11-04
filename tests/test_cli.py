@@ -525,6 +525,99 @@ def test_cmd_paint_child_writes_its_own_set(tmp_path, monkeypatch, capsys):
     assert manifest["eras"][0]["caption"] == "I opened long ago."
 
 
+def test_cmd_paint_uses_precomputed_anchor_report(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    from concurrent.futures import Future
+    from PIL import Image
+    from witness import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "grey").save(tmp_path / "photo.jpg")
+    (slug_dir / "research.json").write_text(json.dumps({
+        "object": {"name": "Mill", "qid": "Q1", "lang": "en", "municipality": "Test Town"},
+        "claims": [{"year": 1850, "verdict": "supported", "claim": "opened in 1850"}],
+        "scenes": [
+            {"from_year": 1850, "date_label": "1850",
+             "state": {"condition": "standing", "degree": "total",
+                       "scope": "whole", "description": "Whole."},
+             "caption_lines": [],
+             "caption_sentence": {"text": "I opened my doors.",
+                                 "claim_year": 1850,
+                                 "claim_url": "https://a.example/x"}},
+        ],
+    }))
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "grey").save(buf, "PNG")
+    png = buf.getvalue()
+    looks = []
+
+    def call(prompt, prev_id, photo_bytes=None):
+        return {"image": png, "response_id": "r1"}
+
+    future = Future()
+    future.set_result({"season": "winter", "elements": []})
+    code = cli_module.cmd_paint(
+        "q1-test", str(tmp_path / "photo.jpg"),
+        paint_call=call, check_call=lambda image, p: "MATCHES whole.",
+        photo_call=lambda photo_bytes, prompt: looks.append(prompt),
+        anchor_future=future)
+    assert code == 0
+    assert looks == []
+    assert "anchor season: winter" in capsys.readouterr().out
+    assert (slug_dir / "eras_parallel" / "1850.webp").exists()
+
+
+def test_anchor_report_overlaps_captions(tmp_path, monkeypatch, capsys):
+    import json
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from witness import cli as cli_module
+    from witness import models, paint
+
+    monkeypatch.chdir(tmp_path)
+    slug_dir = tmp_path / "out" / "q1-test"
+    slug_dir.mkdir(parents=True)
+    (slug_dir / "research.json").write_text(json.dumps(_caption_research()))
+    marks = {}
+
+    def slow_rewrite(detail, quote, year, plain, stamp=""):
+        marks["cap_start"] = time.perf_counter()
+        time.sleep(1.0)
+        marks["cap_end"] = time.perf_counter()
+        return "I opened my doors to the town."
+
+    def slow_look(photo_bytes, prompt):
+        marks["rep_start"] = time.perf_counter()
+        time.sleep(1.0)
+        marks["rep_end"] = time.perf_counter()
+        return "Season: summer\nNone"
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = cli_module.start_anchor_report(pool, slow_look, b"photo")
+        code = cli_module.cmd_captions(
+            "q1-test",
+            rewrite_call=slow_rewrite,
+            support_call=lambda sentence, quote, *a: "supported")
+        assert code == 0
+        report = future.result(timeout=10)
+    assert report["season"] == "summer"
+    assert marks["rep_start"] < marks["cap_end"]
+    assert marks["cap_start"] < marks["rep_end"]
+
+
+def test_webfilm_starts_the_anchor_report_before_captions():
+    import inspect
+    from witness import webfilm
+
+    source = inspect.getsource(webfilm.run_web_film)
+    assert "start_anchor_report" in source
+    assert "anchor_future" in source
+    assert source.index("start_anchor_report") < source.index("cmd_captions")
+
+
 def test_cmd_captions_rechecks_child_paintings_against_child_lines(
         tmp_path, monkeypatch, capsys):
     import io

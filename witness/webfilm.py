@@ -1,15 +1,100 @@
 """One Try-your-own web film, Modal-agnostic and tested."""
 
 import json as _json
+import re as _re
 import time as _time
 import traceback as _traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import quote as _quote
+from urllib.parse import urlparse as _urlparse
 
 from witness import cli, models
 from witness.cache import Cache
+from witness.photo import PhotoError
 from witness.render import builder as render_builder
-from witness.verify import filmed
+from witness.verify import filmed, refused
 from witness.webapp import DECIDE_TIMEOUT_SECONDS
+
+LANGUAGE_NAMES = {
+    "en": "English", "nl": "Dutch", "de": "German", "fr": "French",
+    "es": "Spanish", "it": "Italian", "da": "Danish", "sv": "Swedish",
+    "no": "Norwegian", "pt": "Portuguese", "pl": "Polish", "fy": "Frisian",
+}
+
+_QUOTE_LIMIT = 300
+_MAX_QUOTES = 3
+
+
+def read_more_links(qid, articles, lang, website) -> list:
+    """Read-more links from Wikidata data only: the run's Wikipedia
+    articles (the visitor's language first, then English), the
+    official website and the Wikidata page. Https links only; no
+    model text can enter, since only these arguments are used."""
+    ordered = []
+    for code in [lang, "en", *sorted(articles)]:
+        if code in articles and code not in ordered:
+            ordered.append(code)
+    links = []
+    for code in ordered:
+        if not _re.fullmatch(r"[a-z][a-z0-9-]*", code or ""):
+            continue
+        title = (articles[code] or "").strip()
+        if not title:
+            continue
+        label = LANGUAGE_NAMES.get(code, code)
+        links.append({
+            "label": f"Wikipedia ({label})",
+            "url": f"https://{code}.wikipedia.org/wiki/"
+                   f"{_quote(title.replace(' ', '_'), safe='/:()')}",
+        })
+    if isinstance(website, str) and website.startswith("https://"):
+        links.append({"label": "Official website", "url": website})
+    if isinstance(qid, str) and _re.fullmatch(r"Q\d+", qid):
+        links.append({"label": "Wikidata",
+                      "url": f"https://www.wikidata.org/wiki/{qid}"})
+    return links
+
+
+def _disputed_note(claim) -> bool:
+    notes = [str(claim.get("note") or "")]
+    notes += [str(entry.get("note") or "")
+              for entry in claim.get("support") or []]
+    return any("disput" in note.lower() for note in notes)
+
+
+def source_quotes(kept, texts, checked=()) -> list:
+    """Up to 3 source sentences for a no-film result: bound quotes
+    that appear literally in a Wikipedia page fetched in this run,
+    from claims that are not refused and not disputed, earliest
+    year first, skipping facts already listed. Never claim text,
+    never official-site wording, at most 300 characters each."""
+    seen = set(checked)
+    out = []
+    ordered = sorted(kept, key=lambda claim: (claim.get("year") is None,
+                                              claim.get("year") or 0))
+    for claim in ordered:
+        url = claim.get("url") or ""
+        quote = (claim.get("quote") or "").strip()
+        if not quote or quote in seen:
+            continue
+        if quote == (claim.get("claim") or "").strip():
+            continue
+        if refused(claim) or _disputed_note(claim):
+            continue
+        host = _urlparse(url).netloc.lower()
+        if not url.startswith("https://") or not host.endswith("wikipedia.org"):
+            continue
+        if quote not in (texts.get(url) or ""):
+            continue
+        seen.add(quote)
+        if len(quote) > _QUOTE_LIMIT:
+            cut = quote[:_QUOTE_LIMIT - 1].rsplit(" ", 1)[0] or quote[:_QUOTE_LIMIT - 1]
+            quote = cut + "\u2026"
+        out.append({"text": quote, "url": url})
+        if len(out) == _MAX_QUOTES:
+            break
+    return out
 
 
 def public_claims(kept) -> list:
@@ -54,25 +139,54 @@ def source_outcomes(read, failures) -> list:
                                                          item[0]))]
 
 
-def facts_payload(kept, read, failures, stage=None) -> dict:
+def facts_payload(kept, read, failures, stage=None, name=None,
+                  links=None, quotes=None) -> dict:
     """The facts-only result: confirmed claims as now, or, with none
     confirmed, real counts plus what happened per source. `stage`
-    prefixes its own failure line when the research itself ran."""
+    prefixes its own failure line when the research itself ran,
+    `name` is the confirmed landmark in the no-facts line, and
+    `links`/`quotes` are the read-more extras (never on a film)."""
     confirmed = public_claims(kept)
     if confirmed:
         payload = {"claims": confirmed}
         if stage:
             payload["message"] = stage
-        return payload
-    sources = source_outcomes(read, failures)
-    message = (f"No film this time. We found {len(kept or [])} possible "
-               f"facts in {len(sources)} sources, but couldn't confirm "
-               f"enough of them in sources we could open, so nothing was "
-               f"painted. Well-known landmarks with a Wikipedia page work "
-               f"best.")
-    if stage:
-        message = f"{stage} {message}"
-    return {"message": message, "claims": [], "sources": sources}
+    else:
+        sources = source_outcomes(read, failures)
+        lead = (f"No film about {name} this time. " if name
+                else "No film this time. ")
+        message = (f"{lead}We found {len(kept or [])} possible "
+                   f"facts in {len(sources)} sources, but couldn't confirm "
+                   f"enough of them in sources we could open, so nothing was "
+                   f"painted. Well-known landmarks with a Wikipedia page work "
+                   f"best.")
+        if stage:
+            message = f"{stage} {message}"
+        payload = {"message": message, "claims": [], "sources": sources}
+    if name:
+        payload["subject"] = name
+    if links:
+        payload["links"] = links
+    if quotes:
+        payload["quotes"] = quotes
+    return payload
+
+
+def no_film_extras(result, knowledge):
+    """Read-more links and source quotes for a no-film result, from
+    the identified item and the fetched texts only. The website
+    lookup is one cached request, skipped quietly on failure."""
+    found = result["found"]
+    website = cli.identify.official_website(
+        getattr(found, "qid", None), cache=knowledge)
+    links = read_more_links(
+        getattr(found, "qid", None),
+        getattr(found, "articles", {}) or {}, "en", website)
+    checked = [claim.get("quote", "")
+               for claim in public_claims(result["kept"])]
+    quotes = source_quotes(result["kept"], result.get("texts") or {},
+                           checked)
+    return links, quotes
 
 
 def checked_facts(slug_dir) -> list:
@@ -277,8 +391,11 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                 return result["cost_usd"] + ledger.cost_usd
 
             def facts_only(stage):
+                links, quotes = no_film_extras(result, knowledge)
                 payload = facts_payload(result["kept"], result.get("read"),
-                                        result.get("failures"), stage=stage)
+                                        result.get("failures"), stage=stage,
+                                        name=result["found"].name,
+                                        links=links, quotes=quotes)
                 payload["cost_usd"] = total_cost()
                 return finish(payload, "facts_only")
 
@@ -292,24 +409,40 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
             outcome = result["result"].get("outcome")
             if outcome in ("full_film", "short_film"):
                 progress("captions", {"slug": slug, "model": "Muse Spark"})
-                if cli.cmd_captions(slug, out_dir=spec["job_dir"],
-                                    cache=knowledge) == 2:
-                    return facts_only("Research is done but captions failed.")
-                progress("painting", {"slug": slug, "model": "Muse Image"})
-                try:
-                    progress("checked_facts", {"items": checked_facts(
-                        Path(spec["job_dir"]) / slug)})
-                except (OSError, ValueError):
-                    pass  # no facts panel; painting still decides
+                # The anchor photo look overlaps captions; its dated
+                # texts are final before captions run. On a captions
+                # failure the pool waits for the look, so one vision
+                # call may be charged on an already failed job.
+                with ThreadPoolExecutor(max_workers=1,
+                                        thread_name_prefix="report") as pool:
+                    try:
+                        report_future = cli.start_anchor_report(
+                            pool, cli.check_respond,
+                            cli.photo_bytes_clean(spec["photo"]))
+                    except PhotoError:
+                        # cmd_paint reports the bad photo, as before.
+                        report_future = None
+                    if cli.cmd_captions(slug, out_dir=spec["job_dir"],
+                                        cache=knowledge) == 2:
+                        return facts_only(
+                            "Research is done but captions failed.")
+                    progress("painting", {"slug": slug, "model": "Muse Image"})
+                    try:
+                        progress("checked_facts", {"items": checked_facts(
+                            Path(spec["job_dir"]) / slug)})
+                    except (OSError, ValueError):
+                        pass  # no facts panel; painting still decides
 
-                def paint_progress(event, data):
-                    if event == "painted":
-                        progress("painted", data)
+                    def paint_progress(event, data):
+                        if event == "painted":
+                            progress("painted", data)
 
-                if cli.cmd_paint(slug, spec["photo"], mode="parallel",
-                                 out_dir=spec["job_dir"],
-                                 progress=paint_progress) != 0:
-                    return facts_only("Research is done but painting failed.")
+                    if cli.cmd_paint(slug, spec["photo"], mode="parallel",
+                                     out_dir=spec["job_dir"],
+                                     progress=paint_progress,
+                                     anchor_future=report_future) != 0:
+                        return facts_only(
+                            "Research is done but painting failed.")
                 progress("render", {"slug": slug})
                 if cli.cmd_render(slug, spec["photo"], era_dir="eras_parallel",
                                   out_dir=spec["job_dir"],
@@ -325,11 +458,15 @@ def run_web_film(spec, store, authority, clock=None, nominatim_pace=None,
                 finish(dict(film), "film")
                 published = True
                 return {"status": "film"}
+            links, quotes = no_film_extras(result, knowledge)
             payload = facts_payload(result["kept"], result.get("read"),
-                                        result.get("failures"))
+                                        result.get("failures"),
+                                        name=result["found"].name,
+                                        links=links, quotes=quotes)
             payload.setdefault(
                 "message",
-                "Too little evidence for a film; the facts are below.")
+                "Too little evidence for a film about "
+                f"{result['found'].name}; the facts are below.")
             return finish(payload, "facts_only")
     except models.JobCancelled as exc:
         if published:

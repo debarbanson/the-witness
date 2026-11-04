@@ -100,6 +100,15 @@ async function fakeFetch(url, opts = {}) {
   }
   if (url === "/api/jobs/job-9" && method === "GET") {
     pollCount += 1;
+    if (mode === "clock") {
+      if (pollCount < 2) {
+        return jsonResponse({ status: "working", elapsed: 125.4,
+          events: [{ event: "researching", data: {} }] });
+      }
+      return jsonResponse({ status: "done", elapsed: 130.0,
+        events: [{ event: "render", data: {} }],
+        result: { film_url: "/film/job-9/tok/film.html" } });
+    }
     if (mode === "cancel") {
       if (cancelled) {
         return jsonResponse({ status: "cancelled", events: [],
@@ -232,8 +241,8 @@ vm.createContext(sandbox);
     const note = sandbox.document.getElementById("decide-note");
     if (mode === "decide") {
       assert(calls.includes("POST /api/jobs/job-9/decide"), "no decide POST");
-      assert(note.textContent.includes("Thanks. Researching now"),
-        "no yes feedback");
+      assert(note.textContent.includes("Thanks. Researching Test Tower now"),
+        "no yes feedback with the confirmed name");
       assert.strictEqual(yes.style.display, "none", "yes back too soon");
     } else {
       assert.strictEqual(yes.style.display, "", "yes not restored");
@@ -333,6 +342,11 @@ vm.createContext(sandbox);
       sandbox.document.getElementById("events").textContent,
       "Finished: no film");
     console.log(mode + " shows only run steps done: OK");
+  } else if (mode === "clock") {
+    assert.strictEqual(
+      sandbox.document.getElementById("clock").textContent,
+      "2:10", "clock not set from the server elapsed time");
+    console.log("clock follows the server elapsed time: OK");
   } else if (mode === "failed") {
     assert(lis[3].classList.contains("stopped"), "paint not stopped");
     assert(!lis[3].classList.contains("current"), "paint stuck current");

@@ -369,14 +369,21 @@ def expected_season(scene, photo_month, photo_season, country_code=None,
     return photo_season
 
 
-def paint_directives(photo_call, photo_bytes, dated_texts) -> dict:
-    """The decontamination pack for a run: one season plus, per era
-    year, the anchor elements that postdate it."""
-    report = anchor_report(photo_call, photo_bytes)
+def directives_from_report(report, dated_texts) -> dict:
+    """The decontamination pack from an already-fetched anchor
+    report: one season plus, per era year, the anchor elements that
+    postdate it. Pure, so the report look can overlap captions."""
     years = sorted({when for when, _ in dated_texts})
     return {"season": report["season"],
             "excluded": {year: excluded_elements(report["elements"], dated_texts, year)
                          for year in years}}
+
+
+def paint_directives(photo_call, photo_bytes, dated_texts) -> dict:
+    """The decontamination pack for a run: one season plus, per era
+    year, the anchor elements that postdate it."""
+    return directives_from_report(anchor_report(photo_call, photo_bytes),
+                                  dated_texts)
 
 
 def extract_image_b64(response) -> str | None:

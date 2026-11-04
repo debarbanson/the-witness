@@ -2,9 +2,19 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from witness import models
 from witness.webapp import MemoryStore
 from witness.webfilm import run_web_film
+
+
+@pytest.fixture(autouse=True)
+def _no_website_lookup(monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    monkeypatch.setattr(webfilm_module.cli.identify, "official_website",
+                        lambda *a, **k: None)
 
 
 def _spec(tmp_path):
@@ -97,6 +107,7 @@ def test_thin_evidence_returns_facts_only(tmp_path, monkeypatch):
              "url": "https://a.example/x",
              "quote": "The mill stood in 1850."}]
         assert "Too little" in result["message"]
+        assert "about Mill" in result["message"]
     finally:
         models.configure_spending(None)
 
@@ -1265,10 +1276,10 @@ def test_zero_confirmed_facts_lists_sources_not_claims(tmp_path, monkeypatch):
         result = store.get_job("job-1")["result"]
         assert result["claims"] == []
         assert result["message"] == (
-            "No film this time. We found 2 possible facts in 4 sources, "
-            "but couldn't confirm enough of them in sources we could open, "
-            "so nothing was painted. Well-known landmarks with a Wikipedia "
-            "page work best.")
+            "No film about Mill this time. We found 2 possible facts in "
+            "4 sources, but couldn't confirm enough of them in sources we "
+            "could open, so nothing was painted. Well-known landmarks "
+            "with a Wikipedia page work best.")
         assert result["sources"] == [
             {"domain": "aroundus.com", "url": "https://aroundus.com/z",
              "outcome": "timed out"},
@@ -1291,6 +1302,172 @@ def test_source_outcomes_fall_back_to_could_not_open():
               "provider": "baseten"}])
     assert out == [{"domain": "gone.example", "url": "https://gone.example/x",
                     "outcome": "couldn't open it"}]
+
+
+def test_read_more_links_orders_visitor_language_first():
+    import witness.webfilm as webfilm_module
+
+    links = webfilm_module.read_more_links(
+        "Q2487636",
+        {"nl": "Watertoren (Roelofarendsveen)",
+         "en": "Roelofarendsveen water tower"},
+        "nl", "https://official.example/tower")
+    assert [(link["label"], link["url"]) for link in links] == [
+        ("Wikipedia (Dutch)",
+         "https://nl.wikipedia.org/wiki/Watertoren_(Roelofarendsveen)"),
+        ("Wikipedia (English)",
+         "https://en.wikipedia.org/wiki/Roelofarendsveen_water_tower"),
+        ("Official website", "https://official.example/tower"),
+        ("Wikidata", "https://www.wikidata.org/wiki/Q2487636"),
+    ]
+
+
+def test_read_more_links_skips_bad_shapes():
+    import witness.webfilm as webfilm_module
+
+    assert webfilm_module.read_more_links(
+        None, {}, "en", "http://plain.example/x") == []
+    links = webfilm_module.read_more_links(
+        "not-a-qid", {"en": "T"}, "en", None)
+    assert [(link["label"], link["url"]) for link in links] == [
+        ("Wikipedia (English)", "https://en.wikipedia.org/wiki/T")]
+    links = webfilm_module.read_more_links(
+        "Q1", {"en": "T"}, "en", "https://official.example/")
+    assert [link["label"] for link in links] == [
+        "Wikipedia (English)", "Official website", "Wikidata"]
+
+
+def test_source_quotes_only_literal_wikipedia_sentences():
+    import witness.webfilm as webfilm_module
+
+    texts = {"https://en.wikipedia.org/wiki/Tower":
+             "The tower was built in 1932. It is tall."}
+    kept = [
+        {"year": 1932, "claim": "built long ago", "verdict": "partly",
+         "url": "https://en.wikipedia.org/wiki/Tower",
+         "quote": "The tower was built in 1932."},
+        {"year": 1900, "claim": "old", "verdict": "unsupported",
+         "url": "https://en.wikipedia.org/wiki/Tower",
+         "quote": "A sentence never fetched."},
+    ]
+    assert webfilm_module.source_quotes(kept, texts) == [
+        {"text": "The tower was built in 1932.",
+         "url": "https://en.wikipedia.org/wiki/Tower"}]
+
+
+def test_source_quotes_skips_flagged_disputed_and_claim_text():
+    import witness.webfilm as webfilm_module
+
+    texts = {"https://en.wikipedia.org/wiki/T": "alpha beta gamma delta."}
+    base = {"year": 1900, "claim": "model words",
+            "url": "https://en.wikipedia.org/wiki/T", "quote": "alpha beta"}
+    variants = [
+        {**base, "war_politics_only": True},
+        {**base, "refused_content": True},
+        {**base, "note": "supporting sentence disputed, no clean source"},
+        {**base, "support": [{"note": "sentence carries a dispute tag"}]},
+        {**base, "quote": "model words"},
+        {**base, "url": "https://official.example/page"},
+        {**base, "url": "http://en.wikipedia.org/wiki/T"},
+    ]
+    for claim in variants:
+        assert webfilm_module.source_quotes([claim], texts) == [], claim
+
+
+def test_source_quotes_earliest_first_deduped_capped():
+    import witness.webfilm as webfilm_module
+
+    texts = {"https://en.wikipedia.org/wiki/T": "s1850 s1860 s1900 s2000"}
+    kept = [{"year": year, "claim": f"model {year}",
+             "url": "https://en.wikipedia.org/wiki/T", "quote": f"s{year}"}
+            for year in (2000, 1850, 1900, 1860)]
+    long = {"year": 1849, "claim": "model old",
+            "url": "https://en.wikipedia.org/wiki/T",
+            "quote": "s1849 " + "word " * 100}
+    texts["https://en.wikipedia.org/wiki/T"] += " " + long["quote"]
+    out = webfilm_module.source_quotes(
+        kept + [long], texts, checked=["s1850"])
+    assert [quote["text"] for quote in out] == [
+        out[0]["text"], "s1860", "s1900"]
+    assert len(out[0]["text"]) <= 300
+    assert out[0]["text"].endswith("\u2026")
+    assert out[0]["text"][-2] != " "
+    assert len(out) == 3
+
+
+def test_facts_payload_carries_subject_links_and_quotes():
+    import witness.webfilm as webfilm_module
+
+    links = [{"label": "Wikidata", "url": "https://www.wikidata.org/wiki/Q1"}]
+    quotes = [{"text": "The tower stood.", "url": "https://en.wikipedia.org/wiki/T"}]
+    payload = webfilm_module.facts_payload(
+        [], ["https://en.wikipedia.org/wiki/T"], [], name="Mill",
+        links=links, quotes=quotes)
+    assert payload["subject"] == "Mill"
+    assert payload["links"] == links
+    assert payload["quotes"] == quotes
+
+
+def test_no_film_extras_carry_no_location():
+    import witness.webfilm as webfilm_module
+
+    found = SimpleNamespace(name="Mill", kind="mill", qid="Q1",
+                            articles={"en": "Mill"})
+    result = {"found": found,
+              "kept": [{"year": 1850, "claim": "model words",
+                        "url": "https://en.wikipedia.org/wiki/Mill",
+                        "quote": "The mill stood in 1850."}],
+              "texts": {"https://en.wikipedia.org/wiki/Mill":
+                        "The mill stood in 1850. Lat 52.1, lon 4.3."}}
+    links, quotes = webfilm_module.no_film_extras(result, knowledge=None)
+    assert links and quotes
+
+    def keys(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield key
+                yield from keys(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from keys(value)
+
+    seen = set(keys(list(links) + list(quotes)))
+    assert seen <= {"label", "url", "text"}
+    assert "52.1" not in str(links) + str(quotes)
+
+
+def test_film_result_carries_no_extras(tmp_path, monkeypatch):
+    import witness.webfilm as webfilm_module
+
+    store, spec = _store(), _spec(tmp_path)
+    found = SimpleNamespace(name="Mill", kind="mill", qid="Q1",
+                            articles={}, municipality=None)
+    monkeypatch.setattr(
+        webfilm_module.cli, "run_job",
+        lambda *a, **k: {"confirmed": True, "identified": True,
+                         "cached": False, "slug": "q1-mill", "found": found,
+                         "order": ["en"], "kept": [], "timeline": [],
+                         "chosen": [], "result": {"outcome": "full_film"},
+                         "timings": {}, "failures": [], "read": [],
+                         "comparison": None, "tokens": {}, "cost_usd": 0.0,
+                         "texts": {}})
+    monkeypatch.setattr(webfilm_module.cli, "report_and_save",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_captions",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_paint",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module.cli, "cmd_render",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(webfilm_module, "checked_facts", lambda *a: [])
+    try:
+        assert run_web_film(spec, store, authority=None) == {"status": "film"}
+        result = store.get_job("job-1")["result"]
+        assert "links" not in result
+        assert "quotes" not in result
+        assert "subject" not in result
+    finally:
+        models.configure_spending(None)
 
 
 def test_web_job_skips_overpass(tmp_path, monkeypatch):

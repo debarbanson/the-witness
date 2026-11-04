@@ -40,3 +40,7 @@
 ## Choosing demo subjects
 
 Any notable object works: a windmill, a water tower, a church, a lighthouse, an old tree. For the demo, pick objects whose own life changed visibly (built, extended, burnt, rebuilt, repurposed) and whose history is not mainly about conflict. Daytime photos make the best closing shot.
+
+## After the hackathon
+
+Two items wait, with the 3 Nov runs as evidence: a longer timeout for official sites (the Eilean Donan run confirmed 0 of 10 claims after the official site timed out), and painting all eras in one wave (speed review rank 5, needs a quality experiment). Re-checking narrowed rewrites as new claims is already built; see the narrowed-claim rule above.

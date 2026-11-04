@@ -733,6 +733,14 @@ def test_paint_directives_combines_season_and_exclusions():
     assert out["excluded"] == {1932: ["tulip banners"], 1986: []}
 
 
+def test_directives_from_report_matches_paint_directives():
+    dated = [(1932, "built plain"), (1986, "tulip banners added")]
+    look = lambda photo, prompt: "Season: summer\ntulip banners"  # noqa: E731
+    report = paint.anchor_report(look, b"photo")
+    assert paint.directives_from_report(report, dated) == \
+        paint.paint_directives(look, b"photo", dated)
+
+
 def test_paint_scene_passes_caption_to_check():
     seen = []
 

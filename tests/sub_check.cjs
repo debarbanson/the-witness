@@ -86,6 +86,33 @@ renderSub({ status: "working", events: [
 ] }, 3000);
 assert.strictEqual(sub(), "Painted 1 of 3");
 
+// The confirmed name travels with the research and check lines.
+reset();
+renderSub({ status: "working", events: [
+  { event: "confirmed", data: { name: "Eilean Donan Castle" } },
+  { event: "facts", data: { claims: 6 } },
+] }, 6000);
+assert.strictEqual(sub(),
+  "Muse Spark is searching the web for Eilean Donan Castle");
+renderSub({ status: "working", events: [
+  { event: "confirmed", data: { name: "Eilean Donan Castle" } },
+  { event: "fetch", data: { done: 3, total: 6 } },
+] }, 7000);
+assert.strictEqual(sub(), "Reading sources for Eilean Donan Castle: 3 of 6");
+renderSub({ status: "working", events: [
+  { event: "confirmed", data: { name: "Eilean Donan Castle" } },
+  { event: "verify", data: { done: 4, total: 6 } },
+] }, 8000);
+assert.strictEqual(sub(), "Facts checked for Eilean Donan Castle: 4 of 6");
+
+// A hostile name renders as text, never markup.
+reset();
+renderSub({ status: "working", events: [
+  { event: "confirmed", data: { name: "<img src=x>" } },
+  { event: "facts", data: { claims: 6 } },
+] }, 9000);
+assert.strictEqual(sub(), "Muse Spark is searching the web for <img src=x>");
+
 // A resume rebuilds the line from the stored events alone.
 reset();
 renderSub({ status: "working", events: [

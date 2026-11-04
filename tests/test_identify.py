@@ -535,6 +535,35 @@ def test_enrich_resolves_instance_of_kind():
     assert get.calls[1]["params"]["props"] == "labels"
 
 
+def test_official_website_reads_p856():
+    get = FakeTransport([(200, fixture("wb_p856.json"))])
+    assert identify.official_website("Q2487636", get=get) == \
+        "https://official.example/tower"
+    assert get.calls[0]["params"]["props"] == "claims"
+    assert get.calls[0]["params"]["ids"] == "Q2487636"
+
+
+def test_official_website_missing_or_failed_is_none():
+    get = FakeTransport([(200, {"entities": {"Q1": {"claims": {}}}})])
+    assert identify.official_website("Q1", get=get) is None
+    get = FakeTransport([(200, {"entities": {}})])
+    assert identify.official_website("Q1", get=get) is None
+    get = FakeTransport([(200, fixture("wb_p856.json"))])
+    assert identify.official_website("", get=get) is None
+    assert get.calls == []
+
+    def broken(url, **kwargs):
+        raise ConnectionError("offline")
+
+    assert identify.official_website("Q1", get=broken) is None
+
+
+def test_official_website_rejects_non_https():
+    get = FakeTransport([(200, {"entities": {"Q1": {"claims": {"P856": [
+        {"mainsnak": {"datavalue": {"value": "http://plain.example/x"}}}]}}}})])
+    assert identify.official_website("Q1", get=get) is None
+
+
 def test_attach_enrich_prefers_instance_of_kind():
     merged = [identify.Candidate(name="X", kind="wikidata item", source="wd", qid="Q1"),
               identify.Candidate(name="Y", kind="wikidata item", source="wd", qid="Q2")]

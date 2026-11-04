@@ -23,7 +23,7 @@ How each example was checked, scene by scene (bound quotes, sources, models, ver
 | Step | What happens | Model |
 |---|---|---|
 | 0. Identify | GPS, the location question, a typed place, or Muse Spark naming the landmark from the photo; nearby candidates come from Wikidata and Wikipedia (Overpass is off on the live path: it failed 61 of 62 stored jobs on 2-3 Nov and never decided an identification); the right one is picked from the photo and confirmed by you | Muse Spark (vision), [identify](witness/identify.py) |
-| 1. Cut out | The object is segmented from today's photo, for the closing shot; command line with --subject only, as in the examples (uploads skip it) | SAM 3.1, [segment](witness/segment.py) |
+| 1. Cut out | The object is segmented from the uploaded photo, for the closing shot; command line with --subject only, as in the examples (uploads skip it) | SAM 3.1, [segment](witness/segment.py) |
 | 2. Research | One grounded web question about the object's own life; every claim needs a URL | Muse Spark (web_search), [research](witness/research.py) |
 | 3. Verify | Each claim is checked against the fetched source text; only fully supported claims reach the film, "partly" means no (a narrowed rewrite gets one check of its own as a new claim) | Muse Spark Open on Baseten (`meta-models/muse-spark-open-1026`), Meta fallback, [verify](witness/verify.py) |
 | 4. Paint eras | Up to 4 decisive eras are painted with the object in its verified state, branching in parallel from one anchor so it stays recognisably the same place | Muse Image, [paint](witness/paint.py) |
@@ -41,11 +41,11 @@ Uploads make the film only. Two of the three examples also carry a picture-book 
 ## Principles
 
 - **No source, no claim.** A caption without a verified source is not shown. Every accepted claim rests on a literal quote in a page we fetched, bound to that page's URL.
-- **Nothing shown is ever withdrawn.** The film plays only when finished; scenes without evidence are refused by the renderer.
+- **Nothing in a finished film is ever withdrawn.** The film plays only when finished; scenes without evidence are refused by the renderer. While a film builds, its page shows only checked facts, and a checked fact whose painting was dropped is marked as not painted.
 - **The object changes as its history says.** A windmill that burned is shown burnt; a tower that gained a wing shows it from that year. Its state in every era is a sourced claim, checked against the painting.
 - **AI imagery is labelled** in every film, as Meta's Acceptable Use Policy and the EU AI Act expect.
 - **No war, no politics.** Eras dominated by conflict or political events are left out (hackathon rule, and the films are about places, not battles).
-- **Shipped examples pass today's checks.** The three example sets were revalidated on 3 Nov through the current caption and painting checks; every kept era carries a binding from those checks (see the evidence pages linked above).
+- **Shipped examples pass today's checks.** The three example sets were revalidated on 4 Nov through the current caption and painting checks; every shipped era carries a binding from those checks (eval/example_revalidation_2026-11-04.json, and the evidence pages linked above). De Adriaan ships documentary-only: its two picture-book paintings failed all three checks.
 
 ## Run it yourself
 
@@ -130,7 +130,7 @@ Measured 2 Nov on staging (De Adriaan, one full Try-your-own, paid): Identify 33
 
 ## Planned, not built
 
-Period-figure layers, live streaming playback, captions in languages other than English, automatic reference images from Commons or Europeana, films of 5 to 7 scenes, "add a source" and "tell what you know" fallbacks, an MP4 download button on the web page, voice narration, accounts and payments. Spot the difference as flip cards: each card asks what changed between a painted era and today's photo. Tap it to flip it and see the answer with its source. It's shown only when at least three checked changes exist.
+Period-figure layers, live streaming playback, captions in languages other than English, automatic reference images from Commons or Europeana, films of 5 to 7 scenes, "add a source" and "tell what you know" fallbacks, an MP4 download button on the web page, voice narration, accounts and payments. Spot the difference as flip cards: each card asks what changed between a painted era and today's photo. Tap it to flip it and see the answer with its source. It's shown only when at least three checked changes exist. A longer timeout for official sites: on 3 Nov the Eilean Donan run confirmed 0 of 10 claims after the official site timed out. Painting all eras in one wave (speed review rank 5): needs a quality experiment first. Re-checking narrowed rewrites as new claims is already built (docs/03), after the 3 Nov runs showed bundled research claims failing as partly.
 
 ## Prior work
 

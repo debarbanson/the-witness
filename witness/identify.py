@@ -791,6 +791,33 @@ def fetch_sitelinks(qids, get=None, languages=("en",), sleep=time.sleep, cache=N
     return out
 
 
+def official_website(qid, get=None, cache=None) -> str | None:
+    """The official website (Wikidata P856) for a no-film result's
+    read-more links. One cached request; None when the item has no
+    P856, when it is not https, or on any fetch failure."""
+    if not qid:
+        return None
+    try:
+        data = mediawiki_get(
+            get,
+            "https://www.wikidata.org/w/api.php",
+            {"action": "wbgetentities", "ids": qid, "props": "claims",
+             "format": "json"},
+            cache=cache,
+            tries=1,
+        )
+    except Exception:  # noqa: BLE001 - a missing link never fails a job
+        return None
+    try:
+        claims = data.get("entities", {}).get(qid, {}).get("claims", {})
+        value = claims["P856"][0]["mainsnak"]["datavalue"]["value"]
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return None
+    if not isinstance(value, str) or not value.startswith("https://"):
+        return None
+    return value
+
+
 def merge_and_rank(osm, wiki, lat, lon, direction, radius=RADIUS_M, extra=()) -> list:
     """Merge OSM, Wikidata and Wikipedia candidates; drop past radius."""
     by_qid: dict = {}

@@ -515,6 +515,7 @@ input[name="place"]{display:block;width:100%;box-sizing:border-box;border:2px so
 #steps li.skipped::before{border-style:dashed}
 #steps li.stopped::before{background:var(--muted);border-color:var(--muted)}
 button{font:inherit;cursor:pointer;background:var(--ink);color:var(--paper);border:none;border-radius:999px;padding:10px 22px}
+button:disabled{opacity:.55;cursor:default}
 button#geo,button#yes,button#no{background:transparent;color:var(--ink);border:1px solid var(--ink);padding:6px 16px;font-size:15px}
 footer.site{border-top:1px solid var(--line);padding-top:24px;font-size:15px;color:var(--muted)}
 .hidden{display:none}
@@ -675,9 +676,11 @@ function decideSubmitState(locNeeded, locChoice, placeText) {
 }
 let locNeeded = false;
 let locChoice = null;
+let busy = false;
 function updateSubmit() {
   const btn = document.querySelector('#upload button[type="submit"]');
   if (!btn) { return; }
+  if (busy) { btn.disabled = true; return; }
   const place = document.querySelector('#upload input[name="place"]');
   btn.disabled = decideSubmitState(locNeeded, locChoice,
     place ? place.value : "");
@@ -1217,19 +1220,45 @@ async function watch(id) {
     await new Promise(r => setTimeout(r, 2000));
   }
 }
-form.onsubmit = async ev => {
+const READY_LABEL = "Make my film";
+const UPLOADING = "Uploading your photo…";
+const MAKING = "Making your film…";
+function setBusy(label) {
+  busy = Boolean(label);
+  const btn = document.querySelector('#upload button[type="submit"]');
+  if (btn) {
+    btn.textContent = label || READY_LABEL;
+    btn.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+  const note = document.getElementById("upload-note");
+  if (note) {
+    note.textContent = label === UPLOADING
+      ? "Uploading can take a while on a phone. Keep this page open." : "";
+  }
+  updateSubmit();
+}
+async function submitFilm(ev) {
   ev.preventDefault();
+  if (busy) { return; }
+  setBusy(UPLOADING);
   let started;
   try {
     started = await (await fetch("/api/jobs", {
       method: "POST", body: new FormData(form)})).json();
   } catch (err) {
+    setBusy("");
     alert("Upload failed. Check your connection and try again.");
     return;
   }
-  if (started.error) { alert(started.error); return; }
-  await watch(started.job_id);
-};
+  if (started.error) { setBusy(""); alert(started.error); return; }
+  setBusy(MAKING);
+  try {
+    await watch(started.job_id);
+  } finally {
+    setBusy("");
+  }
+}
+form.onsubmit = submitFilm;
 document.getElementById("cancel").onclick = async () => {
   const id = currentId();
   if (!id) { return; }
@@ -1271,7 +1300,10 @@ async function decide(confirm) {
   }
 }
 const resumed = savedJob();
-if (resumed) { watch(resumed); }
+if (resumed) {
+  setBusy(MAKING);
+  watch(resumed).finally(() => setBusy(""));
+}
 </script>
 </body>
 </html>
@@ -1306,6 +1338,7 @@ TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multip
 I understand how my photo is used.</label></p>
 <p><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"><input type="hidden" name="locate" id="locate"></p>
 <p><button type="submit">Make my film</button></p>
+<p class="fine" id="upload-note" aria-live="polite"></p>
 </form>
 <div id="job" class="hidden">
 <p>Making your film: <span id="clock">0:00</span></p>

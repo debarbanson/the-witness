@@ -639,6 +639,30 @@ def test_locked_phone_resume_keeps_the_film(tmp_path):
         assert out.returncode == 0, f"{mode}: {out.stderr[:500]}"
 
 
+def test_one_tap_makes_one_film(tmp_path):
+    """4 Nov: "Make my film" stayed silent during the upload, a second
+    tap started a second film under a second visitor id, and two polling
+    loops fought over the page. The first tap must show the upload at
+    once and block every further tap until the film ends."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+
+        pytest.skip("node not installed")
+    page = _page(tmp_path)
+    target = tmp_path / "landing.html"
+    target.write_text(page)
+    check = Path(__file__).parent / "submit_check.cjs"
+    for mode in ("double", "fail", "refused", "resumed"):
+        out = subprocess.run([node, str(check), str(target), mode],
+                             capture_output=True, text=True, timeout=60)
+        assert out.returncode == 0, f"{mode}: {out.stderr[:500]}"
+
+
 def test_clock_follows_server_elapsed_time(tmp_path):
     import shutil
     import subprocess

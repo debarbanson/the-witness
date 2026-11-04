@@ -28,6 +28,18 @@ for (const id of ["loc-here", "loc-type", "loc-auto"]) {
   assert(html.includes('id="' + id + '"'), "no #" + id);
 }
 assert(html.includes("I'm standing in front of it now"), "no here button");
+assert(html.includes("Let Muse Spark recognise it"), "no auto button");
+assert(html.includes("I'll type its name and town"), "no type button");
+// Option cards: recognise first, each with an icon, a title and one line.
+assert(html.indexOf('id="loc-auto"') < html.indexOf('id="loc-type"') &&
+  html.indexOf('id="loc-type"') < html.indexOf('id="loc-here"'),
+  "recognise-it card must come first");
+assert(html.includes("Best for photos from your camera roll or a trip."),
+  "no auto card line");
+assert(html.includes("Uses your phone's location once."),
+  "no here card line");
+assert(html.includes("<svg"), "cards need inline SVG icons");
+assert(!html.includes('id="geo"'), "separate geo button must go");
 assert(html.includes("I'll type its name and town"), "no type button");
 assert(html.includes("Let Muse Spark recognise it"), "no auto button");
 assert(html.includes('id="geo-note"'), "no geo feedback line");
@@ -123,9 +135,13 @@ const lat = { value: "" };
 const lon = { value: "" };
 const geoNote = { textContent: "" };
 const locq = { classList: { add() {}, remove() {} } };
+const hereCard = { selected: false,
+  classList: { toggle: (name, on) => {
+    if (name === "selected") { hereCard.selected = !!on; } } } };
 sandbox.document = {
   getElementById: (id) => (
-    { lat, lon, "geo-note": geoNote, locq }[id] || null),
+    { lat, lon, "geo-note": geoNote, locq, "loc-here": hereCard }[id]
+    || null),
   querySelector: () => null,
 };
 sandbox.navigator = {
@@ -136,6 +152,7 @@ sandbox.navigator = {
 sandbox.submitBtnForTest = { disabled: true };
 sandbox.photoSeq = 0;
 vm.runInContext(extract("requestGeo", ""), sandbox);
+vm.runInContext(extract("markLocChoice", "id"), sandbox);
 vm.runInContext(
   "function updateSubmit() { submitBtnForTest.disabled = true; }" +
   "function hideLocQ() {}", sandbox);
@@ -148,6 +165,7 @@ geoCalls[0][0]({ coords: { latitude: 52.1, longitude: 4.3 } });
 assert.strictEqual(lat.value, 52.1);
 assert.strictEqual(lon.value, 4.3);
 assert.strictEqual(geoNote.textContent, "Location added.");
+assert.strictEqual(hereCard.selected, true, "here card not selected");
 geoCalls = [];
 requestGeo();
 geoCalls[0][1]({ code: 1 });
@@ -178,8 +196,50 @@ assert.strictEqual(geoNote.textContent, "", "stale error applied");
 // The tap is the only trigger: no other call site requests a position.
 const callSites = src.match(/getCurrentPosition\(/g) || [];
 assert.strictEqual(callSites.length, 1, "one getCurrentPosition call site");
-assert(src.includes('document.getElementById("geo").onclick = requestGeo;'),
-  "geo button wired to requestGeo");
+assert(src.includes(
+  'document.getElementById("loc-here").onclick = requestGeo;'),
+  "here card wired to requestGeo");
+assert(src.includes(
+  'document.getElementById("loc-auto").onclick = chooseAuto;'),
+  "auto card wired to chooseAuto");
+assert(src.includes(
+  'document.getElementById("loc-type").onclick = chooseType;'),
+  "type card wired to chooseType");
+
+// --- Location cards: the chosen card shows as selected ---------------
+{
+  const cards = {};
+  for (const id of ["loc-auto", "loc-type", "loc-here"]) {
+    const classes = new Set();
+    cards[id] = {
+      classList: {
+        toggle: (name, on) => {
+          if (on) { classes.add(name); } else { classes.delete(name); }
+        },
+        contains: (name) => classes.has(name),
+      },
+    };
+  }
+  const ctx = { locChoice: null,
+    document: { getElementById: (id) => cards[id] || null,
+      querySelector: () => ({ focus: () => {} }) },
+    hideLocQ: () => {}, updateSubmit: () => {}, console };
+  vm.createContext(ctx);
+  vm.runInContext(extract("markLocChoice", "id"), ctx);
+  vm.runInContext(extract("chooseAuto", ""), ctx);
+  vm.runInContext(extract("chooseType", ""), ctx);
+  vm.runInContext("chooseAuto();", ctx);
+  assert.strictEqual(vm.runInContext("locChoice", ctx), "auto");
+  assert(cards["loc-auto"].classList.contains("selected"));
+  assert(!cards["loc-type"].classList.contains("selected"));
+  assert(!cards["loc-here"].classList.contains("selected"));
+  vm.runInContext("chooseType();", ctx);
+  assert(cards["loc-type"].classList.contains("selected"));
+  assert(!cards["loc-auto"].classList.contains("selected"));
+  vm.runInContext("markLocChoice(null);", ctx);
+  assert(!cards["loc-type"].classList.contains("selected"),
+    "a new photo clears the selection");
+}
 assert(src.includes(
   'document.getElementById("loc-here").onclick = requestGeo;'),
   "here button wired to requestGeo");
@@ -238,6 +298,7 @@ assert(!touched.includes("upload"), "form untouched, photo kept");
     ctx.locqShown = !force;
   };
   vm.createContext(ctx);
+  vm.runInContext(extract("markLocChoice", "id"), ctx);
   vm.runInContext(extract("photoChanged", ""), ctx);
   vm.runInContext("globalThis.changed = photoChanged;", ctx);
 

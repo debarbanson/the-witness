@@ -137,7 +137,8 @@ def test_try_your_own_says_what_works_and_how_long(tmp_path):
     assert "checked facts instead" in page
     assert "by design" in page
     assert 'id="upload"' in page
-    assert 'id="geo"' in page
+    assert 'id="loc-auto"' in page
+    assert 'id="geo"' not in page
     assert 'href="/privacy"' in page
 
 

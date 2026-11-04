@@ -311,3 +311,13 @@ The owner's second Rosslyn run on the judge page (14:29, a copy from the photo l
 13 new tests, plus page-script checks for the last card, the panel and the location cards. Suite 1334. Deployed 8aee1da as v22 (drained): judge 200, examples 3 of 3, Try on, staging 401, the new cards, panel heading and privacy sentence live.
 
 Still open: a scene that has no caption sentence is painted anyway, then left out of the film (1688 here, 2011 in the 14:29 run).
+
+## Paint only what the film can show (4 Nov, evening)
+
+The first scene in line is painted alone, with the photo as its reference, and every other scene waits for it before they are painted together. In the staging film above that first scene was 1688, which had no caption sentence and could never be shown: 36 s of the 382 s went into it. The 14:29 run painted 2011 the same way, alongside 1736, so there it cost money rather than time.
+
+- **The film's own gate decides first (cli.cmd_paint, filmable_only):** the web film now checks each scene with render.builder.filmable before painting. A scene the film would drop is skipped and recorded in the paint manifest with its reason, and the first filmable scene carries the photo instead. The command line keeps painting everything, so painting before captions still works there. 2 new tests.
+- **Replay on the two stored Rosslyn runs (no model calls):** the rule skips exactly 1688 in the staging film and 2011 in the 14:29 run.
+- It adds no facts to the film; a skipped scene's fact still appears among the more checked facts.
+
+Suite 1336. Deployed 7dd7214 as v23 (drained): judge 200, examples 3 of 3, Try on, staging 401.

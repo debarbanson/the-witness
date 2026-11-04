@@ -105,8 +105,61 @@ def test_anchor_card_for_age_range_and_for_year():
     assert builder.anchor_card(age_scene()) == {
         "line": "My story starts",
         "label": "about 800 to 1,200 years ago."}
-    assert builder.anchor_card(scene(1899)) == {
+    built = scene(1899, sentence="My construction began.")
+    claims = claims_for([built])
+    claims[0]["event"] = "built"
+    assert builder.anchor_card(built, claims) == {
         "line": "My story starts in", "label": "1899."}
+
+
+def test_anchor_card_claims_the_start_only_for_a_beginning():
+    """Rosslyn, 4 Nov: the first filmed fact was a 1736 restoration and
+    the card said "My story starts in 1736." for a chapel founded in
+    the 1450s. Only a checked build, opening or founding (or Wikidata's
+    build date) may say the story starts there; any other first fact is
+    named as the first checked date."""
+    def card(event, anchor=None):
+        made = scene(1736, sentence="Something happened to me.")
+        claims = claims_for([made])
+        if event is not None:
+            claims[0]["event"] = event
+        if anchor is not None:
+            claims[0]["anchor"] = anchor
+        return builder.anchor_card(made, claims)
+
+    for event in ("built", "Constructed", "erected", "completed", "opened",
+                  "founded", "planted"):
+        assert card(event)["line"] == "My story starts in", event
+    assert card("opened", anchor="build")["line"] == "My story starts in"
+    for event in ("restored", "repurposed", "damaged", "burnt", "rebuilt",
+                  "extended", "moved", None):
+        assert card(event) == {"line": "My first checked\u00a0date:",
+                               "label": "1736."}, event
+    assert card(None, anchor="build")["line"] == "My story starts in"
+    # The fact must be the one the caption cites, not any claim that year.
+    made = scene(1736, sentence="I was glazed.")
+    claims = claims_for([made]) + [{"year": 1736, "url": "https://b.example/y",
+                                    "verdict": "supported", "event": "built",
+                                    "claim": "built in 1736", "quote": "Built 1736."}]
+    claims[0]["event"] = "restored"
+    assert builder.anchor_card(made, claims)["line"] == "My first checked\u00a0date:"
+    # No claims given: nothing proves a beginning.
+    assert builder.anchor_card(made)["line"] == "My first checked\u00a0date:"
+
+
+def test_write_film_starts_the_story_on_a_checked_build_fact(tmp_path):
+    built = scene(1899, sentence="My construction began.")
+    claims = claims_for([built])
+    claims[0]["event"] = "built"
+    research = {
+        "object": {"name": "Light", "qid": "Q1", "lang": "en"},
+        "outcome": {"outcome": "full_film"}, "claims": claims,
+        "scenes": [built], "timeline": [], "timings": {},
+    }
+    out = builder.write_film(tmp_path, research, {"1899": "e/1899.png"},
+                             photo="today.jpg", photo_credit="me")
+    film = json.loads((out / "film.json").read_text())
+    assert film["anchor"] == {"line": "My story starts in", "label": "1899."}
 
 
 def test_anchor_card_never_shows_a_computed_sort_year():
@@ -130,7 +183,8 @@ def test_write_film_anchors_on_the_first_filmed_scene(tmp_path):
                              {"1779": "e/1779.png", "1932": "e/1932.png"},
                              photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
-    assert film["anchor"] == {"line": "My story starts in",
+    # Burning down is not where a mill's story starts.
+    assert film["anchor"] == {"line": "My first checked\u00a0date:",
                              "label": "1932."}
 
 
@@ -147,7 +201,8 @@ def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
                              photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert [entry["year"] for entry in film["scenes"]] == [1790]
-    assert film["anchor"] == {"line": "My story starts in",
+    # Major Oak: renamed in 1790 is not where a tree's story starts.
+    assert film["anchor"] == {"line": "My first checked\u00a0date:",
                              "label": "1790."}
 
 

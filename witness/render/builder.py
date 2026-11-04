@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from witness import children, states
+from witness.research import CONSTRUCTION_EVENTS
 from witness.verify import filmed, normalise_text
 
 TITLE_S = 3
@@ -281,21 +282,49 @@ def scene_site(scene, claims=()) -> str:
     return source_site(url) if url else ""
 
 
-def anchor_card(first_scene) -> dict:
+ORIGIN_EVENTS = CONSTRUCTION_EVENTS | {"opened", "founded", "planted"}
+
+# The card's 840 px line breaks this after "first", never before a
+# lone "date:": the no-break space keeps "checked date:" together.
+FIRST_CHECKED = "My first checked date:"
+
+
+def starts_story(scene, claims) -> bool:
+    """True only when the fact the scene's caption cites is the object's
+    beginning: a build, opening, founding or planting, or Wikidata's
+    build date. A restoration or a fire is never where a story starts."""
+    stored = scene.get("caption_sentence") or {}
+    evidence = stored.get("evidence") or {}
+    if not evidence.get("claim"):
+        return False
+    return any(claim.get("year") == stored.get("claim_year")
+               and claim.get("url") == evidence.get("url")
+               and claim.get("claim") == evidence["claim"]
+               and (claim.get("anchor") == "build"
+                    or (claim.get("event") or "").lower() in ORIGIN_EVENTS)
+               for claim in claims)
+
+
+def anchor_card(first_scene, claims=()) -> dict:
     """The opening card: a neutral line plus one year, or the age
     range. A from_year the scene's own label does not carry is a
-    computed sort key, never shown; the human label speaks instead."""
+    computed sort key, never shown; the human label speaks instead.
+    Only a beginning (starts_story) says the story starts there; any
+    other first fact is named as the first checked date."""
     label = first_scene.get("date_label", "") or ""
     if states.is_age_range(label):
         words = label[:-4] if label.endswith(" old") else label
         return {"line": "My story starts", "label": f"{words} ago."}
+    start = starts_story(first_scene, claims)
     year = first_scene.get("from_year")
     if isinstance(year, int) and str(year) in label:
         evidence = ((first_scene.get("caption_sentence") or {})
                     .get("evidence") or {})
         shown = stamp_for(label, year, evidence.get("quote", ""))
-        return {"line": "My story starts in", "label": f"{shown}."}
-    return {"line": "My story starts", "label": label or "before living memory"}
+        return {"line": "My story starts in" if start else FIRST_CHECKED,
+                "label": f"{shown}."}
+    return {"line": "My story starts" if start else FIRST_CHECKED,
+            "label": label or "before living memory"}
 
 
 def dated(scenes) -> list:
@@ -445,7 +474,7 @@ def _build_film(film_dir, research, images, photo, photo_credit,
             "photo_source": photo_source,
             "cutout": ("cutout.png" if cutout_file is not None else None),
             "today_line": today_line, "today_sub": today_sub,
-            "anchor": anchor_card(first),
+            "anchor": anchor_card(first, claims),
             "attribution": attribution,
             "ai_label": "Painted scenes are AI imagery, checked against verified sources.",
             "sources": end_sources(research.get("scenes", []),

@@ -59,8 +59,11 @@ for (const id of ["loc-photo", "loc-auto", "loc-type", "loc-here"]) {
 assert(html.includes('<input type="hidden" name="locate" id="locate">'),
   "no locate field");
 assert(html.includes(
-  'Only needed when you choose "I\'ll type its name and town".'),
+  "Only needed when you choose “I'll type its name and town”."),
   "no new place fine print");
+assert(html.indexOf("<h3>Step 2: Where is it?</h3>") <
+  html.indexOf('<div id="locq" class="hidden">'),
+  "the location choice sits under Step 2");
 assert(!html.includes("Leave it empty if the photo has its location"),
   "old place fine print must go");
 // The choice stays on screen after a pick, so nothing hides it.

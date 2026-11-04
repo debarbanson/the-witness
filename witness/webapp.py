@@ -1288,6 +1288,7 @@ TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multip
 <h3>Step 1: Your photo</h3>
 <p><label class="file-btn">Take or choose a photo<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label></p>
 <p><img id="preview" class="hidden" alt="Preview of your chosen photo"></p>
+<h3>Step 2: Where is it?</h3>
 <div id="locq" class="hidden">
 <p id="locq-text">This photo has no location. Where is the landmark?</p>
 <p><button type="button" class="loc-card hidden" id="loc-photo" aria-pressed="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span><strong>Use where the photo was taken</strong><small>Muse Spark matches the landmarks around that spot.</small></span></button></p>
@@ -1295,9 +1296,8 @@ TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multip
 <p><button type="button" class="loc-card" id="loc-type" aria-pressed="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span><strong>I'll type its name and town</strong><small>Enter the landmark and town below.</small></span></button></p>
 <p><button type="button" class="loc-card" id="loc-here" aria-pressed="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span><strong>I'm standing in front of it now</strong><small>Uses your phone's location once.</small></span></button></p>
 </div>
-<h3>Step 2: Where is it?</h3>
 <p><label>Landmark and town<input type="text" name="place" autocomplete="off" placeholder="De Adriaan, Haarlem"></label></p>
-<p class="fine">Only needed when you choose "I'll type its name and town".</p>
+<p class="fine">Only needed when you choose “I'll type its name and town”.</p>
 <p class="fine">Public places only, never a home address.</p>
 <p class="fine" id="geo-note"></p>
 <h3>Step 3: How your photo is used</h3>

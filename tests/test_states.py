@@ -362,3 +362,20 @@ def test_unchecked_visible_change_never_becomes_the_description():
     state = states.classify("built", "The tower was built.",
                             "A golden roof and six purple spires.")
     assert state["description"] == "The tower was built."
+
+
+@pytest.mark.parametrize("detail", [
+    "The chapel's altars were destroyed in 1592.",
+    "Chapel altars destroyed in 1592; during Reformation altar destroyed "
+    "and chapel fell into disuse",
+    "The pulpit and the pews were destroyed in 1688.",
+])
+def test_destroyed_fittings_inside_never_paint_a_ruin(detail):
+    """Altars, a pulpit and pews stand inside: their destruction is a
+    caption, never a ruined building seen from outside."""
+    assert states.classify("damaged", detail) is None
+
+
+def test_destroyed_building_still_reads_as_ruin():
+    state = states.classify("destroyed", "The chapel was destroyed by fire in 1592.")
+    assert state is not None and state["condition"] in ("ruin", "burnt")

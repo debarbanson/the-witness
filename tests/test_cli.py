@@ -4122,3 +4122,35 @@ def test_captions_run_in_parallel_with_identical_results(tmp_path, monkeypatch):
     assert [s["evidence"]["url"] for s in sentences] == [
         "https://example.org/1850", "https://example.org/1900",
         "https://example.org/1950"]
+
+
+def test_build_jobs_lets_research_claims_narrow_but_not_the_build_anchor():
+    """Only research claims may re-check a narrowed rewrite; the build
+    anchor keeps its own path, and caption jobs never set the flag."""
+    from witness.cli import build_jobs
+
+    texts = {"https://en.wikipedia.org/wiki/X": "The mill was built in 1779. Storms hit in 1930."}
+    claims = [
+        {"year": 1930, "event": "damaged", "claim": "damaged 1930", "sources": ["https://en.wikipedia.org/wiki/X"]},
+        {"year": 1779, "event": "built", "claim": "built 1779", "anchor": "build",
+         "sources": ["https://en.wikipedia.org/wiki/X"]},
+    ]
+    jobs = build_jobs(claims, texts, [], 1779)
+    assert {j["year"]: j.get("narrow") for j in jobs} == {1779: False, 1930: True}
+
+
+def test_narrowed_claim_replaces_the_bundled_text_on_the_claim():
+    """A narrowed claim that passes its own check carries the narrow
+    text from then on: captions, flags and the facts list read that,
+    never the bundled research text it came from."""
+    from witness.cli import apply_judged
+
+    claims = [{"year": 1862, "event": "restored", "claim": "bundled text",
+               "war_politics_only": False}]
+    jobs = [{"claim_index": 0}]
+    judged = [{"verdict": "supported", "claim": "Restoration work was carried out in 1862.",
+               "quote_span": "Restoration work was carried out in 1862.",
+               "narrowed_from": "bundled text", "war_politics_only": False}]
+    apply_judged(claims, jobs, judged)
+    assert claims[0]["claim"] == "Restoration work was carried out in 1862."
+    assert claims[0]["narrowed_from"] == "bundled text"

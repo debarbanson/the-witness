@@ -3,7 +3,8 @@
 Pure function of the verified claims. Interpretations pinned here:
 short film needs at least 3 verified claims across at least 2 eras (more
 eras never punish); fewer than 2 eras, like fewer than 3 claims, is too
-little; partly means no, even with a rewrite; war-only, political,
+little; partly means no, even with a rewrite (a narrowed rewrite that
+passed its own check arrives here as a supported claim); war-only, political,
 hateful or private-person claims never count, and a subject with only
 such claims is too little with the reason saying so.
 """

@@ -501,8 +501,86 @@ def quote_carries_year(quote, year, date_text="") -> bool:
     return phrase.lower() in text.lower()
 
 
+# A narrowed rewrite is only a fact when it reads like one: no talk
+# about the passages, the claim or what is or is not stated.
+_NARROW_META = re.compile(
+    r"\b(passages?|sources?|claims?|stated|statement|mentions?|mention|"
+    r"mentioned|unclear|unspecified|specified|does not|do not|did not|"
+    r"no evidence|according to)\b", re.IGNORECASE)
+# Clauses: a semicolon always ends one; a full stop only before a
+# capital, so "c. 833" and "c.1912-32" stay whole.
+_NARROW_SPLIT = re.compile(r";\s*|(?<=[.!?])\s+(?=[A-Z])")
+
+
+def narrowed_claim(rewrite, year):
+    """The verifier's rewrite of a partly claim as one checkable fact,
+    or None. Commentary clauses about the passages fall away; of what
+    remains, the first clause that carries the claim's year is the
+    fact. No year, no clean clause: never re-checked."""
+    if not isinstance(rewrite, str):
+        return None
+    if not isinstance(year, int) or isinstance(year, bool) or year == 0:
+        return None
+    text = " ".join(rewrite.split())
+    for clause in _NARROW_SPLIT.split(text):
+        clause = clause.strip().rstrip(".").strip()
+        if not 15 <= len(clause) <= 300:
+            continue
+        if _NARROW_META.search(clause):
+            continue
+        if str(year) in clause:
+            return clause + "."
+    return None
+
+
 def judge_claim(support_respond, job, completion_respond=None,
-              completion=True, dispute_check=None) -> dict:
+                completion=True, dispute_check=None) -> dict:
+    """One claim judged end to end (see _judge_once). A research job
+    (job["narrow"]) whose verdict is partly gets exactly one more
+    check: the verifier's narrowed rewrite, judged as a new claim with
+    the same votes, quote binding, date gate and content flags. Partly
+    itself never counts; the rewrite counts only when its own verdict
+    is supported, and then it replaces the bundled text. Its date is
+    the year unless the rewrite states the full date itself. Caption
+    and description jobs never narrow."""
+    result = _judge_once(support_respond, job, completion_respond,
+                         completion, dispute_check)
+    if not job.get("narrow") or result.get("verdict") != "partly":
+        return result
+    rewrite = narrowed_claim(result.get("rewritten"), job.get("year"))
+    if rewrite is None:
+        return result
+    date_text = job.get("date_text") or ""
+    narrowed_date = (date_text if date_text and date_text in rewrite
+                     else str(job.get("year")))
+    narrowed_job = {**job, "claim": rewrite, "detail": rewrite,
+                    "date_text": narrowed_date,
+                    "keywords": keywords_for_claim(rewrite, job.get("event", "")),
+                    "anchor": None, "narrow": False}
+    second = _judge_once(support_respond, narrowed_job, completion_respond,
+                         completion, dispute_check)
+    check = {"claim": rewrite, "verdict": second.get("verdict"),
+             "note": second.get("note")}
+    if second.get("verdict") != "supported":
+        return {**result, "narrowed_check": check}
+    note = "narrowed to what the source states and re-checked: supported"
+    prior = second.get("note")
+    return {**second,
+            # Content flags from either check stand: narrowing never
+            # launders war, political or private-person content.
+            "war_politics_only": bool(result.get("war_politics_only")
+                                      or second.get("war_politics_only")),
+            "refused_content": bool(result.get("refused_content")
+                                    or second.get("refused_content")),
+            "claim": rewrite, "quote_span": rewrite, "date_text": narrowed_date,
+            "narrowed_from": job.get("claim"), "narrowed_check": check,
+            "note": f"{note}; {prior}" if prior else note,
+            "rounds": list(result.get("rounds", [])) + list(second.get("rounds", [])),
+            "votes": result.get("votes", 0) + second.get("votes", 0)}
+
+
+def _judge_once(support_respond, job, completion_respond=None,
+                completion=True, dispute_check=None) -> dict:
     """One claim judged end to end: support vote, second judgement when
     the precheck says evidence is present, completion for state-setting
     claims. Every round is kept in the answer. Doubt wins: a claim is

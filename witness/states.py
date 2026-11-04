@@ -54,6 +54,9 @@ SURROUNDINGS = (
 INTERIOR = (
     "interior", "foyer", "lobby", "room", "ballroom", "restaurant",
     "entrance", "door", "doorway",
+    # Fittings that stand inside: destroying them leaves the building
+    # standing ("the altars were destroyed" is not a ruin).
+    "altar", "pulpit", "pews",
 )
 CONTENTS = (
     "exhibition", "collection", "furniture", "archive", "archives",

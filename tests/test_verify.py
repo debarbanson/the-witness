@@ -1639,3 +1639,192 @@ def test_no_canned_page_without_fake_flag(monkeypatch):
     assert seen, "real path consults the network"
     assert "The old mill was built here in the year 1850." not in text
     verify._cache.pop(models._FAKE_URL, None)
+
+
+# A partly claim's narrowed rewrite gets one re-check of its own.
+# "Partly" itself never counts; the rewrite counts only when it passes
+# the same strict check as any research claim.
+
+NARROW_URL = "https://en.wikipedia.org/wiki/Rosslyn_Chapel"
+NARROW_QUOTE = "Restoration work was carried out in 1862 by David Bryce."
+NARROW_PASSAGE = (f"{NARROW_URL}\n{NARROW_QUOTE} "
+                  "The chapel was rededicated on 22 April 1862.")
+BUNDLED = ("restored (22 April 1862): Restoration work carried out by David "
+           "Bryce, rededicated and Sunday services resumed")
+
+
+def narrowing_support(rewrite, recheck="supported", recheck_rewrite=None,
+                      asked_text=None):
+    """The bundled claim comes back partly with `rewrite`; the narrowed
+    fact (`asked_text`, by default the rewrite itself), when it is
+    asked about, comes back `recheck`."""
+    calls = []
+    lock = threading.Lock()
+    narrowed = asked_text or rewrite
+
+    def respond(prompt):
+        with lock:
+            calls.append(prompt)
+        asked = prompt.split("Claim to check:\n", 1)[-1].split("\n", 1)[0]
+        if narrowed and asked.startswith(narrowed):
+            verdict = recheck
+            answer = {"verdict": verdict,
+                      "quote": NARROW_QUOTE if verdict != "unsupported" else "",
+                      "url": NARROW_URL,
+                      "support": [{"url": NARROW_URL,
+                                   "supports": verdict != "unsupported",
+                                   "quote": NARROW_QUOTE}]}
+            if verdict == "partly":
+                answer["rewritten"] = recheck_rewrite or rewrite
+            return answered_with(answer)
+        return answered_with(
+            {"verdict": "partly", "quote": NARROW_QUOTE, "url": NARROW_URL,
+             "support": [{"url": NARROW_URL, "supports": True, "quote": NARROW_QUOTE}],
+             "rewritten": rewrite})
+
+    respond.calls = calls
+    return respond
+
+
+def narrow_job(**overrides):
+    base = {"claim": BUNDLED, "event": "restored", "detail": BUNDLED,
+            "year": 1862, "date_text": "22 April 1862",
+            "keywords": ["restoration", "bryce"], "passages": [NARROW_PASSAGE],
+            "urls": [NARROW_URL], "votes": 1, "narrow": True}
+    base.update(overrides)
+    return base
+
+
+def completes(prompt):
+    return answered_with({"completed": True, "quote": NARROW_QUOTE})
+
+
+def test_narrowed_rewrite_that_passes_its_own_check_counts():
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = narrowing_support(rewrite)
+    result = verify.judge_claim(respond, narrow_job(), completion_respond=completes)
+    assert result["verdict"] == "supported"
+    assert result["claim"] == rewrite
+    assert result["quote_span"] == rewrite
+    assert result["narrowed_from"] == BUNDLED
+    assert result["quote"] == NARROW_QUOTE
+    # the rededication date is not the restoration date: year only
+    assert result["date_text"] == "1862"
+    assert len(respond.calls) == 2
+    assert "narrowed" in result["note"]
+
+
+def test_narrowed_rewrite_keeps_a_full_date_it_states_itself():
+    rewrite = "The chapel was rededicated on 22 April 1862."
+    passage = f"{NARROW_URL}\nThe chapel was rededicated on 22 April 1862 by the bishop."
+    quote = "The chapel was rededicated on 22 April 1862 by the bishop."
+
+    def respond(prompt):
+        asked = prompt.split("Claim to check:\n", 1)[-1].split("\n", 1)[0]
+        verdict = "supported" if asked.startswith(rewrite) else "partly"
+        answer = {"verdict": verdict, "quote": quote, "url": NARROW_URL,
+                  "support": [{"url": NARROW_URL, "supports": True, "quote": quote}]}
+        if verdict == "partly":
+            answer["rewritten"] = rewrite
+        return answered_with(answer)
+
+    result = verify.judge_claim(
+        respond, narrow_job(event="repurposed", passages=[passage],
+                            keywords=["rededicated", "chapel"]),
+        completion_respond=lambda prompt: answered_with(
+            {"completed": True, "quote": quote}))
+    assert result["verdict"] == "supported"
+    assert result["date_text"] == "22 April 1862"
+
+
+def test_narrowed_rewrite_that_is_itself_partly_never_counts():
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = narrowing_support(rewrite, recheck="partly",
+                                recheck_rewrite="Restoration work was carried out in 1862.")
+    result = verify.judge_claim(respond, narrow_job(), completion_respond=completes)
+    assert result["verdict"] == "partly"
+    assert "narrowed_from" not in result
+    assert result.get("claim", BUNDLED) == BUNDLED
+    assert result["narrowed_check"]["verdict"] == "partly"
+    assert len(respond.calls) == 2  # one re-check, never a second
+
+
+@pytest.mark.parametrize("rewrite", [
+    # commentary about the passages is never a fact, even with the year
+    "The passages do not state that restoration work was carried out in 1862.",
+    # no year: the narrowed fact must carry the claim's year itself
+    "Restoration work was carried out by David Bryce.",
+    # the year only appears inside the commentary
+    "Restoration work was carried out by David Bryce; no passage mentions 1862.",
+    "",
+    None,
+])
+def test_unusable_rewrite_is_never_rechecked(rewrite):
+    respond = narrowing_support(rewrite)
+    result = verify.judge_claim(respond, narrow_job(), completion_respond=completes)
+    assert result["verdict"] == "partly"
+    assert len(respond.calls) == 1
+    assert "narrowed_from" not in result
+
+
+@pytest.mark.parametrize("rewrite", [
+    # the verifier's usual shape: the fact, then what the passages lack
+    "Restoration work was carried out in 1862 by David Bryce; the passages "
+    "do not state a rededication.",
+    "Restoration work was carried out in 1862 by David Bryce. No passage "
+    "states that Sunday services resumed.",
+    # two facts: only the one carrying the claim's year is checked
+    "The chapel was largely abandoned. Restoration work was carried out in "
+    "1862 by David Bryce.",
+])
+def test_only_the_clean_clause_with_the_year_is_rechecked(rewrite):
+    fact = "Restoration work was carried out in 1862 by David Bryce"
+    respond = narrowing_support(rewrite, asked_text=fact)
+    result = verify.judge_claim(respond, narrow_job(), completion_respond=completes)
+    assert result["verdict"] == "supported"
+    assert result["claim"] == fact + "."
+    assert len(respond.calls) == 2
+    assert not any(word in result["claim"].lower()
+                   for word in ("passage", "states", "abandoned"))
+
+
+def test_narrowed_claim_keeps_the_content_flags_of_the_original():
+    """A war or private-person flag on the bundled claim survives the
+    narrowing: the narrow fact never launders refused content."""
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    plain = narrowing_support(rewrite)
+
+    def respond(prompt):
+        answer = plain(prompt)
+        asked = prompt.split("Claim to check:\n", 1)[-1].split("\n", 1)[0]
+        if not asked.startswith(rewrite):
+            body = json.loads(answer["output"][0]["content"][0]["text"])
+            body.update({"war_politics_only": True, "refused_content": True})
+            return answered_with(body)
+        return answer
+
+    result = verify.judge_claim(respond, narrow_job(), completion_respond=completes)
+    assert result["verdict"] == "supported"
+    assert result["war_politics_only"] is True
+    assert result["refused_content"] is True
+    assert verify.filmed(result) is False
+
+
+def test_narrowed_claim_keeps_abbreviated_dates_whole():
+    assert (verify.narrowed_claim("Sanjaya completed the fifth stage c. 833.", 833)
+            == "Sanjaya completed the fifth stage c. 833.")
+    assert verify.narrowed_claim(
+        "The ruin was restored during the years 1912-1932 (c.1912-32). The "
+        "passages do not state a 1919 start.", 1932) == (
+        "The ruin was restored during the years 1912-1932 (c.1912-32).")
+
+
+def test_jobs_without_the_narrow_flag_never_recheck():
+    """Caption and description checks stay strict: a partly caption
+    is never rescued by its rewrite."""
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = narrowing_support(rewrite)
+    result = verify.judge_claim(respond, narrow_job(narrow=False),
+                                completion_respond=completes)
+    assert result["verdict"] == "partly"
+    assert len(respond.calls) == 1

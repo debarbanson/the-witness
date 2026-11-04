@@ -1451,3 +1451,30 @@ def test_identify_without_overpass_sends_no_overpass_request(tmp_path):
     assert found.name == "Testtoren"
     assert events == ["location", "candidates"]
     assert timings["overpass_s"] == 0
+
+
+def test_browser_fix_no_match_fallback_keeps_overpass_off(monkeypatch):
+    """Overpass off means off on every path: when a browser-fix run
+    finds nothing and the vision name retries, the retry must not turn
+    Overpass back on (the privacy notice no longer lists it)."""
+    seen = []
+    found = object()
+
+    def once(*args, **kwargs):
+        seen.append(kwargs.get("overpass", True))
+        if len(seen) == 1:
+            raise identify.NotIdentifiedError("synthetic no match")
+        return found
+
+    def no_gps(*args):
+        raise identify.NoGpsError("synthetic no GPS")
+
+    monkeypatch.setattr(identify, "_identify_once", once)
+    monkeypatch.setattr(identify, "checked_location", lambda value: value)
+    monkeypatch.setattr(identify, "read_location", no_gps)
+    monkeypatch.setattr(identify, "guess_landmark", lambda *args: "Synthetic town")
+    monkeypatch.setattr(identify, "geocode", lambda *args, **kwargs: None)
+    result = identify.identify("synthetic-photo", respond=lambda *args: None,
+                               location=("synthetic", "synthetic"), overpass=False)
+    assert result is found
+    assert seen == [False, False]

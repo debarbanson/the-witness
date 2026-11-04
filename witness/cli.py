@@ -1145,6 +1145,9 @@ def build_jobs(claims, texts, snippets, anchor_year) -> list:
             "urls": claim["sources"], "votes": _votes_for(claim, detail, anchor_year),
             "anchor": claim.get("anchor"), "claim_index": index,
             "anchor_names": claim.get("anchor_names") or (),
+            # A research claim may re-check its narrowed rewrite once
+            # (verify.judge_claim); the build anchor keeps its own path.
+            "narrow": claim.get("anchor") != "build",
         })
     jobs.sort(key=lambda j: (j["anchor"] != "build", j["year"]))
     return jobs

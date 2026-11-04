@@ -212,7 +212,7 @@ def identify(photo, place=None, post=None, get=None, respond=None, sleep=time.sl
                 if not had_gps:
                     return _identify_from_guess(
                         photo, failed, post, get, respond, sleep, cache,
-                        lang, timings, progress, pace)
+                        lang, timings, progress, pace, overpass)
                 raise
             try:
                 read_location(photo)

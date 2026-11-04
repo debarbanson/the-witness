@@ -225,4 +225,97 @@ assert.strictEqual(childPage,
 assert.strictEqual(audienceTarget({ sibling_page: "../film.html" }, childPage),
   adultPage, "child returns to the adult page");
 
-console.log("player check OK: finished film, photo-first today, titled sources");
+// A 202 "still publishing" retries the manifest fetch; never a final miss.
+function extractBoot(name, args) {
+  const found = html.match(
+    new RegExp("(?:async )?function " + name + "\\(" + args +
+      "\\) \\{[\\s\\S]*?\\n\\}"));
+  assert(found, "no " + name + "(" + args + ")");
+  return found[0];
+}
+
+{
+  const stage = { fetches: 0, started: null, failed: null, timers: [],
+    script: [] };
+  const boot = {
+    fetch: () => {
+      stage.fetches += 1;
+      const next = stage.script.length ? stage.script.shift() : 200;
+      if (next === 202) {
+        return Promise.resolve({ status: 202,
+          json: () => Promise.resolve({ status: "publishing" }) });
+      }
+      if (next === 404) {
+        return Promise.resolve({ status: 404,
+          json: () => Promise.reject(new Error("no json")) });
+      }
+      return Promise.resolve({ status: 200,
+        json: () => Promise.resolve({ scenes: [] }) });
+    },
+    setTimeout: (fn) => { stage.timers.push(fn); return stage.timers.length; },
+    start: (film) => { stage.started = film; },
+    document: { getElementById: () => makeEl() },
+    console,
+  };
+  vm.createContext(boot);
+  vm.runInContext(extractBoot("fail", "msg"), boot);
+  vm.runInContext(extractBoot("loadFilmJson", "left"), boot);
+  vm.runInContext("globalThis.load = loadFilmJson;", boot);
+
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  async function drain() {
+    for (let i = 0; i < 40 && (stage.timers.length || i < 2); i++) {
+      while (stage.timers.length) {
+        stage.timers.shift()();
+      }
+      await tick();
+    }
+    await tick();
+    await tick();
+  }
+  function reset(script) {
+    stage.fetches = 0; stage.started = null; stage.timers = [];
+    stage.script = script.slice();
+    boot.document.getElementById = () => {
+      const el = makeEl();
+      Object.defineProperty(el, "textContent", {
+        get: () => stage.failed || "",
+        set: (v) => { stage.failed = v; },
+      });
+      return el;
+    };
+    stage.failed = null;
+  }
+
+  (async () => {
+    reset([200]);
+    vm.runInContext("load(15)", boot);
+    await drain();
+    assert(stage.started, "a ready film starts");
+    assert.strictEqual(stage.fetches, 1, "no retry when ready");
+
+    reset([202, 202, 200]);
+    vm.runInContext("load(15)", boot);
+    await drain();
+    assert(stage.started, "a published film starts after retries");
+    assert.strictEqual(stage.fetches, 3, "each 202 retries once");
+
+    reset(new Array(20).fill(202));
+    vm.runInContext("load(15)", boot);
+    await drain();
+    assert(!stage.started, "nothing starts while publishing");
+    assert.strictEqual(stage.fetches, 16, "retries are bounded");
+    assert(stage.failed && stage.failed.includes("still publishing"),
+      "exhaustion says still publishing, never a missing film");
+
+    reset([404]);
+    vm.runInContext("load(15)", boot);
+    await drain();
+    assert(!stage.started, "a missing manifest never starts");
+    assert(stage.failed && stage.failed.includes("needs film.json"),
+      "a true miss keeps its message");
+  })().then(
+    () => console.log(
+      "player check OK: finished film, photo-first today, titled sources"),
+    (err) => { console.error(err); process.exit(1); });
+}

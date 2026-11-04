@@ -66,23 +66,60 @@ async def _reload_once(volume) -> None:
         await asyncio.to_thread(volume.reload)
 
 
-async def film_reload(volume) -> None:
+FILM_RELOAD_S = 2.0  # hard bound on the whole retry loop
+FILM_RELOAD_TRIES = 3
+PUBLISHING_RETRY_S = 2
+
+
+async def film_reload(volume) -> bool:
     """Fresh snapshot for /film/: a just-committed film must show,
-    so an open-files conflict retries briefly (3 tries within 2 s)
-    instead of serving stale at once. Any other error raises."""
-    deadline = time.monotonic() + 2.0
-    tries = 0
-    while True:
-        try:
-            await _reload_once(volume)
-            return
-        except (ConflictError, RuntimeError) as exc:
-            if not _reload_conflict(exc):
-                raise
-            tries += 1
-            if tries >= 3 or time.monotonic() >= deadline:
-                return
-            await asyncio.sleep(0.2)
+    so an open-files conflict retries briefly instead of serving
+    stale at once. True when the snapshot is fresh; False after
+    three conflicts or a hard 2 s timeout. Any other error raises."""
+    try:
+        async with asyncio.timeout(FILM_RELOAD_S):
+            for attempt in range(FILM_RELOAD_TRIES):
+                try:
+                    await _reload_once(volume)
+                    return True
+                except (ConflictError, RuntimeError) as exc:
+                    if not _reload_conflict(exc):
+                        raise
+                    if attempt < FILM_RELOAD_TRIES - 1:
+                        await asyncio.sleep(0.2)
+            return False
+    except TimeoutError:
+        return False
+
+
+_PUBLISHING_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Still publishing</title>
+</head>
+<body>
+<p id="note">Still publishing your film. Retrying&hellip;</p>
+<p><a href="">Reload now</a></p>
+<script>
+var left = 15;
+var timer = setInterval(function () {
+  left -= 1;
+  if (left <= 0) {
+    clearInterval(timer);
+    document.getElementById("note").textContent =
+      "Still publishing. Reload to try again.";
+    return;
+  }
+  location.reload();
+}, 2000);
+</script>
+</body>
+</html>
+""".encode("utf-8")
+
+_PUBLISHING_JSON = b'{"status": "publishing", "retry_after_s": 2}'
 
 
 async def examples_reload(volume) -> None:
@@ -99,30 +136,72 @@ class ReloadingApp:
     """Reload volumes before serving files, without stalling the page.
 
     /film/ retries a conflict briefly so a just-committed film
-    shows; /examples/ reloads at most once a minute (uploads land
-    with a deploy, per the runbook); every other path never touches
-    the volumes. One instance lives on the container, so the
-    examples throttle is per container."""
+    shows; when the snapshot stays stale a miss answers 'still
+    publishing' with a retry instead of a final 404; /examples/
+    reloads at most once a minute (uploads land with a deploy, per
+    the runbook); every other path never touches the volumes. One
+    instance lives on the container, so the examples throttle is
+    per container."""
 
     EXAMPLES_RELOAD_S = 60.0
 
-    def __init__(self, wrapped, volume, shared, clock=None):
+    def __init__(self, wrapped, volume, shared, clock=None, noindex=False):
         self._wrapped = wrapped
         self._volume = volume
         self._shared = shared
         self._clock = clock or time.monotonic
+        self._noindex = noindex
         self._examples_at = 0.0
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
         if path.startswith("/film/"):
-            await film_reload(self._volume)
+            if await film_reload(self._volume):
+                await self._wrapped(scope, receive, send)
+            else:
+                await self._guarded(scope, receive, send)
         elif path.startswith("/examples/"):
             now = self._clock()
             if now - self._examples_at >= self.EXAMPLES_RELOAD_S:
                 self._examples_at = now
                 await examples_reload(self._shared)
-        await self._wrapped(scope, receive, send)
+            await self._wrapped(scope, receive, send)
+        else:
+            await self._wrapped(scope, receive, send)
+
+    async def _guarded(self, scope, receive, send):
+        """Serve through a stale snapshot, but never a final miss:
+        a 404 may mean our snapshot missed the commit, so answer
+        'still publishing' with a retry instead. Anything else
+        streams through untouched."""
+        if scope.get("path", "").endswith(".html"):
+            body, content = _PUBLISHING_PAGE, b"text/html; charset=utf-8"
+        else:
+            body, content = _PUBLISHING_JSON, b"application/json"
+        headers = [(b"content-type", content),
+                   (b"content-length", str(len(body)).encode("ascii")),
+                   (b"retry-after", str(PUBLISHING_RETRY_S).encode("ascii")),
+                   (b"x-content-type-options", b"nosniff")]
+        if self._noindex:
+            headers.append((b"x-robots-tag", b"noindex"))
+        state = {}
+
+        async def watching_send(message):
+            if message["type"] == "http.response.start":
+                state["missing"] = message["status"] == 404
+                if state["missing"]:
+                    await send({"type": "http.response.start",
+                                "status": 202, "headers": headers})
+                else:
+                    await send(message)
+            elif state.get("missing"):
+                if not message.get("more_body", False):
+                    await send({"type": "http.response.body", "body": body,
+                                "more_body": False})
+            else:
+                await send(message)
+
+        await self._wrapped(scope, receive, watching_send)
 
 app = modal.App("the-witness")
 
@@ -971,4 +1050,5 @@ def judge():
         try_enabled=_try_enabled,
         noindex=True))
 
-    return ReloadingApp(app, judge_jobs_volume, examples_volume)
+    return ReloadingApp(app, judge_jobs_volume, examples_volume,
+                            noindex=True)

@@ -1119,23 +1119,161 @@ def test_film_reload_retries_conflict_then_serves_fresh():
     assert responses == [(200, b"finished film")]
 
 
-def test_film_reload_gives_up_after_three_conflicts():
+def test_exhausted_reload_answers_still_publishing():
     import asyncio
     import time
 
-    volume, calls = _raising_volume(_conflict_errors()[1])
-    responses = []
+    async def missing(scope, receive, send):
+        await send({"type": "http.response.start", "status": 404,
+                    "headers": []})
+        await send({"type": "http.response.body", "body": b"no such film"})
+
+    async def run(path):
+        volume, calls = _raising_volume(_conflict_errors()[1])
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        app = modal_app.ReloadingApp(missing, volume, volume)
+        started = time.monotonic()
+        await app({"path": path}, None, send)
+        assert time.monotonic() - started < 2.0
+        assert calls["n"] == 3
+        return sent
+
+    async def both():
+        return (await run("/film/job/token/film.html"),
+                await run("/film/job/token/film.json"))
+
+    html, data = asyncio.run(both())
+    assert html[0]["status"] == 202
+    page = b"".join(m.get("body", b"") for m in html[1:])
+    assert b"Still publishing" in page
+    assert b"location.reload()" in page  # the page retries itself
+    assert b"no such film" not in page
+    assert data[0]["status"] == 202
+    import json
+
+    payload = json.loads(
+        b"".join(m.get("body", b"") for m in data[1:]))
+    assert payload["status"] == "publishing"
+
+
+def test_stale_snapshot_streams_through_untouched():
+    import asyncio
+
+    volume, _ = _raising_volume(_conflict_errors()[1])
+    chunks = [b"bytes-", b"streamed-", b"whole"]
+
+    async def present(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200,
+                    "headers": [(b"content-type", b"image/webp")]})
+        for index, chunk in enumerate(chunks):
+            await send({"type": "http.response.body", "body": chunk,
+                        "more_body": index < len(chunks) - 1})
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    app = modal_app.ReloadingApp(present, volume, volume)
+    asyncio.run(app({"path": "/film/job/token/era_1900.webp"}, None, send))
+    assert sent[0]["status"] == 200
+    assert sent[0]["headers"] == [(b"content-type", b"image/webp")]
+    assert b"".join(m.get("body", b"") for m in sent[1:]) == b"".join(chunks)
+
+
+def test_film_reload_timeout_is_real():
+    import asyncio
+    import time
+    from types import SimpleNamespace
+
+    async def hanging():
+        await asyncio.sleep(30)
+
+    volume = SimpleNamespace(reload=SimpleNamespace(aio=hanging))
+    started = time.monotonic()
+    assert asyncio.run(modal_app.film_reload(volume)) is False
+    assert time.monotonic() - started < 3.0
+
+
+def test_new_reader_retries_while_a_file_is_open():
+    import asyncio
+    from types import SimpleNamespace
+
+    from modal.exception import ConflictError
+
+    held = {"open": True}
+    local = {"film": None}
+    durable = {"film": b"committed film"}
+
+    async def guarded_reload():
+        if held["open"]:
+            raise ConflictError("there are open files preventing "
+                                "the operation")
+        local.update(durable)
+
+    volume = SimpleNamespace(reload=SimpleNamespace(aio=guarded_reload))
 
     async def inner(scope, receive, send):
-        responses.append("served stale")
+        if local["film"] is None:
+            await send({"type": "http.response.start", "status": 404,
+                        "headers": []})
+            await send({"type": "http.response.body",
+                        "body": b"no such film"})
+            return
+        await send({"type": "http.response.start", "status": 200,
+                    "headers": []})
+        await send({"type": "http.response.body", "body": local["film"]})
 
-    app = modal_app.ReloadingApp(
-        inner, volume, volume)
-    started = time.monotonic()
-    asyncio.run(app({"path": "/film/job/token/film.html"}, None, None))
-    assert time.monotonic() - started < 2.0
-    assert calls["n"] == 3
-    assert responses == ["served stale"]
+    async def fetch():
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        app = modal_app.ReloadingApp(inner, volume, volume)
+        await app({"path": "/film/job/token/film.json"}, None, send)
+        return sent
+
+    async def run():
+        second = await fetch()  # another reader streams the file
+        held["open"] = False  # the stream ends, the commit lands
+        third = await fetch()
+        return second, third
+
+    second, third = asyncio.run(run())
+    assert second[0]["status"] == 202  # never a final missing film
+    assert third[0]["status"] == 200
+    assert b"".join(m.get("body", b"") for m in third[1:]) == b"committed film"
+
+
+def test_retry_state_carries_noindex_on_judge():
+    import asyncio
+
+    volume, _ = _raising_volume(_conflict_errors()[1])
+
+    async def missing(scope, receive, send):
+        await send({"type": "http.response.start", "status": 404,
+                    "headers": []})
+        await send({"type": "http.response.body", "body": b"gone"})
+
+    async def run(noindex):
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        app = modal_app.ReloadingApp(missing, volume, volume,
+                                     noindex=noindex)
+        await app({"path": "/film/job/token/film.html"}, None, send)
+        return dict(sent[0]["headers"])
+
+    headers = asyncio.run(run(True))
+    assert headers.get(b"x-robots-tag") == b"noindex"
+    assert b"x-robots-tag" not in asyncio.run(run(False))
 
 
 def test_unrelated_paths_skip_reload_and_never_wait():

@@ -334,8 +334,23 @@ if (embedded && embedded.textContent.trim() &&
   }
 } else {
   // Fallback for pages built before the data was embedded.
-  fetch("film.json").then(r => r.json()).then(start).catch(() =>
-    fail("This film needs film.json next to it to play."));
+  loadFilmJson(15);
+}
+
+function loadFilmJson(left) {
+  fetch("film.json").then(r => {
+    if (r.status === 202) {
+      if (left > 0) {
+        setTimeout(function () { loadFilmJson(left - 1); }, 2000);
+      } else {
+        fail("The film is still publishing. Reload to try again.");
+      }
+      return null;
+    }
+    return r.json();
+  }).then(film => {
+    if (film) { start(film); }
+  }).catch(() => fail("This film needs film.json next to it to play."));
 }
 </script>
 </body>

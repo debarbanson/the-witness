@@ -875,72 +875,91 @@ function finishSteps(st) {
 }
 function showResult(box, st) {
   const r = st.result || {};
-  const parts = [r.film_url ? "Ready." : (r.message || st.status)];
+  box.textContent = "";
+  const msg = r.film_url ? "Ready." : (r.message || st.status);
   const hint = notConfirmedHint(r.film_url ? "" : (r.message || ""));
-  if (hint) { parts.push(hint); }
-  const claims = r.claims || [];
-  if (claims.length && !r.film_url) { parts.push("Checked facts:"); }
-  for (const c of claims) {
-    parts.push((c.year ? c.year + ": " : "") + c.claim);
-  }
-  box.textContent = parts.join(" ");
+  const lead = document.createElement("p");
+  lead.textContent = hint ? msg + " " + hint : msg;
+  box.appendChild(lead);
   if (r.film_url) {
     const a = document.createElement("a");
     a.href = r.film_url; a.textContent = "Watch your film.";
-    box.appendChild(document.createTextNode(" "));
-    box.appendChild(a);
+    const line = document.createElement("p");
+    line.appendChild(a);
+    box.appendChild(line);
+    return;
   }
-  for (const c of claims) {
-    if (typeof c.url === "string" && /^https?:\/\//.test(c.url)) {
-      const a = document.createElement("a");
-      a.href = c.url; a.textContent = " (source)";
-      box.appendChild(a);
-    }
-  }
-  for (const s of r.sources || []) {
-    box.appendChild(document.createTextNode(" "));
-    if (typeof s.url === "string" && s.url.indexOf("https:" + "//") === 0) {
-      const a = document.createElement("a");
-      a.href = s.url; a.textContent = s.domain || "source";
-      box.appendChild(a);
-      box.appendChild(document.createTextNode(" " + (s.outcome || "")));
-    } else {
-      box.appendChild(document.createTextNode(
-        (s.domain || "a source") + " " + (s.outcome || "")));
-    }
-  }
-  if (!r.film_url) {
-    const links = r.links || [];
-    if (r.subject && links.length) {
-      box.appendChild(document.createTextNode(" "));
-      const h = document.createElement("strong");
-      h.textContent = "Read more about " + r.subject + ":";
-      box.appendChild(h);
-      for (const l of links) {
-        box.appendChild(document.createTextNode(" "));
-        if (typeof l.url === "string" && l.url.indexOf("https:" + "//") === 0) {
-          const a = document.createElement("a");
-          a.href = l.url; a.textContent = l.label || l.url;
-          box.appendChild(a);
-        } else {
-          box.appendChild(document.createTextNode(l.label || "link"));
-        }
+  const claims = r.claims || [];
+  if (claims.length) {
+    const h = document.createElement("strong");
+    h.textContent = "Checked facts:";
+    box.appendChild(h);
+    const list = document.createElement("ul");
+    for (const c of claims) {
+      const item = document.createElement("li");
+      item.textContent = (c.year ? c.year + ": " : "") + (c.claim || "");
+      if (typeof c.url === "string" && /^https?:\/\//.test(c.url)) {
+        const a = document.createElement("a");
+        a.href = c.url; a.textContent = " (source)";
+        item.appendChild(a);
       }
+      list.appendChild(item);
     }
-    const quotes = r.quotes || [];
-    if (quotes.length) {
-      box.appendChild(document.createTextNode(" "));
-      const h = document.createElement("strong");
-      h.textContent = "In the sources' own words (quoted from the pages we read, not checked for a film):";
-      box.appendChild(h);
-      for (const q of quotes) {
-        box.appendChild(document.createTextNode(" \u201c" + (q.text || "") + "\u201d"));
-        if (typeof q.url === "string" && q.url.indexOf("https:" + "//") === 0) {
-          const a = document.createElement("a");
-          a.href = q.url; a.textContent = " (source)";
-          box.appendChild(a);
-        }
+    box.appendChild(list);
+  }
+  const sources = r.sources || [];
+  if (sources.length) {
+    const h = document.createElement("strong");
+    h.textContent = "What happened per source:";
+    box.appendChild(h);
+    const list = document.createElement("ul");
+    for (const s of sources) {
+      const item = document.createElement("li");
+      if (typeof s.url === "string" && s.url.indexOf("https:" + "//") === 0) {
+        const a = document.createElement("a");
+        a.href = s.url; a.textContent = s.domain || "source";
+        item.appendChild(a);
+        item.appendChild(document.createTextNode(" " + (s.outcome || "")));
+      } else {
+        item.textContent =
+          (s.domain || "a source") + " " + (s.outcome || "");
       }
+      list.appendChild(item);
+    }
+    box.appendChild(list);
+  }
+  const links = r.links || [];
+  if (r.subject && links.length) {
+    const h = document.createElement("strong");
+    h.textContent = "Read more about " + r.subject + ":";
+    box.appendChild(h);
+    const line = document.createElement("p");
+    links.forEach((l, i) => {
+      if (i) { line.appendChild(document.createTextNode(" · ")); }
+      if (typeof l.url === "string" && l.url.indexOf("https:" + "//") === 0) {
+        const a = document.createElement("a");
+        a.href = l.url; a.textContent = l.label || l.url;
+        line.appendChild(a);
+      } else {
+        line.appendChild(document.createTextNode(l.label || "link"));
+      }
+    });
+    box.appendChild(line);
+  }
+  const quotes = r.quotes || [];
+  if (quotes.length) {
+    const h = document.createElement("strong");
+    h.textContent = "In the sources' own words (quoted from the pages we read, not checked for a film):";
+    box.appendChild(h);
+    for (const q of quotes) {
+      const bq = document.createElement("blockquote");
+      bq.textContent = "\u201c" + (q.text || "") + "\u201d";
+      if (typeof q.url === "string" && q.url.indexOf("https:" + "//") === 0) {
+        const a = document.createElement("a");
+        a.href = q.url; a.textContent = " (source)";
+        bq.appendChild(a);
+      }
+      box.appendChild(bq);
     }
   }
 }
@@ -1338,11 +1357,11 @@ photo has none, and your confirm or cancel clicks. Please type
 public places only.</p>
 <h2>Who processes it</h2>
 <ul>
-<li>Meta: object recognition, era paintings, painting checks.</li>
+<li>Meta: object recognition, research with web search, captions, era paintings and painting checks.</li>
 <li>Baseten (open-weights Muse Spark): fact checking.</li>
 <li>Modal: hosts this page and runs the film worker.</li>
 <li>Nominatim: typed place to coordinates.</li>
-<li>Wikidata and Wikipedia: facts and source texts.</li>
+<li>Wikidata and Wikipedia: nearby landmarks for the photo's location (when it has one or you share it), then facts and source texts.</li>
 </ul>
 <p>This demo runs on Meta's free developer credits; under those terms Meta may use what we send it to improve its products. Our own copies are deleted within about a day.</p>
 <h2>How long it is kept</h2>

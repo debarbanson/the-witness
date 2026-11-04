@@ -149,4 +149,65 @@ showResult(filmExtras, { status: "done",
 assert(!flatten(filmExtras).includes("Read more about"));
 assert(!flatten(filmExtras).includes("In the sources' own words"));
 
+// Two facts: each source link sits inside its own fact's item.
+const two = makeEl();
+showResult(two, { status: "done", result: {
+  message: "Too little evidence for a film; the facts are below.",
+  claims: [
+    { year: 1932, claim: "The mill burnt down.",
+      url: "https://a.example/fire" },
+    { year: 1986, claim: "The mill grew tulips.",
+      url: "https://a.example/tulips" },
+  ],
+} });
+const items = [];
+(function walk(node) {
+  for (const child of node.children || []) {
+    if ((child.children || []).some((c) => c.href)) { items.push(child); }
+    walk(child);
+  }
+})(two);
+assert.strictEqual(items.length, 2, "one item per fact");
+assert(flatten(items[0]).includes("1932:"));
+assert(flatten(items[0]).includes("The mill burnt down."));
+assert.strictEqual(
+  items[0].children.filter((c) => c.href)[0].href,
+  "https://a.example/fire");
+assert(flatten(items[1]).includes("1986:"));
+assert.strictEqual(
+  items[1].children.filter((c) => c.href)[0].href,
+  "https://a.example/tulips");
+
+// Sections keep their order: message, facts, sources, links, quotes.
+const ordered = makeEl();
+showResult(ordered, { status: "done", result: {
+  message: "No film about Mill this time.",
+  claims: [{ year: 1850, claim: "The mill stood.",
+             url: "https://a.example/mill" }],
+  sources: [{ domain: "en.wikipedia.org",
+              url: "https://en.wikipedia.org/wiki/Mill", outcome: "read" }],
+  subject: "Mill",
+  links: [{ label: "Wikidata", url: "https://www.wikidata.org/wiki/Q1" }],
+  quotes: [{ text: "The mill stood tall.",
+             url: "https://en.wikipedia.org/wiki/Mill" }],
+} });
+const sequence = flatten(ordered);
+let at = -1;
+for (const mark of ["No film about Mill", "Checked facts:",
+    "What happened per source:", "Read more about Mill",
+    "In the sources' own words"]) {
+  const next = sequence.indexOf(mark);
+  assert(next > at, mark + " out of order");
+  at = next;
+}
+
+// Data never becomes markup.
+const markup = makeEl();
+showResult(markup, { status: "done", result: {
+  message: "m",
+  claims: [{ year: 1850, claim: "<b>bold</b>",
+             url: "https://a.example/mill" }],
+} });
+assert(flatten(markup).includes("<b>bold</b>"));
+
 console.log("result end states: OK");

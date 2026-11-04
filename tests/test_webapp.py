@@ -645,6 +645,16 @@ def test_privacy_notice_mentions_the_ip_hash():
     assert "24 h" in webapp.PRIVACY_PAGE
 
 
+def test_privacy_notice_names_meta_tasks_and_wiki_lookups():
+    from witness import webapp
+
+    assert ("Meta: object recognition, research with web search, captions, "
+            "era paintings and painting checks." in webapp.PRIVACY_PAGE)
+    assert ("Wikidata and Wikipedia: nearby landmarks for the photo's "
+            "location (when it has one or you share it), then facts and "
+            "source texts." in webapp.PRIVACY_PAGE)
+
+
 def test_end_job_sets_status_result_and_end():
     store = MemoryStore(clock=lambda: 555.0)
     store.create_job("j", {"status": "working", "ended_at": None})

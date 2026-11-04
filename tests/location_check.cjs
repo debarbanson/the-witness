@@ -257,14 +257,20 @@ assert.strictEqual(notConfirmedHint(""), "");
 const touched = [];
 sandbox.document = {
   getElementById: (id) => { touched.push(id); return null; },
-  createElement: () => ({ textContent: "", href: "" }),
-  createTextNode: () => ({}),
+  createElement: () => ({ textContent: "", href: "", children: [],
+    appendChild(c) { this.children.push(c); } }),
+  createTextNode: (text) => ({ text }),
 };
-const box = { textContent: "", appendChild() {} };
+const box = { textContent: "", children: [],
+  appendChild(c) { this.children.push(c); } };
 vm.runInContext(extract("showResult", "box, st"), sandbox);
 vm.runInContext("showResult", sandbox)(box, { status: "done",
   result: { message: "Not confirmed. Only the identification ran." } });
-assert(box.textContent.includes("Type its name and town"), "hint shown");
+function flat(node) {
+  if (node.text !== undefined) { return node.text; }
+  return (node.textContent || "") + (node.children || []).map(flat).join("");
+}
+assert(flat(box).includes("Type its name and town"), "hint shown");
 assert(!touched.includes("upload"), "form untouched, photo kept");
 
 // --- photoChanged: clears the old fix, guards out-of-order reads --------

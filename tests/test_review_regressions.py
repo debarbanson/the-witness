@@ -858,7 +858,7 @@ async function fetch(url) {
   if (mode === "http500") { return {ok: false, status: 500, json: async () => ({error: "boom"})}; }
   return {json: async () => statuses.shift()};
 }
-const context = {document: {getElementById: el, createElement: () => ({}), querySelector: () => null, querySelectorAll: () => []}, navigator: {}, window: {addEventListener() {}},
+const context = {document: {getElementById: el, createElement: () => ({textContent: "", children: [], appendChild(x) { this.children.push(x); }}), querySelector: () => null, querySelectorAll: () => []}, navigator: {}, window: {addEventListener() {}},
   FormData: class {}, Date, setInterval: () => 1, clearInterval() {}, setTimeout: fn => fn(), alert: () => {}, fetch,
   console};
 vm.createContext(context); vm.runInContext(SOURCE, context);
@@ -871,8 +871,10 @@ const phases = [];
 (async () => {
   await elements.upload.onsubmit({preventDefault() {}});
   const result = elements.result || {textContent: "", children: []};
-  const links = (result.children || []).map(c => c.href || null);
-  process.stdout.write(JSON.stringify({facts: result.textContent, phases, links}));
+  const hrefs = [];
+  (function walk(n) { for (const c of n.children || []) { if (c.href) { hrefs.push(c.href); } walk(c); } })(result);
+  function flat(n) { return (n.textContent || "") + (n.children || []).map(flat).join(" "); }
+  process.stdout.write(JSON.stringify({facts: flat(result), phases, links: hrefs}));
 })().catch(e => { process.stderr.write(String(e)); process.exit(1); });
 """
 

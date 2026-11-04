@@ -62,6 +62,11 @@ function jsonResponse(obj, status = 200) {
            json: async () => obj };
 }
 
+function shown(node) {
+  if (node.text !== undefined) { return node.text; }
+  return (node.textContent || "") + (node.children || []).map(shown).join("");
+}
+
 async function fakeFetch(url, opts = {}) {
   const method = (opts.method || "GET").toUpperCase();
   calls.push(`${method} ${url}`);
@@ -259,13 +264,13 @@ vm.createContext(sandbox);
     assert(btn.onclick, "Cancel button has no handler");
     const clicked = btn.onclick();
     assert(btn.disabled === true, "cancel not disabled on click");
-    assert(result.textContent.includes("Cancelling"),
+    assert(shown(result).includes("Cancelling"),
       "no cancelling feedback");
     await clicked;
     for (let i = 0; i < 20; i++) { await flush(); }
     assert(calls.includes("DELETE /api/jobs/job-9"),
       `no cancel DELETE in ${JSON.stringify(calls)}`);
-    assert(result.textContent.includes("Cancelled"),
+    assert(shown(result).includes("Cancelled"),
       "no cancelled confirmation");
     assert(btn.style.display === "none", "cancel visible after end");
     console.log("cancel feedback then cancelled: OK");
@@ -277,7 +282,7 @@ vm.createContext(sandbox);
     assert.strictEqual(posts.length, 0, "resume admitted a second job");
     assert(calls.some((c) => c === "GET /api/jobs/job-9"), "never polled");
     assert(!("witness.job" in saved), "save not cleared at finish");
-    const text = sandbox.document.getElementById("result").textContent;
+    const text = shown(sandbox.document.getElementById("result"));
     const kids = sandbox.document.getElementById("result").children.length;
     assert(text.includes("/film/job-9/tok/film.html") || kids > 0,
       "film link not shown");
@@ -289,7 +294,7 @@ vm.createContext(sandbox);
     assert.strictEqual(posts.length, 0, "misses admitted a job");
     assert(!calls.some((c) => /DELETE|POST \/api\/jobs\/job-9\/cancel/.test(c)),
       "misses cancelled the job");
-    assert(sandbox.document.getElementById("result").textContent
+    assert(shown(sandbox.document.getElementById("result"))
       .includes("Lost contact"), "no lost-contact message");
     assert(saved["witness.job"] === "job-9", "save cleared on misses");
     console.log("three misses keep the save and send no cancel: OK");
@@ -301,11 +306,11 @@ vm.createContext(sandbox);
   } else if (mode === "toolittle") {
     assert.strictEqual(posts.length, 0, "toolittle admitted a second job");
     const result = sandbox.document.getElementById("result");
-    assert(result.textContent.includes("No film this time"),
+    assert(shown(result).includes("No film this time"),
       "too-little message missing");
     assert(JSON.stringify(result).includes("en.wikipedia.org"),
       "checked source missing");
-    assert(!result.textContent.includes("Checked facts"),
+    assert(!shown(result).includes("Checked facts"),
       "no facts, no heading");
     assert(lis[2].classList.contains("done"), "check not done");
     assert(!lis[2].classList.contains("current"), "check stuck current");
@@ -322,7 +327,7 @@ vm.createContext(sandbox);
     assert.strictEqual(
       sandbox.document.getElementById("subprogress").textContent,
       "Facts checked: 6 of 6", "check count not rebuilt from events");
-    assert(sandbox.document.getElementById("result").textContent
+    assert(shown(sandbox.document.getElementById("result"))
       .includes("Checked facts"), "facts heading missing");
     assert.strictEqual(
       sandbox.document.getElementById("events").textContent,
@@ -350,7 +355,7 @@ vm.createContext(sandbox);
   } else if (mode === "failed") {
     assert(lis[3].classList.contains("stopped"), "paint not stopped");
     assert(!lis[3].classList.contains("current"), "paint stuck current");
-    assert(sandbox.document.getElementById("result").textContent
+    assert(shown(sandbox.document.getElementById("result"))
       .includes("nothing kept"), "failure message missing");
     console.log("failed step shows stopped: OK");
   } else if (mode === "facts") {
@@ -369,7 +374,7 @@ vm.createContext(sandbox);
     const rendered = JSON.stringify(list);
     assert(!rendered.includes("Poldertoren"), "a guess reached the page");
     assert(!rendered.includes("52.1"), "a coordinate reached the page");
-    const text = sandbox.document.getElementById("result").textContent;
+    const text = shown(sandbox.document.getElementById("result"));
     const kids = sandbox.document.getElementById("result").children.length;
     assert(text.includes("/film/job-9/tok/film.html") || kids > 0,
       "film link not shown after the facts");

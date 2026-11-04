@@ -578,14 +578,15 @@ def run_job(photo, place=None, lang="en", decide=None, no_cache=False,
             print(f"agreement: {comparison['agree']}/{comparison['total']} "
                   f"(meta vs baseten support)")
     verified, timeline, chosen = refresh_film(gathered["kept"])
-    need = spare_needs(chosen, [c for c in gathered["pool"] if c["verdict"] == "unverified"])
+    need = spare_count(chosen, [c for c in gathered["pool"] if c["verdict"] == "unverified"],
+                       verified)
     if need:
         spares = sorted([c for c in gathered["pool"] if c["verdict"] == "unverified"],
                         key=lambda c: states.classify(
                             c.get("event", "stood"), c.get("quote_span") or c["claim"])
                         is None)[:need]
         if not quiet:
-            print(f"checking {len(spares)} spares for caption lines")
+            print(f"checking {len(spares)} spares")
         phase = time.perf_counter()
         fetched.fetch(spares, article_urls, verify_with, quiet)
         timings["fetch_s"] = round(timings["fetch_s"] + time.perf_counter() - phase, 1)
@@ -1115,6 +1116,18 @@ def spare_needs(chosen, pool) -> int:
     than today) without a caption line, capped."""
     needy = [s for s in chosen if s["from_year"] != "today" and not s["caption_lines"]]
     return min(len(needy), SPARES, len(pool))
+
+
+def spare_count(chosen, pool, verified) -> int:
+    """How many spares to check. A first pass too thin for a short film
+    checks every spare: spares can carry the film, and checked facts
+    show on the page either way. Otherwise the caption rule above."""
+    if pool:
+        first = outcome.decide([{**c, "event": c.get("event", "stood")}
+                                for c in verified], identified=True)
+        if first["outcome"] not in ("full_film", "short_film"):
+            return len(pool)
+    return spare_needs(chosen, pool)
 
 
 def build_jobs(claims, texts, snippets, anchor_year) -> list:

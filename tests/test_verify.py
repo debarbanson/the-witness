@@ -1828,3 +1828,111 @@ def test_jobs_without_the_narrow_flag_never_recheck():
                                 completion_respond=completes)
     assert result["verdict"] == "partly"
     assert len(respond.calls) == 1
+
+
+# A bundled claim whose votes split (one round partly, another
+# unsupported) stays unsupported, but the partly round's rewrite still
+# earns the one narrowed re-check. Measured on the owner's Rosslyn run
+# (4 Nov): four bundled claims split this way, and each narrowed fact
+# is a literal sentence of the fetched page.
+
+def split_support(rewrite, recheck="supported", first=("partly", "unsupported"),
+                  partly_flags=None):
+    """Rounds on the bundled claim answer `first` in call order; the
+    partly answer carries `rewrite` (and `partly_flags`). The narrowed
+    fact, when asked about, comes back `recheck`."""
+    calls = []
+    bundled_answers = []
+    lock = threading.Lock()
+
+    def respond(prompt):
+        asked = prompt.split("Claim to check:\n", 1)[-1].split("\n", 1)[0]
+        with lock:
+            calls.append(prompt)
+            if not (rewrite and asked.startswith(rewrite)):
+                verdict = first[min(len(bundled_answers), len(first) - 1)]
+                bundled_answers.append(verdict)
+            else:
+                verdict = None
+        if verdict is None:
+            answer = {"verdict": recheck,
+                      "quote": NARROW_QUOTE if recheck != "unsupported" else "",
+                      "url": NARROW_URL,
+                      "support": [{"url": NARROW_URL,
+                                   "supports": recheck != "unsupported",
+                                   "quote": NARROW_QUOTE}]}
+            return answered_with(answer)
+        if verdict == "partly":
+            answer = {"verdict": "partly", "quote": NARROW_QUOTE, "url": NARROW_URL,
+                      "support": [{"url": NARROW_URL, "supports": True,
+                                   "quote": NARROW_QUOTE}],
+                      "rewritten": rewrite}
+            answer.update(partly_flags or {})
+            return answered_with(answer)
+        supports = verdict == "supported"
+        return answered_with(
+            {"verdict": verdict, "quote": NARROW_QUOTE if supports else "",
+             "url": NARROW_URL if supports else "",
+             "support": [{"url": NARROW_URL, "supports": supports,
+                          "quote": NARROW_QUOTE if supports else ""}]})
+
+    respond.calls = calls
+    respond.bundled = bundled_answers
+    return respond
+
+
+def test_split_vote_with_a_partly_rewrite_earns_the_narrowed_recheck():
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = split_support(rewrite)
+    result = verify.judge_claim(respond, narrow_job(votes=2),
+                                completion_respond=completes)
+    assert sorted(respond.bundled) == ["partly", "unsupported"]
+    assert result["verdict"] == "supported"
+    assert result["claim"] == rewrite
+    assert result["narrowed_from"] == BUNDLED
+    assert result["quote"] == NARROW_QUOTE
+    assert "narrowed" in result["note"]
+
+
+def test_split_vote_never_accepts_the_bundled_text():
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = split_support(rewrite, recheck="unsupported")
+    result = verify.judge_claim(respond, narrow_job(votes=2),
+                                completion_respond=completes)
+    assert result["verdict"] == "unsupported"
+    assert "narrowed_from" not in result
+    assert result.get("claim", BUNDLED) == BUNDLED
+    assert result["narrowed_check"]["verdict"] == "unsupported"
+    assert verify.filmed(result) is False
+
+
+def test_split_vote_without_a_partly_round_never_narrows():
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = split_support(rewrite, first=("supported", "unsupported"))
+    result = verify.judge_claim(respond, narrow_job(votes=2),
+                                completion_respond=completes)
+    assert result["verdict"] == "unsupported"
+    assert "narrowed_check" not in result
+    assert len(respond.calls) == 2
+
+
+def test_split_vote_narrowing_keeps_a_flag_from_any_first_round():
+    """The sceptical winner of a split may carry no flag while the
+    partly round does: the narrowed fact keeps it all the same."""
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = split_support(rewrite, partly_flags={"war_politics_only": True})
+    result = verify.judge_claim(respond, narrow_job(votes=2),
+                                completion_respond=completes)
+    assert result["verdict"] == "supported"
+    assert result["war_politics_only"] is True
+    assert verify.filmed(result) is False
+
+
+def test_split_vote_on_a_caption_job_never_narrows():
+    rewrite = "Restoration work was carried out in 1862 by David Bryce."
+    respond = split_support(rewrite)
+    result = verify.judge_claim(respond, narrow_job(votes=2, narrow=False),
+                                completion_respond=completes)
+    assert result["verdict"] == "unsupported"
+    assert "narrowed_check" not in result
+    assert len(respond.calls) == 2

@@ -542,12 +542,16 @@ def judge_claim(support_respond, job, completion_respond=None,
     itself never counts; the rewrite counts only when its own verdict
     is supported, and then it replaces the bundled text. Its date is
     the year unless the rewrite states the full date itself. Caption
-    and description jobs never narrow."""
+    and description jobs never narrow. A split vote stays unsupported,
+    but when one of its rounds said partly, that round's rewrite earns
+    the same one re-check (see _narrow_source)."""
+    first_rounds: list = []
     result = _judge_once(support_respond, job, completion_respond,
-                         completion, dispute_check)
-    if not job.get("narrow") or result.get("verdict") != "partly":
+                         completion, dispute_check, trace=first_rounds)
+    if not job.get("narrow"):
         return result
-    rewrite = narrowed_claim(result.get("rewritten"), job.get("year"))
+    rewrite = narrowed_claim(_narrow_source(result, first_rounds),
+                             job.get("year"))
     if rewrite is None:
         return result
     date_text = job.get("date_text") or ""
@@ -566,12 +570,17 @@ def judge_claim(support_respond, job, completion_respond=None,
     note = "narrowed to what the source states and re-checked: supported"
     prior = second.get("note")
     return {**second,
-            # Content flags from either check stand: narrowing never
-            # launders war, political or private-person content.
+            # Content flags from either check, and from any round of the
+            # first, stand: narrowing never launders war, political or
+            # private-person content.
             "war_politics_only": bool(result.get("war_politics_only")
-                                      or second.get("war_politics_only")),
+                                      or second.get("war_politics_only")
+                                      or any(r.get("war_politics_only")
+                                             for r in first_rounds)),
             "refused_content": bool(result.get("refused_content")
-                                    or second.get("refused_content")),
+                                    or second.get("refused_content")
+                                    or any(r.get("refused_content")
+                                           for r in first_rounds)),
             "claim": rewrite, "quote_span": rewrite, "date_text": narrowed_date,
             "narrowed_from": job.get("claim"), "narrowed_check": check,
             "note": f"{note}; {prior}" if prior else note,
@@ -579,8 +588,24 @@ def judge_claim(support_respond, job, completion_respond=None,
             "votes": result.get("votes", 0) + second.get("votes", 0)}
 
 
+def _narrow_source(result, rounds):
+    """The rewrite that earns the one narrowed re-check, or None: a
+    partly verdict's own rewrite, or, after a split vote that stays
+    unsupported, the rewrite of a round that said partly. The bundled
+    claim itself never counts either way."""
+    verdict = result.get("verdict")
+    if verdict == "partly":
+        return result.get("rewritten")
+    seen = {r.get("verdict") for r in rounds}
+    if verdict == "unsupported" and "partly" in seen and len(seen) > 1:
+        return next((r.get("rewritten") for r in rounds
+                     if r.get("verdict") == "partly" and r.get("rewritten")),
+                    None)
+    return None
+
+
 def _judge_once(support_respond, job, completion_respond=None,
-                completion=True, dispute_check=None) -> dict:
+                completion=True, dispute_check=None, trace=None) -> dict:
     """One claim judged end to end: support vote, second judgement when
     the precheck says evidence is present, completion for state-setting
     claims. Every round is kept in the answer. Doubt wins: a claim is
@@ -643,6 +668,8 @@ def _judge_once(support_respond, job, completion_respond=None,
             "war_politics_only": False, "refused_content": False, "rounds": _slim(rounds),
             "votes": len(rounds), "fast_path": None,
         }
+    if trace is not None:
+        trace.extend(decided)  # full rounds, for the narrowed re-check
     second = next((r for r in decided if r.get("second_judgement")), None)
     if second is not None:
         # The confrontation re-examined the claim against the

@@ -1009,6 +1009,38 @@ def test_spare_needs_counts_lineless_scenes():
     assert spare_needs(full, pool) == 0
 
 
+def _verified(year, event="restored"):
+    claim = kept_claim(year, event, f"Work done in {year}.")
+    claim.update({"verdict": "supported", "war_politics_only": False,
+                  "refused_content": False, "completed": True})
+    return claim
+
+
+def test_thin_first_pass_checks_every_spare():
+    """Too thin for a short film after the scene claims: every spare
+    gets its check, because spares can carry the film and checked
+    facts show either way (owner's Rosslyn run, 4 Nov)."""
+    from witness.cli import spare_count
+
+    full = [{"from_year": 1862, "caption_lines": [{"year": 1862, "line": "x"}]}]
+    pool = [kept_claim(1592, "damaged", "Altars destroyed."),
+            kept_claim(1650, "repurposed", "Horses stabled."),
+            kept_claim(1862, "repurposed", "Rededicated.")]
+    assert spare_count(full, pool, [_verified(1862)]) == 3
+    assert spare_count(full, [], [_verified(1862)]) == 0
+
+
+def test_enough_for_a_short_film_keeps_the_caption_rule():
+    """A first pass that already makes a film checks no extra spares,
+    so a good run costs nothing more."""
+    from witness.cli import spare_count, spare_needs
+
+    full = [{"from_year": 1862, "caption_lines": [{"year": 1862, "line": "x"}]}]
+    pool = [kept_claim(1592, "damaged", "Altars destroyed.")]
+    film = [_verified(1862), _verified(1997), _verified(2011, "extended")]
+    assert spare_count(full, pool, film) == spare_needs(full, pool) == 0
+
+
 def test_cached_film_reused_within_a_week(tmp_path, monkeypatch):
     import json
     from datetime import date, timedelta

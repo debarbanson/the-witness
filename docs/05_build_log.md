@@ -342,3 +342,13 @@ The owner's judge run at 19:19 (Rosslyn, photo location) started three films in 
 - **Not changed:** the visitor cookie is still set by the first upload; with one upload per tap that is enough.
 
 Suite 1339. Deployed ec06463 as v25 (drained): judge 200, examples 3 of 3, Try on, staging 401.
+
+## The film's facts wait for the film (4 Nov, evening)
+
+The owner's 19:35 film (Rosslyn, three eras, all painted, 419 s, $0.59) showed two things to fix. The judge page had listed the film's own facts while it painted, and then the film showed them again. And on the phone, the page's "← The Witness" link covered the first heading of the end card.
+
+- **While the film is made (webapp renderFacts):** the panel lists only the facts shown after the film, under "Also checked, shown after the film", plus the painting count. The film's own facts and their "not painted" marks are gone from the panel.
+- **After the film (render.builder.film_fact, film.html):** the end card opens with "In this film": each filmed fact with the caption's stamp, the checked claim and a link to its page. Then come "More checked facts" and the sources. The picture book keeps its plain end card.
+- **The home link:** the top-down end card now starts 200 stage px down, clear of the fixed 44 px link down to a 0.3 stage scale. Rebuilt from the 19:35 film on a phone-sized screen: link bottom at 54 px, first heading at 86 px.
+
+Suite 1342. Deployed d70699a as v26 (drained): judge 200, examples 3 of 3, Try on, staging 401; the panel and double-tap checks pass against the live page. On the owner's request the judge ledger's film and visitor counters for 4 Nov were then reset through the ledger's own reset operation; the day's spend ($2.08) was kept.

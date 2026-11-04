@@ -201,6 +201,28 @@ def test_stamp_rejects_a_label_that_is_not_just_a_date():
     assert stamp == "1899"
 
 
+def test_stamp_keeps_a_quoted_approximate_year():
+    assert builder.stamp_for(
+        "around 1900", 1900,
+        "The tower was built around 1900.") == "around 1900"
+    assert builder.stamp_for("around 1900", 1900, "It happened.") == "1900"
+    qual = scene(1900, sentence="I stood.")
+    qual["date_label"] = "around 1900"
+    qual["caption_sentence"]["evidence"]["quote"] = (
+        "The tower was built around 1900.")
+    assert builder.caption_for(qual)[0] == "around 1900"
+    assert builder.anchor_card(qual)["label"] == "around 1900."
+
+
+def test_stamp_matches_complete_date_spans_only():
+    assert builder.stamp_for(
+        "1 April 1900", 1900,
+        "The tower opened on 11 April 1900.") == "1900"
+    assert builder.stamp_for(
+        "1 April 1900", 1900,
+        "The tower opened on 1 April 1900.") == "1 April 1900"
+
+
 def test_anchor_card_uses_the_same_stamp_rule():
     first = scene(1900, sentence="I stood.")
     first["date_label"] = "1 April 1900"

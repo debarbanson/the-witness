@@ -91,20 +91,38 @@ def _full_date_parts(label):
     return int(day), month, date_year
 
 
+_STAMP_QUALIFIERS = frozenset({"around", "about", "circa", "c",
+                               "approximately", "approx"})
+
+
+def _span_in(text, span) -> bool:
+    """A normalized span with token boundaries on both sides, so '1
+    april 1900' never matches inside '11 april 1900'."""
+    return re.search(r"(?<![a-z0-9])" + re.escape(span) + r"(?![a-z0-9])",
+                     text or "") is not None
+
+
 def stamp_for(label, year, quote) -> str:
     """The shown stamp: the full date only when the label is just a
     date and that exact date (day, month and year together, either
-    order) appears in the bound quote; otherwise the year alone."""
+    order) appears in the bound quote; a supported qualifier with
+    its year when the quote carries that span; otherwise the year
+    alone."""
     if (label or "").strip() == str(year):
         return str(year)
     parts = _full_date_parts(label)
+    norm_quote = _norm_date(quote)
     if parts is None:
+        words = _norm_date(label).split(" ")
+        if (len(words) == 2 and words[0] in _STAMP_QUALIFIERS
+                and words[1] == str(year)
+                and _span_in(norm_quote, f"{words[0]} {year}")):
+            return label.strip()
         return str(year)
     day, month, date_year = parts
-    norm_quote = _norm_date(quote)
     forms = {_norm_date(f"{day} {month} {date_year}"),
              _norm_date(f"{month} {day} {date_year}")}
-    if any(form in norm_quote for form in forms):
+    if any(_span_in(norm_quote, form) for form in forms):
         return label.strip()
     return str(year)
 

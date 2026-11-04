@@ -332,3 +332,13 @@ The card after the title said "My story starts in" plus the year of the first fi
 - **Not changed:** only Wikidata's build year is tried as the build date, so Rosslyn's 1456 is never checked. Trying the article's own construction year is work for after the hackathon.
 
 Suite 1338. Deployed 1063bcf as v24 (drained): judge 200, examples 3 of 3, Try on, staging 401, both live Major Oak films carry the new card.
+
+## One tap, one film (4 Nov, evening)
+
+The owner's judge run at 19:19 (Rosslyn, photo location) started three films in 40 seconds. "Make my film" said nothing while the photo uploaded, so a second tap sent a second upload. The browser had no visitor cookie yet, so each upload got its own visitor id and the second replaced the first: the first film's next poll was refused as another browser's, and the page hid the film box. A third tap started a third film, and two polling loops then drew over each other, showing and hiding the confirm question every two seconds. The two orphaned films each held one of the two film slots until their five-minute confirm wait ran out; the third never started. The weakness predates this evening's changes; a slow upload exposed it.
+
+- **The first tap shows the upload and locks the button (webapp submitFilm, setBusy):** the button turns into "Uploading your photo…" with a note to keep the page open, then "Making your film…" while the film runs, and every further tap is ignored until the film ends. A failed or refused upload frees the button, and a film resumed after a reload locks it too. Disabled buttons now look disabled.
+- **Tested with the page script in a stub page (tests/submit_check.cjs):** double tap, failed upload, refused upload and resumed film; the double-tap check also passes against the live page after the deploy.
+- **Not changed:** the visitor cookie is still set by the first upload; with one upload per tap that is enough.
+
+Suite 1339. Deployed ec06463 as v25 (drained): judge 200, examples 3 of 3, Try on, staging 401.

@@ -479,6 +479,98 @@ def retention_end(client):
     assert final["ended_at"] is not None, "nothing to prune by"
 
 
+@check("oversized decision body refused", fake_provider=False)
+def decide_body(client):
+    from witness import webapp as webapp_module
+
+    job = _start(client, place="Test Town")
+    films_before = _ledger(client)["films"]
+    big = {"confirm": True, "pad": "x" * (webapp_module.DECIDE_BODY_BYTES + 1)}
+    started = time.monotonic()
+    out = client.post(f"/api/jobs/{job}/decide", json=big)
+    assert out.status_code == 400, out.text[:200]
+    assert "too large" in out.text, out.text[:200]
+    assert time.monotonic() - started < 10, "refusal must precede the read"
+    assert _ledger(client)["films"] == films_before, "refused decide admits nothing"
+    try:
+        client.delete(f"/api/jobs/{job}")
+    except Exception:
+        pass
+
+
+@check("example film loads during an upload", fake_provider=False)
+def example_during_upload(client, base):
+    import threading
+
+    big = _photo() + b"\0" * (8 * 1024 * 1024)
+    mine = _client(base)
+    box = {}
+
+    def slow_upload():
+        try:
+            box["out"] = mine.post(
+                "/api/jobs", files={"photo": ("big.jpg", big)},
+                data={"ack": "on", "place": "Test Town"}, timeout=120.0)
+        except Exception as exc:
+            box["out"] = exc
+
+    thread = threading.Thread(target=slow_upload)
+    thread.start()
+    try:
+        time.sleep(2.0)  # the upload holds a container while examples serve
+        started = time.monotonic()
+        page = client.get("/examples/de-adriaan/film.html")
+        assert page.status_code == 200, page.status_code
+        era = client.get("/examples/de-adriaan/era_1779.webp")
+        assert era.status_code == 200, era.status_code
+        assert len(era.content) > 10000, len(era.content)
+        assert time.monotonic() - started < 30, "example stalled by the upload"
+    finally:
+        thread.join(timeout=120.0)
+        out = box.get("out")
+        if not isinstance(out, Exception) and out is not None \
+                and out.status_code == 200:
+            try:
+                mine.delete(f"/api/jobs/{out.json()['job_id']}")
+            except Exception:
+                pass
+
+
+@check("exhausted reload shows the retry state", fake_provider=True)
+def publishing_retry(client, base):
+    job = _start(client, place="Test Town")
+    _wait_for_confirm(client, job)
+    client.post(f"/api/jobs/{job}/decide", json={"confirm": True})
+    final = _wait(client, job, timeout=300)
+    assert final["status"] == "done", final["status"]
+    page_url = final["result"]["film_url"]  # /film/<job>/<tok>/film.html
+    folder = page_url.rsplit("/", 1)[0]
+    streams = []
+    try:
+        for _ in range(10):  # hold job-volume files open on the server
+            reader = _client(base)
+            req = reader.build_request("GET", page_url)
+            resp = reader.send(req, stream=True)
+            assert resp.status_code == 200, resp.status_code
+            next(resp.iter_bytes(1024))
+            streams.append(resp)
+        seen = None
+        for _ in range(8):  # film reloads conflict while files stay open
+            out = client.get(f"{folder}/nonexistent.webp")
+            if out.status_code == 202:
+                seen = out
+                break
+            time.sleep(0.5)
+        assert seen is not None, "no retry state under held-open files"
+        assert "retry" in seen.text.lower(), seen.text[:200]
+    finally:
+        for resp in streams:
+            try:
+                resp.close()
+            except Exception:
+                pass
+
+
 def main(base):
     probe = _client(base)
     try:

@@ -156,6 +156,14 @@ def test_examples_intro_promises_no_game(tmp_path):
     assert "with a spot-the-difference game" not in page
 
 
+def test_free_credit_terms_in_notice_and_form(tmp_path):
+    page = _page(tmp_path)
+    privacy = _client(tmp_path).get("/privacy").text
+    for text in (page, privacy):
+        assert "free developer credits" in text
+        assert "may use what we send it to improve its products" in text
+
+
 def test_privacy_notice_explains_the_saved_job_id(tmp_path):
     privacy = " ".join(_client(tmp_path).get("/privacy").text.split())
     assert ("Your browser keeps the job id (localStorage) so you can come "

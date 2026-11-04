@@ -62,10 +62,20 @@ WEB_SEARCH_USD = 0.0025  # per search, counted from web_search_call items
 
 
 SEARCH_BUDGET_PER_JOB = 200  # web searches; the job stops paying past this
-# Meta's Responses schema documents max_tool_calls (verified 3 Nov 2026:
-# https://dev.meta.ai/docs/api-reference/responses/schemas), so the
-# RESEARCH ceiling reserves the enforced per-call worst case: at most
-# 200 searches ($0.50) plus token headroom, inside the $2.00 floor.
+# One research call may make at most 50 searches: twice the measured
+# maximum of 24 in one call (Eiffel Tower, 3 Nov; the judge water tower
+# made 18, the staging Colosseum 13). Meta's Responses schema documents
+# max_tool_calls (verified 3 Nov 2026:
+# https://dev.meta.ai/docs/api-reference/responses/schemas).
+# The bound is on the searches, not on the input tokens the searches
+# return: results bill as input, 24k tokens each at most observed, 25k
+# assumed. The $2.00 floor covers that estimate (50 x 25,000 input
+# tokens ($1.56) plus 16k output tokens ($0.07) plus 50 searches
+# ($0.13): $1.76), but it is an estimate, not a proof: a longer page
+# could still cost more. The daily cap, the Meta credit balance and a
+# Modal workspace budget are the outer controls (see docs/06).
+SEARCH_INPUT_TOKENS_EACH = 25_000
+RESEARCH_TOOL_CALLS = 50
 
 
 @dataclass(frozen=True)
@@ -95,7 +105,7 @@ RESEARCH = ModelSpec(
     max_output_tokens=16384,
     max_input_tokens=16384,
     web_search=True,
-    max_tool_calls=SEARCH_BUDGET_PER_JOB,
+    max_tool_calls=RESEARCH_TOOL_CALLS,
 )
 
 VISION = ModelSpec(
@@ -454,10 +464,12 @@ def last_support_provider() -> str | None:
 
 
 def call_ceiling(spec, input_tokens: int) -> float:
-    """A true upper bound for one call: estimated input plus the
+    """An estimate-based guard for one call: estimated input plus the
     bounded output at list prices, the enforced per-call tool bound
     (or the whole search budget for unbounded search specs), and any
-    per-call price. Never below the spec's conservative floor."""
+    per-call price. Never below the spec's conservative floor. It is
+    not a proof: returned search tokens ride on an assumed
+    per-search size, so one call can overshoot its reservation."""
     in_price, out_price = PRICE_PER_M.get((spec.provider, spec.model),
                                           (0.0, 0.0))
     out_tokens = spec.max_output_tokens or 0

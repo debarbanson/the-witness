@@ -1129,7 +1129,7 @@ TRY_FORM = """<form id="upload" action="/api/jobs" method="post" enctype="multip
 <p><button type="button" id="geo">Standing in front of it? Use my location</button></p>
 <p class="fine" id="geo-note"></p>
 <h3>Step 3: How your photo is used</h3>
-<p class="fine">Your photo is sent to Meta and Baseten to recognise, research, check and paint, on hosting by Modal. Place lookups go to OpenStreetMap services, Wikidata and Wikipedia. Your photo and film are deleted within about a day. <a href="/privacy">Full notice</a></p>
+<p class="fine">Your photo is sent to Meta and Baseten to recognise, research, check and paint, on hosting by Modal. Place lookups go to OpenStreetMap services, Wikidata and Wikipedia. This demo runs on Meta's free developer credits; under those terms Meta may use what we send it to improve its products. Your photo and film are deleted within about a day. <a href="/privacy">Full notice</a></p>
 <p><label><input type="checkbox" name="ack" value="on" required>
 I understand how my photo is used.</label></p>
 <p><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"></p>
@@ -1279,6 +1279,7 @@ public places only.</p>
 <li>Nominatim: typed place to coordinates.</li>
 <li>Wikidata and Wikipedia: facts and source texts.</li>
 </ul>
+<p>This demo runs on Meta's free developer credits; under those terms Meta may use what we send it to improve its products. Our own copies are deleted within about a day.</p>
 <h2>How long it is kept</h2>
 <p>Two rules. Your photo and every derivative (clean copy, paintings,
 film page) are deleted at the hourly sweep once your job ended over

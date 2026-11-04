@@ -440,7 +440,7 @@ def test_research_sends_max_tool_calls():
 
     models.respond(FakeClient(), models.RESEARCH, input="hi",
                    tools=[{"type": "web_search"}])
-    assert seen["max_tool_calls"] == models.SEARCH_BUDGET_PER_JOB
+    assert seen["max_tool_calls"] == 50
 
 
 def test_call_ceiling_uses_the_per_call_search_bound():
@@ -773,6 +773,16 @@ def test_snapshot_reports_films_visitors_calls_and_spend(tmp_path):
 def test_research_ceiling_covers_worst_case_searches():
     worst = models.SEARCH_BUDGET_PER_JOB * models.WEB_SEARCH_USD
     assert models.RESEARCH.ceiling_usd >= worst
+
+
+def test_research_ceiling_covers_the_enforced_tool_bound():
+    bound = models.RESEARCH.max_tool_calls
+    assert bound == models.RESEARCH_TOOL_CALLS == 50
+    in_price, out_price = models.PRICE_PER_M[("meta", "muse-spark-1.3")]
+    worst = (bound * models.SEARCH_INPUT_TOKENS_EACH * in_price / 1e6
+             + models.RESEARCH.max_output_tokens * out_price / 1e6
+             + bound * models.WEB_SEARCH_USD)
+    assert worst < models.RESEARCH.ceiling_usd
 
 
 def test_ticket_reconciles_only_once(tmp_path):

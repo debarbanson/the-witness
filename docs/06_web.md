@@ -41,7 +41,7 @@ One deploy carries both surfaces: the staging page (`web`, behind proxy auth) an
    - `BASETEN_API_KEY` (open-weights support votes),
    - `WITNESS_CONTACT` (the notice address),
    - `WITNESS_IP_SECRET` (at least 32 characters of randomness, shared by every container for the visitor hash),
-   - `WITNESS_JUDGE_CAP_USD` (judge mode's hard daily spending cap; the owner sets the number after the staging measurement),
+   - `WITNESS_JUDGE_CAP_USD` (judge mode's hard daily spending cap; the owner sets the number after the staging measurement. It is reconciled after each call, so one call can overshoot it; the Meta credit balance and a Modal workspace budget are the outer controls, and the owner sets the budget),
    - optionally `WITNESS_DAILY_FILMS`, `WITNESS_VISITOR_FILMS` and `WITNESS_NETWORK_FILMS` (film limits; defaults 10 total, 2 per browser, 2 per network; a present but blank, zero, negative or non-integer value refuses startup).
 3. Staging test flags live in the same secret only for abuse runs: `WITNESS_ABUSE_RESET=1` (lets the staging abuse script reset quotas between cases; never set on judge mode) and `WITNESS_FAKE_PROVIDER=1` with `WITNESS_FAKE_DELAY_S=2` (cancel-path cases without paid calls).
 

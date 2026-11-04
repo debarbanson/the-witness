@@ -184,7 +184,7 @@ Prices live in `witness/models.py`: Muse Spark $1.25 per M tokens in, $4.25 out;
 | **Film total** | | **about $0.30 to $0.50** |
 | Picture-book extra, examples and CLI only (paintings, checks, captions; game appears only with 3+ grounded changes) | ~10 calls | ~$0.12 to $0.15 |
 
-Every billable call reserves its ceiling with one budget authority before it runs; the web page refuses new films past the daily quota.
+Every billable call reserves its ceiling with one budget authority before it runs; the web page refuses new films past the daily quota. The reservation is an estimate, not a proof: `max_tool_calls` bounds the searches, not the input tokens the searches return, so one call can overshoot its reservation. The daily cap, the Meta credit balance and a Modal workspace budget are the outer controls.
 
 ## Output layout
 

@@ -353,9 +353,11 @@ def _build_film(film_dir, research, images, photo, photo_credit,
                and filmable(s, claims, audience)]
     last = painted[-1] if painted else {"from_year": "today", "state": {}}
     today_line, today_sub = today_card(photo_year, own_photo, last, claims)
-    first = (research.get("scenes", []) or [{}])[0]
-    if painted and not states.is_age_range(first.get("date_label", "")):
-        first = painted[0]
+    # The opening card starts at the first filmed scene: painted
+    # scenes passed the filmable gate, so the card carries the same
+    # acceptance and binding as every scene. An unaccepted age claim
+    # never opens the film.
+    first = painted[0] if painted else {}
     film = {"object": name, "kind": research["object"].get("kind", ""),
             "photo": photo, "photo_credit": photo_credit,
             "photo_source": photo_source,

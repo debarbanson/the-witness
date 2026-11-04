@@ -147,8 +147,8 @@ def test_write_film_carries_anchor_and_skips_age_scene(tmp_path):
                              photo="today.jpg", photo_credit="me")
     film = json.loads((out / "film.json").read_text())
     assert [entry["year"] for entry in film["scenes"]] == [1790]
-    assert film["anchor"] == {"line": "My story starts",
-                             "label": "about 800 to 1,200 years ago."}
+    assert film["anchor"] == {"line": "My story starts in",
+                             "label": "1790."}
 
 
 def test_caption_is_a_date_stamp_and_one_sentence():

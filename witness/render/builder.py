@@ -203,6 +203,9 @@ def display_claim(text) -> str:
     shows. Drop that prefix for display only, and only when text
     remains; stored claims, evidence and films keep it."""
     cut = re.sub(r"^[^:()]*\([^)]*\d[^)]*\):\s*", "", text or "", count=1)
+    # The research step's web-search citation codes (【id†L24-L26】)
+    # never reach a visitor.
+    cut = re.sub(r"\s*【[^】]*】", "", cut).strip()
     return cut if cut else (text or "")
 
 

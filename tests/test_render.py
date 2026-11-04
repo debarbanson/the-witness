@@ -147,6 +147,25 @@ def test_anchor_card_claims_the_start_only_for_a_beginning():
     assert builder.anchor_card(made)["line"] == "My first checked\u00a0date:"
 
 
+def test_display_claim_drops_search_citation_markers():
+    """4 Nov, the water tower's no-film page: the checked fact ended in
+    the research step's own citation codes. A displayed fact never
+    carries them; the stored claim and its evidence keep their text."""
+    raw = ("The water tower in Roelofarendsveen was built in 1932 to a "
+           "design by architect Hendrik Sangster. The tower is 31.5 meters "
+           "high and has a water reservoir of 150 m³. "
+           "【763216128463455 8709†L24-L26】【537250582707105708†L20-L22】"
+           "【687154078954945862†L19-L20】")
+    assert builder.display_claim(raw) == (
+        "The water tower in Roelofarendsveen was built in 1932 to a design "
+        "by architect Hendrik Sangster. The tower is 31.5 meters high and "
+        "has a water reservoir of 150 m³.")
+    assert builder.display_claim(
+        "built (in 1932): Built by Sangster【1†L2-L3】 in brick.") == (
+        "Built by Sangster in brick.")
+    assert builder.display_claim("【1†L2】") == "【1†L2】"
+
+
 def test_write_film_lists_the_film_facts_with_their_links(tmp_path):
     """4 Nov, the owner: the film's own facts are no longer listed while
     the film is made (they come in the film), but once it ends each one

@@ -156,7 +156,8 @@ def _film_bytes(client, film_url):
 
 
 def _today_photo(client, film_url):
-    url = film_url.rstrip("/") + "/today.jpg"
+    folder = film_url.rsplit("/", 1)[0] if film_url.endswith(".html") else film_url.rstrip("/")
+    url = folder + "/today.jpg"
     out = client.get(url)
     assert out.status_code == 200, f"no served photo at {url}"
     shot = Image.open(io.BytesIO(out.content))

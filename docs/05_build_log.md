@@ -352,3 +352,13 @@ The owner's 19:35 film (Rosslyn, three eras, all painted, 419 s, $0.59) showed t
 - **The home link:** the top-down end card now starts 200 stage px down, clear of the fixed 44 px link down to a 0.3 stage scale. Rebuilt from the 19:35 film on a phone-sized screen: link bottom at 54 px, first heading at 86 px.
 
 Suite 1342. Deployed d70699a as v26 (drained): judge 200, examples 3 of 3, Try on, staging 401; the panel and double-tap checks pass against the live page. On the owner's request the judge ledger's film and visitor counters for 4 Nov were then reset through the ledger's own reset operation; the day's spend ($2.08) was kept.
+
+## The model calls say what they did (4 Nov, evening)
+
+The "Show the model calls" list read "muse-spark-1.3 · meta · verify · 4.6s": accurate, but it did not say what a call was for. Every call already records its step, model, duration, web searches and tokens read; only the subject was missing.
+
+- **A year per call (models.call_about):** a context-local tag carries the year a call works on. The tag is set for each fact's check, its visible-change check, each caption and each painting with its picture check, so parallel workers keep their own. Only a whole year is ever kept.
+- **Plain lines (webapp renderCalls):** each row names the model and what it did, for example "Muse Spark searched the web 17 times and read 232,509 tokens · 89 s", "Muse Spark Open on Baseten checked a fact from 1736 against its source · 4.6 s", "Muse Image painted 1736 · 26 s" and "Muse Spark compared the 1736 painting with the facts · 29 s". "A fact from 1736" rather than "the 1736 fact", so the year never reads as a count.
+- **No cost to the film:** no extra model call. The web worker forwards three more counts and the year, a few kilobytes per refresh at most; the 19:35 film's whole event list was 15.7 KB. Counts, names and a year only: never a prompt, quote, URL or image.
+
+Suite 1346. Deployed 48d4c82 as v27 (drained): judge 200, examples 3 of 3, Try on, staging 401; the call-list, panel and double-tap checks pass against the live page.

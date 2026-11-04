@@ -658,7 +658,7 @@ def test_too_little_end_state_skips_paint_and_film(tmp_path):
     target = tmp_path / "landing.html"
     target.write_text(page)
     check = Path(__file__).parent / "resume_check.cjs"
-    for mode in ("toolittle", "failed"):
+    for mode in ("toolittle", "failed", "notconfirmed", "notidentified"):
         out = subprocess.run([node, str(check), str(target), mode],
                              capture_output=True, text=True, timeout=60)
         assert out.returncode == 0, f"{mode}: {out.stderr[:2000]}"
@@ -716,7 +716,7 @@ def test_confirm_tap_hides_buttons_with_feedback(tmp_path):
     target = tmp_path / "landing.html"
     target.write_text(page)
     check = Path(__file__).parent / "resume_check.cjs"
-    for mode in ("decide", "decidefail"):
+    for mode in ("decide", "decidefail", "decidefailhttp"):
         out = subprocess.run([node, str(check), str(target), mode],
                              capture_output=True, text=True, timeout=60)
         assert out.returncode == 0, f"{mode}: {out.stderr[:2000]}"

@@ -679,7 +679,9 @@ function updateSubmit() {
     place ? place.value : "");
 }
 function requestGeo() {
+  const mine = photoSeq;
   navigator.geolocation.getCurrentPosition(pos => {
+    if (mine !== photoSeq) { return; }
     document.getElementById("lat").value = pos.coords.latitude;
     document.getElementById("lon").value = pos.coords.longitude;
     document.getElementById("geo-note").textContent = "Location added.";
@@ -687,6 +689,7 @@ function requestGeo() {
     hideLocQ();
     updateSubmit();
   }, () => {
+    if (mine !== photoSeq) { return; }
     document.getElementById("geo-note").textContent =
       "Location blocked or unavailable. Type the name and town instead.";
   }, {timeout: 10000});
@@ -833,7 +836,12 @@ function finishSteps(st) {
       li.classList.toggle("done", true);
       li.classList.toggle("current", false);
     } else if (st.status === "done") {
-      li.classList.toggle("done", i <= 2);
+      const seen = {};
+      for (const e of (st.events || [])) {
+        const s = STEP_FOR[e.event];
+        if (s !== undefined && s <= 2) { seen[s] = true; }
+      }
+      li.classList.toggle("done", !!seen[i]);
       li.classList.toggle("current", false);
       li.classList.toggle("skipped", i >= 3);
     } else if (li.classList.contains("current")) {
@@ -1082,9 +1090,10 @@ async function decide(confirm) {
   }
   note.textContent = confirm ? "Thanks. Researching now…" : "Not this one.";
   try {
-    await fetch("/api/jobs/" + id + "/decide", {
+    const resp = await fetch("/api/jobs/" + id + "/decide", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({confirm})});
+    if (resp.ok === false) { throw new Error("HTTP " + resp.status); }
   } catch (err) {
     yes.style.display = "";
     no.style.display = "";

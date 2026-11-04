@@ -134,6 +134,7 @@ sandbox.navigator = {
   },
 };
 sandbox.submitBtnForTest = { disabled: true };
+sandbox.photoSeq = 0;
 vm.runInContext(extract("requestGeo", ""), sandbox);
 vm.runInContext(
   "function updateSubmit() { submitBtnForTest.disabled = true; }" +
@@ -152,6 +153,27 @@ requestGeo();
 geoCalls[0][1]({ code: 1 });
 assert.strictEqual(geoNote.textContent,
   "Location blocked or unavailable. Type the name and town instead.");
+
+// A late fix for an older photo never lands on the new one.
+vm.runInContext("locChoice = null;", sandbox);
+lat.value = "";
+lon.value = "";
+geoNote.textContent = "";
+sandbox.photoSeq = 21;
+geoCalls = [];
+requestGeo();
+sandbox.photoSeq = 22;
+geoCalls[0][0]({ coords: { latitude: 52.1, longitude: 4.3 } });
+assert.strictEqual(lat.value, "", "stale latitude applied");
+assert.strictEqual(lon.value, "", "stale longitude applied");
+assert.strictEqual(geoNote.textContent, "", "stale note applied");
+assert.strictEqual(vm.runInContext("locChoice", sandbox), null,
+  "stale choice applied");
+geoCalls = [];
+requestGeo();
+sandbox.photoSeq = 23;
+geoCalls[0][1]({ code: 1 });
+assert.strictEqual(geoNote.textContent, "", "stale error applied");
 
 // The tap is the only trigger: no other call site requests a position.
 const callSites = src.match(/getCurrentPosition\(/g) || [];

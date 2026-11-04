@@ -3,7 +3,7 @@
 // jobs clearing the save, the Cancel button, the checked-facts panel
 // while painting, too-little end states, failed steps and the confirm
 // tap. Usage:
-// node resume_check.cjs <landing.html> <resume|misses|gone|cancel|facts|toolittle|failed|decide|decidefail>
+// node resume_check.cjs <landing.html> <resume|misses|gone|cancel|facts|toolittle|failed|decide|decidefail|decidefailhttp|notconfirmed|notidentified|subcheck>
 "use strict";
 const fs = require("fs");
 const vm = require("vm");
@@ -79,11 +79,24 @@ async function fakeFetch(url, opts = {}) {
     return jsonResponse({ cancelled: true });
   }
   if (url === "/api/jobs/job-9/decide" && method === "POST") {
+    if (mode === "decidefailhttp") {
+      return jsonResponse({ detail: "gone" }, 410);
+    }
     if (mode === "decidefail") {
       throw new Error("network down");
     }
     decided = true;
     return jsonResponse({ decided: true });
+  }
+  if (mode === "notconfirmed") {
+    return jsonResponse({ status: "done",
+      events: [{ event: "identified", data: {} }],
+      result: { message: "Not confirmed. Only the identification ran." } });
+  }
+  if (mode === "notidentified") {
+    return jsonResponse({ status: "done",
+      events: [{ event: "candidates", data: {} }],
+      result: { message: "We couldn't tell which landmark this is." } });
   }
   if (url === "/api/jobs/job-9" && method === "GET") {
     pollCount += 1;
@@ -205,7 +218,8 @@ vm.createContext(sandbox);
 (async () => {
   vm.runInContext(script[1], sandbox);
   const flush = () => new Promise((r) => setImmediate(r));
-  if (mode === "decide" || mode === "decidefail") {
+  if (mode === "decide" || mode === "decidefail" ||
+      mode === "decidefailhttp") {
     const yes = sandbox.document.getElementById("yes");
     const no = sandbox.document.getElementById("no");
     assert(yes.onclick && no.onclick, "confirm buttons have no handler");
@@ -305,6 +319,20 @@ vm.createContext(sandbox);
       sandbox.document.getElementById("events").textContent,
       "Finished: no film");
     console.log("facts-only end keeps the check count: OK");
+  } else if (mode === "notconfirmed" || mode === "notidentified") {
+    if (mode === "notconfirmed") {
+      assert(lis[0].classList.contains("done"), "recognise not done");
+    } else {
+      assert(!lis[0].classList.contains("done"), "recognise done unrun");
+    }
+    assert(!lis[1].classList.contains("done"), "research done unrun");
+    assert(!lis[2].classList.contains("done"), "check done unrun");
+    assert(lis[3].classList.contains("skipped"), "paint not skipped");
+    assert(lis[4].classList.contains("skipped"), "film not skipped");
+    assert.strictEqual(
+      sandbox.document.getElementById("events").textContent,
+      "Finished: no film");
+    console.log(mode + " shows only run steps done: OK");
   } else if (mode === "failed") {
     assert(lis[3].classList.contains("stopped"), "paint not stopped");
     assert(!lis[3].classList.contains("current"), "paint stuck current");

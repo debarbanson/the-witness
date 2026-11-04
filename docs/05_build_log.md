@@ -321,3 +321,14 @@ The first scene in line is painted alone, with the photo as its reference, and e
 - It adds no facts to the film; a skipped scene's fact still appears among the more checked facts.
 
 Suite 1336. Deployed 7dd7214 as v23 (drained): judge 200, examples 3 of 3, Try on, staging 401.
+
+## The opening card claims a start only for a beginning (4 Nov, evening)
+
+The card after the title said "My story starts in" plus the year of the first filmed era, whatever that era was. When the build date passes its check, that is the build (De Adriaan, 1779). When it does not, the card claimed a start no source gave: the Rosslyn films opened with "My story starts in 1688." and "1736." for a chapel begun in 1456, and the Major Oak example with 1790, the year it was named, for a tree centuries older. Rosslyn's build date is genuinely disputed: the fetched Wikipedia page dates the start of construction to 20 September 1456 and explains 1446, Wikidata's year, as the date of the founding charter. The checker was right to refuse 1446.
+
+- **A start needs a beginning (render.builder.starts_story):** the card says "My story starts in" only when the fact the first scene's caption cites is a build, opening, founding or planting (the research construction events plus Wikidata's build and opening dates). Any other first fact opens as "My first checked date:". A no-break space keeps "checked date:" together, so the 840 px line breaks after "first". 2 new tests; three old expectations changed (a mill that burnt down, an oak that was renamed).
+- **Free check on five films:** De Adriaan and Rubjerg Knude keep "My story starts in" (opened 1779, built 1899); Major Oak and both Rosslyn films get "My first checked date:".
+- **Major Oak example:** only the opening line changed in its four film files (both versions), uploaded before the deploy and verified byte for byte. The other two examples are unchanged.
+- **Not changed:** only Wikidata's build year is tried as the build date, so Rosslyn's 1456 is never checked. Trying the article's own construction year is work for after the hackathon.
+
+Suite 1338. Deployed 1063bcf as v24 (drained): judge 200, examples 3 of 3, Try on, staging 401, both live Major Oak films carry the new card.

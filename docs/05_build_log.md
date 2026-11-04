@@ -362,3 +362,9 @@ The "Show the model calls" list read "muse-spark-1.3 · meta · verify · 4.6s":
 - **No cost to the film:** no extra model call. The web worker forwards three more counts and the year, a few kilobytes per refresh at most; the 19:35 film's whole event list was 15.7 KB. Counts, names and a year only: never a prompt, quote, URL or image.
 
 Suite 1346. Deployed 48d4c82 as v27 (drained): judge 200, examples 3 of 3, Try on, staging 401; the call-list, panel and double-tap checks pass against the live page.
+
+## Citation codes never reach a displayed fact (4 Nov, evening)
+
+The water tower's no-film page, recorded for the demo video, showed its first checked fact ending in the research step's own web-search citation codes, in the form 【id†L24-L26】. render.builder.display_claim, which every visitor-facing fact list goes through (the no-film facts, "In this film" and the more checked facts), now drops them; stored claims and evidence keep their text. One new test. A re-run of the same tower showed a clean page.
+
+Suite 1347. Deployed 28016f1 as v28 (drained): judge 200, examples 3 of 3, Try on, staging 401.

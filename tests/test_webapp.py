@@ -258,6 +258,27 @@ def test_decide_and_cancel_round_trip(tmp_path):
     assert client.get(f"/api/jobs/{job_id}").json()["status"] == "cancelled"
 
 
+def test_oversized_decision_body_refused_before_reading(tmp_path):
+    import threading
+
+    from witness.webapp import MemoryStore
+
+    store = MemoryStore()
+    client = _client(tmp_path, store=store, runner=lambda spec: None,
+                     upload_slots=threading.Semaphore(0))
+    store.create_job("j", {"vid": "v", "token": "t",
+                           "job_dir": str(tmp_path), "status": "started",
+                           "events": [], "started_at": 1000.0,
+                           "ended_at": None, "confirm": None,
+                           "decision": None, "cancel": False,
+                           "result": None})
+    client.cookies.set("vid", "v")
+    big = {"confirm": True, "unused": "x" * 70000}
+    out = client.post("/api/jobs/j/decide", json=big)
+    assert out.status_code == 400, out.text[:200]
+    assert store.get_decision("j") is None
+
+
 def test_cross_origin_api_writes_are_refused(tmp_path):
     client = _client(tmp_path, runner=lambda spec: None)
     job_id = client.post("/api/jobs", files={"photo": ("up.jpg", _photo_bytes())},

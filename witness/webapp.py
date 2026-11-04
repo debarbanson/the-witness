@@ -40,6 +40,15 @@ MAX_FILMS_PER_DAY = 10
 MAX_VISITOR_FILMS_PER_DAY = 2
 MAX_NETWORK_FILMS_PER_DAY = 2
 FORM_SLACK_BYTES = 65536
+DECIDE_BODY_BYTES = 4096  # a decision is {"confirm": true}; no slots needed
+
+
+def _is_decide_path(path) -> bool:
+    """POST /api/jobs/{id}/decide, and nothing else, takes the small
+    receive-level cap."""
+    parts = (path or "").split("/")
+    return (len(parts) == 5 and parts[1] == "api" and parts[2] == "jobs"
+            and bool(parts[3]) and parts[4] == "decide")
 MAX_CONCURRENT_UPLOADS = 4
 QUOTA_LINE_TTL_SECONDS = 60
 QUOTA_LINE_CACHE_MAX = 512  # entries per container; cookie churn evicts
@@ -1339,20 +1348,29 @@ class BodyCapMiddleware:
         await send({"type": "http.response.body", "body": payload})
 
     async def __call__(self, scope, receive, send):
-        if (scope.get("type") != "http" or scope.get("method") != "POST"
-                or scope.get("path") != "/api/jobs"):
+        if scope.get("type") != "http" or scope.get("method") != "POST":
             await self.app(scope, receive, send)
             return
-        if not self.slots.acquire(blocking=False):
-            await self._deny(send, "busy, try again in a minute", 503)
+        path = scope.get("path", "")
+        if path == "/api/jobs":
+            if not self.slots.acquire(blocking=False):
+                await self._deny(send, "busy, try again in a minute", 503)
+                return
+            try:
+                await self._capped(
+                    scope, receive, send,
+                    photo_module.MAX_UPLOAD_BYTES + FORM_SLACK_BYTES,
+                    "bad photo: upload too large")
+            finally:
+                self.slots.release()
             return
-        try:
-            await self._capped(scope, receive, send)
-        finally:
-            self.slots.release()
+        if _is_decide_path(path):
+            await self._capped(scope, receive, send, DECIDE_BODY_BYTES,
+                               "decision body too large")
+            return
+        await self.app(scope, receive, send)
 
-    async def _capped(self, scope, receive, send):
-        cap = photo_module.MAX_UPLOAD_BYTES + FORM_SLACK_BYTES
+    async def _capped(self, scope, receive, send, cap, detail):
         buffered = []
         total = 0
         capped = False
@@ -1369,7 +1387,7 @@ class BodyCapMiddleware:
             if not message.get("more_body"):
                 break
         if capped:
-            await self._deny(send, "bad photo: upload too large", 400)
+            await self._deny(send, detail, 400)
             return
         buffered_iter = iter(buffered)
 
